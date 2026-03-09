@@ -1,0 +1,135 @@
+syntax = "proto3";
+package rdesk.rendezvous;
+
+// Top-level signaling message envelope
+message RendezvousMessage {
+    oneof union {
+        RegisterPeer register_peer = 1;
+        RegisterPeerResponse register_peer_response = 2;
+        PunchHoleRequest punch_hole_request = 3;
+        PunchHoleSent punch_hole_sent = 4;
+        PunchHoleResponse punch_hole_response = 5;
+        RequestRelay request_relay = 6;
+        RelayResponse relay_response = 7;
+        TestNatRequest test_nat_request = 8;
+        TestNatResponse test_nat_response = 9;
+        Heartbeat heartbeat = 10;
+        RegisterPk register_pk = 11;
+        RegisterPkResponse register_pk_response = 12;
+        FetchPeer fetch_peer = 13;
+        FetchPeerResponse fetch_peer_response = 14;
+    }
+}
+
+// --- Peer Registration ---
+
+message RegisterPeer {
+    string id = 1;
+    bytes serial = 2;
+    NatType nat_type = 3;
+    string version = 4;
+}
+
+message RegisterPeerResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+// --- Public Key Registration ---
+
+message RegisterPk {
+    string id = 1;
+    bytes pk = 2;
+    bytes old_pk = 3;
+}
+
+message RegisterPkResponse {
+    bool success = 1;
+    string error = 2;
+}
+
+// --- Peer Discovery ---
+
+message FetchPeer {
+    string id = 1;
+}
+
+message FetchPeerResponse {
+    bool found = 1;
+    bytes pk = 2;
+    NatType nat_type = 3;
+    bool online = 4;
+}
+
+// --- Hole Punching ---
+
+message PunchHoleRequest {
+    string id = 1;
+    string token = 2;
+    NatType nat_type = 3;
+    string conn_type = 4;
+}
+
+message PunchHoleSent {
+    bytes socket_addr = 1;
+    string relay_server = 2;
+    NatType nat_type = 3;
+    bytes pk = 4;
+}
+
+message PunchHoleResponse {
+    bytes socket_addr = 1;
+    NatType nat_type = 2;
+    bytes pk = 3;
+    PunchHoleFailure failure = 4;
+}
+
+enum PunchHoleFailure {
+    PUNCH_HOLE_NONE = 0;
+    PEER_OFFLINE = 1;
+    PEER_BUSY = 2;
+    LICENSE_EXPIRED = 3;
+    LOGIN_OVERLOAD = 4;
+}
+
+// --- Relay ---
+
+message RequestRelay {
+    string id = 1;
+    string token = 2;
+}
+
+message RelayResponse {
+    bytes socket_addr = 1;
+    string relay_server = 2;
+    string id = 3;
+    bytes pk = 4;
+    bool refuse = 5;
+    string refuse_reason = 6;
+}
+
+// --- NAT Detection ---
+
+message TestNatRequest {
+    uint32 serial = 1;
+}
+
+message TestNatResponse {
+    uint32 port = 1;
+    NatType nat_type = 2;
+}
+
+enum NatType {
+    UNKNOWN_NAT = 0;
+    SYMMETRIC = 1;
+    FULL_CONE = 2;
+    RESTRICTED_CONE = 3;
+    PORT_RESTRICTED_CONE = 4;
+}
+
+// --- Heartbeat ---
+
+message Heartbeat {
+    string id = 1;
+    int64 timestamp = 2;
+}

@@ -1,0 +1,334 @@
+syntax = "proto3";
+package rdesk.message;
+
+// Top-level session message envelope
+message Message {
+    oneof union {
+        // Session management
+        SignedId signed_id = 1;
+        PublicKey public_key = 2;
+        LoginRequest login_request = 3;
+        LoginResponse login_response = 4;
+        TestDelay test_delay = 5;
+
+        // Media
+        VideoFrame video_frame = 10;
+        AudioFrame audio_frame = 11;
+        CursorData cursor_data = 12;
+        CursorPosition cursor_position = 13;
+
+        // Input
+        MouseEvent mouse_event = 20;
+        KeyEvent key_event = 21;
+        TouchEvent touch_event = 22;
+
+        // Data
+        Clipboard clipboard = 30;
+        FileAction file_action = 31;
+        FileResponse file_response = 32;
+        FileTransferBlock file_transfer_block = 33;
+        ChatMessage chat_message = 34;
+
+        // Control
+        Misc misc = 40;
+    }
+}
+
+// --- Session Management ---
+
+message SignedId {
+    bytes id = 1;
+    bytes pk = 2;
+    bytes signature = 3;
+}
+
+message PublicKey {
+    bytes asymmetric = 1;
+    bytes symmetric = 2;
+}
+
+message LoginRequest {
+    string username = 1;
+    bytes password_hash = 2;
+    string client_version = 3;
+    repeated string supported_codecs = 4;
+    string os_type = 5;
+}
+
+message LoginResponse {
+    bool success = 1;
+    string error = 2;
+    PeerInfo peer_info = 3;
+    string selected_codec = 4;
+}
+
+message PeerInfo {
+    string hostname = 1;
+    string os = 2;
+    repeated DisplayInfo displays = 3;
+    string version = 4;
+}
+
+message DisplayInfo {
+    uint32 x = 1;
+    uint32 y = 2;
+    uint32 width = 3;
+    uint32 height = 4;
+    string name = 5;
+    bool is_primary = 6;
+}
+
+message TestDelay {
+    int64 time = 1;
+    bool reply = 2;
+    uint32 last_delay = 3;
+}
+
+// --- Media ---
+
+message VideoFrame {
+    oneof union {
+        EncodedFrame vp9 = 1;
+        EncodedFrame h264 = 2;
+        EncodedFrame h265 = 3;
+    }
+    uint32 display = 4;
+    int64 timestamp = 5;
+}
+
+message EncodedFrame {
+    bytes data = 1;
+    bool key = 2;
+    int64 pts = 3;
+    uint32 width = 4;
+    uint32 height = 5;
+}
+
+message AudioFrame {
+    bytes data = 1;
+    int64 timestamp = 2;
+    uint32 sample_rate = 3;
+    uint32 channels = 4;
+}
+
+message CursorData {
+    uint64 id = 1;
+    bytes data = 2;
+    int32 hotx = 3;
+    int32 hoty = 4;
+    int32 width = 5;
+    int32 height = 6;
+}
+
+message CursorPosition {
+    int32 x = 1;
+    int32 y = 2;
+}
+
+// --- Input Events ---
+
+message MouseEvent {
+    sint32 x = 1;
+    sint32 y = 2;
+    int32 mask = 3;
+    int32 modifiers = 4;
+    MouseEventType event_type = 5;
+}
+
+enum MouseEventType {
+    MOUSE_MOVE = 0;
+    MOUSE_DOWN = 1;
+    MOUSE_UP = 2;
+    MOUSE_WHEEL = 3;
+}
+
+message KeyEvent {
+    uint32 key_code = 1;
+    bool down = 2;
+    int32 modifiers = 3;
+    ControlKey control_key = 4;
+    string chr = 5;
+}
+
+enum ControlKey {
+    CONTROL_KEY_UNKNOWN = 0;
+    ESCAPE = 1;
+    BACKSPACE = 2;
+    TAB = 3;
+    RETURN = 4;
+    CAPS_LOCK = 5;
+    SPACE = 6;
+    DELETE = 7;
+    HOME = 8;
+    END = 9;
+    PAGE_UP = 10;
+    PAGE_DOWN = 11;
+    LEFT_ARROW = 12;
+    UP_ARROW = 13;
+    RIGHT_ARROW = 14;
+    DOWN_ARROW = 15;
+    F1 = 16;
+    F2 = 17;
+    F3 = 18;
+    F4 = 19;
+    F5 = 20;
+    F6 = 21;
+    F7 = 22;
+    F8 = 23;
+    F9 = 24;
+    F10 = 25;
+    F11 = 26;
+    F12 = 27;
+    INSERT = 28;
+    PRINT_SCREEN = 29;
+    SCROLL_LOCK = 30;
+    PAUSE = 31;
+    NUM_LOCK = 32;
+    L_SHIFT = 33;
+    R_SHIFT = 34;
+    L_CTRL = 35;
+    R_CTRL = 36;
+    L_ALT = 37;
+    R_ALT = 38;
+    L_META = 39;
+    R_META = 40;
+}
+
+message TouchEvent {
+    repeated TouchPoint points = 1;
+    TouchEventType event_type = 2;
+}
+
+message TouchPoint {
+    int32 id = 1;
+    float x = 2;
+    float y = 3;
+    float pressure = 4;
+}
+
+enum TouchEventType {
+    TOUCH_START = 0;
+    TOUCH_MOVE = 1;
+    TOUCH_END = 2;
+    TOUCH_CANCEL = 3;
+}
+
+// --- Data ---
+
+message Clipboard {
+    bool compress = 1;
+    bytes content = 2;
+    uint32 width = 3;
+    uint32 height = 4;
+    ClipboardFormat format = 5;
+}
+
+enum ClipboardFormat {
+    TEXT = 0;
+    HTML = 1;
+    IMAGE_PNG = 2;
+}
+
+message FileAction {
+    oneof union {
+        ReadDir read_dir = 1;
+        SendFile send_file = 2;
+        ReceiveFile receive_file = 3;
+        CreateDir create_dir = 4;
+        RemoveFile remove_file = 5;
+        CancelTransfer cancel_transfer = 6;
+    }
+}
+
+message ReadDir {
+    string path = 1;
+}
+
+message SendFile {
+    int32 id = 1;
+    string path = 2;
+    uint64 offset = 3;
+}
+
+message ReceiveFile {
+    int32 id = 1;
+    string path = 2;
+    bytes data = 3;
+}
+
+message CreateDir {
+    string path = 1;
+}
+
+message RemoveFile {
+    string path = 1;
+    bool recursive = 2;
+}
+
+message CancelTransfer {
+    int32 id = 1;
+}
+
+message FileResponse {
+    oneof union {
+        DirResponse dir = 1;
+        TransferStatus status = 2;
+    }
+}
+
+message DirResponse {
+    repeated FileEntry entries = 1;
+    string path = 2;
+}
+
+message FileEntry {
+    string name = 1;
+    bool is_dir = 2;
+    uint64 size = 3;
+    int64 modified = 4;
+}
+
+message TransferStatus {
+    int32 id = 1;
+    int32 status_code = 2;
+    string error = 3;
+}
+
+message FileTransferBlock {
+    int32 id = 1;
+    bytes data = 2;
+    bool compressed = 3;
+    bool last_block = 4;
+    uint64 offset = 5;
+}
+
+message ChatMessage {
+    string sender = 1;
+    string content = 2;
+    int64 timestamp = 3;
+}
+
+// --- Control ---
+
+message Misc {
+    oneof union {
+        SwitchDisplay switch_display = 1;
+        CloseSession close_session = 2;
+        RequestKeyframe request_keyframe = 3;
+        ToggleControl toggle_control = 4;
+    }
+}
+
+message SwitchDisplay {
+    uint32 display = 1;
+}
+
+message CloseSession {
+    string reason = 1;
+}
+
+message RequestKeyframe {}
+
+message ToggleControl {
+    bool enabled = 1;
+}

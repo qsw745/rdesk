@@ -1,0 +1,19 @@
+[package]
+name = "rdesk_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rdesk_common = { path = "../rdesk_common" }
+rdesk_crypto = { path = "../rdesk_crypto" }
+rdesk_net = { path = "../rdesk_net" }
+tokio = { workspace = true }
+bytes = { workspace = true }
+prost = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+rand = { workspace = true }
+arboard = "3"
+lz4_flex = "0.11"

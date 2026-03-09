@@ -1,0 +1,17 @@
+[package]
+name = "rdesk_bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+rdesk_common = { path = "../rdesk_common" }
+rdesk_core = { path = "../rdesk_core" }
+rdesk_crypto = { path = "../rdesk_crypto" }
+rdesk_net = { path = "../rdesk_net" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+flutter_rust_bridge = "=2.9.0"

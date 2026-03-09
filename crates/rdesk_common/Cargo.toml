@@ -1,0 +1,21 @@
+[package]
+name = "rdesk_common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+prost = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rand = { workspace = true }
+uuid = { workspace = true }
+argon2 = "0.5"
+tokio = { workspace = true }
+directories = "5"
+
+[build-dependencies]
+prost-build = "0.13"

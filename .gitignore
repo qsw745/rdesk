@@ -1,0 +1,35 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Flutter
+flutter_client/.dart_tool/
+flutter_client/.packages
+flutter_client/.pub-cache/
+flutter_client/.pub/
+flutter_client/build/
+flutter_client/.flutter-plugins
+flutter_client/.flutter-plugins-dependencies
+flutter_client/android/local.properties
+flutter_client/ios/Flutter/ephemeral/
+flutter_client/ios/Flutter/flutter_export_environment.sh
+flutter_client/linux/flutter/ephemeral/
+
+# IDE
+.idea/
+.vscode/
+.codex/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Generated
+crates/rdesk_common/src/protos/*.rs
+flutter_client/lib/src/bridge/native.dart
+
+# Environment
+.env
+*.pem
+*.key
