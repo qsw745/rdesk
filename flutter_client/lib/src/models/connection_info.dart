@@ -5,6 +5,8 @@ class ConnectionRecord {
   final DateTime connectedAt;
   final DateTime? disconnectedAt;
   final String connectionType; // "p2p" or "relay"
+  final String status; // "success" or "failed"
+  final String? failureReason;
 
   const ConnectionRecord({
     required this.peerId,
@@ -13,7 +15,10 @@ class ConnectionRecord {
     required this.connectedAt,
     this.disconnectedAt,
     required this.connectionType,
+    this.status = 'success',
+    this.failureReason,
   });
 
   Duration? get duration => disconnectedAt?.difference(connectedAt);
+  bool get isSuccess => status == 'success';
 }

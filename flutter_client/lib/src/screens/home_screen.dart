@@ -7,6 +7,7 @@ import '../models/connection_info.dart';
 import '../models/session.dart';
 import '../providers/connection_provider.dart';
 import '../providers/session_provider.dart';
+import '../providers/settings_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/device_id_display.dart';
 
@@ -21,6 +22,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _deviceIdController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _showPassword = false;
+  bool _didApplyPendingQuickConnect = false;
 
   @override
   void initState() {
@@ -37,39 +39,65 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _connect() async {
     final deviceId = _deviceIdController.text.trim();
-    final password = _passwordController.text.trim();
+    await _connectToPeer(deviceId);
+  }
 
-    if (deviceId.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+  Future<void> _connectToPeer(String deviceId) async {
+    final password = _passwordController.text.trim();
+    final messenger = ScaffoldMessenger.of(context);
+
+    if (deviceId.isEmpty) {
+      messenger.showSnackBar(
         SnackBar(
-          content: const Text('请输入设备ID和连接密码'),
+          content: const Text('请输入设备ID'),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
       return;
     }
 
     final provider = context.read<ConnectionProvider>();
+    final settingsProvider = context.read<SettingsProvider>();
+    final sessionProvider = context.read<SessionProvider>();
     final sessionId = await provider.connect(deviceId, password);
     if (sessionId != null && mounted) {
-      context.read<SessionProvider>().setSession(
-            SessionInfo(
-              sessionId: sessionId,
-              peerId: deviceId,
-              peerHostname: '远程设备 $deviceId',
-              peerOs: '未知系统',
-              state: SessionState.active,
-              connectedAt: DateTime.now(),
-              latencyMs: 42,
-            ),
-          );
+      await settingsProvider.refreshTrustedPeers();
+      if (!mounted) {
+        return;
+      }
+      sessionProvider.setSession(
+        SessionInfo(
+          sessionId: sessionId,
+          peerId: deviceId,
+          peerHostname: '远程设备 $deviceId',
+          peerOs: '未知系统',
+          state: SessionState.active,
+          connectedAt: DateTime.now(),
+          latencyMs: 42,
+        ),
+        accessPassword: password,
+      );
       context.go('/remote/$sessionId');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_didApplyPendingQuickConnect) {
+      _didApplyPendingQuickConnect = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        final peerId =
+            context.read<ConnectionProvider>().consumeQuickConnectPeerId();
+        if (peerId != null && peerId.isNotEmpty) {
+          _applyQuickConnectPeer(peerId);
+        }
+      });
+    }
     return Scaffold(
       body: Column(
         children: [
@@ -88,7 +116,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.white.withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: const Icon(Icons.connected_tv, color: Colors.white, size: 28),
+                      child: const Icon(Icons.connected_tv,
+                          color: Colors.white, size: 28),
                     ),
                     const SizedBox(width: 14),
                     const Column(
@@ -136,7 +165,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       Consumer<ConnectionProvider>(
                         builder: (context, provider, _) {
                           return DeviceIdDisplay(
-                            deviceId: provider.localDevice?.deviceId ?? '000000000',
+                            deviceId:
+                                provider.localDevice?.deviceId ?? '000000000',
                             temporaryPassword: provider.temporaryPassword,
                             onRefreshPassword: provider.refreshPassword,
                           );
@@ -161,11 +191,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             Row(
                               children: [
-                                const Icon(Icons.link, color: AppTheme.primaryBlue, size: 22),
+                                const Icon(Icons.link,
+                                    color: AppTheme.primaryBlue, size: 22),
                                 const SizedBox(width: 10),
                                 Text(
                                   '连接远程设备',
-                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
                                         fontWeight: FontWeight.bold,
                                       ),
                                 ),
@@ -194,10 +228,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                 prefixIcon: const Icon(Icons.lock_outline),
                                 suffixIcon: IconButton(
                                   icon: Icon(
-                                    _showPassword ? Icons.visibility_off : Icons.visibility,
+                                    _showPassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
                                   ),
-                                  onPressed: () =>
-                                      setState(() => _showPassword = !_showPassword),
+                                  onPressed: () => setState(
+                                      () => _showPassword = !_showPassword),
                                 ),
                               ),
                               obscureText: !_showPassword,
@@ -205,12 +241,14 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(height: 20),
                             Consumer<ConnectionProvider>(
                               builder: (context, provider, _) {
-                                final isConnecting =
-                                    provider.connectionState == SessionState.connecting;
+                                final isConnecting = provider.connectionState ==
+                                    SessionState.connecting;
                                 return Container(
                                   height: 54,
                                   decoration: BoxDecoration(
-                                    gradient: isConnecting ? null : AppTheme.brandGradient,
+                                    gradient: isConnecting
+                                        ? null
+                                        : AppTheme.brandGradient,
                                     borderRadius: BorderRadius.circular(14),
                                   ),
                                   child: ElevatedButton(
@@ -218,19 +256,22 @@ class _HomeScreenState extends State<HomeScreen> {
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.transparent,
                                       shadowColor: Colors.transparent,
-                                      disabledBackgroundColor: Colors.grey.shade300,
+                                      disabledBackgroundColor:
+                                          Colors.grey.shade300,
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(14),
                                       ),
                                     ),
                                     child: isConnecting
                                         ? const Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
                                             children: [
                                               SizedBox(
                                                 width: 20,
                                                 height: 20,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2.4,
                                                   color: Colors.white,
                                                 ),
@@ -272,12 +313,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     child: Row(
                                       children: [
-                                        const Icon(Icons.error_outline, color: Colors.red),
+                                        const Icon(Icons.error_outline,
+                                            color: Colors.red),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
                                             provider.errorMessage!,
-                                            style: const TextStyle(color: Colors.red),
+                                            style: const TextStyle(
+                                                color: Colors.red),
                                           ),
                                         ),
                                       ],
@@ -292,7 +335,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 22),
                       Consumer<ConnectionProvider>(
                         builder: (context, provider, _) {
-                          final records = provider.recentConnections.take(3).toList();
+                          final records =
+                              provider.recentConnections.take(3).toList();
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -318,10 +362,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Column(
                                   children: records.map((record) {
                                     return Padding(
-                                      padding: const EdgeInsets.only(bottom: 10),
+                                      padding:
+                                          const EdgeInsets.only(bottom: 10),
                                       child: _RecentConnectionTile(
                                         record: record,
-                                        onTap: () => _deviceIdController.text = record.peerId,
+                                        onTap: () =>
+                                            _handleRecentConnectionTap(record),
                                       ),
                                     );
                                   }).toList(),
@@ -342,7 +388,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           _QuickAction(
                             icon: Icons.folder_outlined,
                             label: '文件管理',
-                            onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                            onTap: () =>
+                                ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('连接成功后可进入文件管理')),
                             ),
                           ),
@@ -405,6 +452,38 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  Future<void> _handleRecentConnectionTap(ConnectionRecord record) async {
+    await _applyQuickConnectPeer(record.peerId);
+    if (_passwordController.text.trim().isEmpty) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已带入设备ID，请输入密码后继续连接'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    await _connectToPeer(record.peerId);
+  }
+
+  Future<void> _applyQuickConnectPeer(String peerId) async {
+    final connectionProvider = context.read<ConnectionProvider>();
+    _deviceIdController.text = peerId;
+    if (_passwordController.text.trim().isEmpty) {
+      final cachedPassword =
+          await connectionProvider.getTrustedPassword(peerId);
+      if (cachedPassword != null && cachedPassword.isNotEmpty) {
+        _passwordController.text = cachedPassword;
+      }
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
 }
 
 class _QuickAction extends StatelessWidget {
@@ -461,6 +540,8 @@ class _RecentConnectionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final badgeColor = record.isSuccess ? Colors.green : Colors.redAccent;
+    final badgeLabel = record.isSuccess ? '成功' : '失败';
     return Material(
       color: Theme.of(context).cardColor,
       borderRadius: BorderRadius.circular(18),
@@ -485,18 +566,57 @@ class _RecentConnectionTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(record.peerHostname, style: const TextStyle(fontWeight: FontWeight.w700)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            record.peerHostname,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: badgeColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            badgeLabel,
+                            style: TextStyle(
+                              color: badgeColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       '${record.peerId} • ${record.connectedAt.toString().substring(0, 16)}',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    if (record.failureReason != null &&
+                        record.failureReason!.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        record.failureReason!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.redAccent,
+                            ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
               ),
               FilledButton.tonal(
                 onPressed: onTap,
-                child: const Text('填入'),
+                child: const Text('重连'),
               ),
             ],
           ),
@@ -521,8 +641,9 @@ class _BottomDockButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color =
-        active ? AppTheme.primaryBlue : Theme.of(context).colorScheme.onSurfaceVariant;
+    final color = active
+        ? AppTheme.primaryBlue
+        : Theme.of(context).colorScheme.onSurfaceVariant;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),

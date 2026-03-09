@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">允许 RDesk 执行远程点击和基础手势。</string>
+    <string name="accessibility_service_summary">RDesk 远程控制辅助服务</string>
+</resources>

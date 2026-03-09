@@ -11,12 +11,15 @@ class ConnectionProvider extends ChangeNotifier {
   SessionState _connectionState = SessionState.idle;
   String? _errorMessage;
   List<ConnectionRecord> _recentConnections = [];
+  String? _pendingQuickConnectPeerId;
 
   DeviceInfo? get localDevice => _localDevice;
   String get temporaryPassword => _temporaryPassword;
   SessionState get connectionState => _connectionState;
   String? get errorMessage => _errorMessage;
-  List<ConnectionRecord> get recentConnections => List.unmodifiable(_recentConnections);
+  List<ConnectionRecord> get recentConnections =>
+      List.unmodifiable(_recentConnections);
+  String? get pendingQuickConnectPeerId => _pendingQuickConnectPeerId;
 
   Future<void> initialize() async {
     _localDevice = await _bridge.getLocalDeviceInfo();
@@ -37,13 +40,19 @@ class ConnectionProvider extends ChangeNotifier {
 
     try {
       final sessionId = await _bridge.connectToPeer(deviceId, password);
+      await _bridge.touchTrustedPeer(deviceId);
       _connectionState = SessionState.active;
       _recentConnections = await _bridge.listConnectionHistory();
       notifyListeners();
       return sessionId;
     } catch (e) {
       _connectionState = SessionState.error;
-      _errorMessage = e.toString();
+      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      await _bridge.recordConnectionFailure(
+        peerId: deviceId,
+        failureReason: _errorMessage!,
+      );
+      _recentConnections = await _bridge.listConnectionHistory();
       notifyListeners();
       return null;
     }
@@ -53,5 +62,24 @@ class ConnectionProvider extends ChangeNotifier {
     await _bridge.disconnect(sessionId);
     _connectionState = SessionState.idle;
     notifyListeners();
+  }
+
+  void prepareQuickConnect(String peerId) {
+    _pendingQuickConnectPeerId = peerId;
+    notifyListeners();
+  }
+
+  String? consumeQuickConnectPeerId() {
+    final peerId = _pendingQuickConnectPeerId;
+    _pendingQuickConnectPeerId = null;
+    return peerId;
+  }
+
+  Future<String?> getTrustedPassword(String peerId) {
+    return _bridge.getTrustedPeerPassword(peerId);
+  }
+
+  Future<DeviceInfo?> getLocalDevice() async {
+    return _localDevice ?? await _bridge.getLocalDeviceInfo();
   }
 }

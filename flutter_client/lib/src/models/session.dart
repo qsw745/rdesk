@@ -2,6 +2,7 @@ enum SessionState {
   idle,
   connecting,
   authenticating,
+  reconnecting,
   active,
   disconnected,
   error,

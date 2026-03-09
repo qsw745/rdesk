@@ -6,6 +6,10 @@ class RemoteToolbar extends StatelessWidget {
   final VoidCallback onFileManager;
   final VoidCallback onChat;
   final VoidCallback onToggleToolbar;
+  final Future<void> Function(String action) onRemoteAction;
+  final Future<void> Function() onRemoteTextInput;
+  final Future<void> Function() onPushClipboard;
+  final Future<void> Function() onPullClipboard;
 
   const RemoteToolbar({
     super.key,
@@ -14,6 +18,10 @@ class RemoteToolbar extends StatelessWidget {
     required this.onFileManager,
     required this.onChat,
     required this.onToggleToolbar,
+    required this.onRemoteAction,
+    required this.onRemoteTextInput,
+    required this.onPushClipboard,
+    required this.onPullClipboard,
   });
 
   @override
@@ -35,6 +43,56 @@ class RemoteToolbar extends StatelessWidget {
                 sessionId,
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
+            ),
+            _ToolbarAction(
+              icon: Icons.arrow_back,
+              label: '返回',
+              onTap: () => onRemoteAction('back'),
+            ),
+            _ToolbarAction(
+              icon: Icons.home_outlined,
+              label: '主页',
+              onTap: () => onRemoteAction('home'),
+            ),
+            _ToolbarAction(
+              icon: Icons.apps,
+              label: '任务',
+              onTap: () => onRemoteAction('recents'),
+            ),
+            _ToolbarAction(
+              icon: Icons.keyboard_arrow_up,
+              label: '上滑',
+              onTap: () => onRemoteAction('scroll_up'),
+            ),
+            _ToolbarAction(
+              icon: Icons.keyboard_arrow_down,
+              label: '下滑',
+              onTap: () => onRemoteAction('scroll_down'),
+            ),
+            _ToolbarAction(
+              icon: Icons.keyboard,
+              label: '输入',
+              onTap: onRemoteTextInput,
+            ),
+            _ToolbarAction(
+              icon: Icons.backspace_outlined,
+              label: '删除',
+              onTap: () => onRemoteAction('delete'),
+            ),
+            _ToolbarAction(
+              icon: Icons.keyboard_return,
+              label: '回车',
+              onTap: () => onRemoteAction('enter'),
+            ),
+            _ToolbarAction(
+              icon: Icons.upload_outlined,
+              label: '推板',
+              onTap: onPushClipboard,
+            ),
+            _ToolbarAction(
+              icon: Icons.download_outlined,
+              label: '拉板',
+              onTap: onPullClipboard,
             ),
             _ToolbarAction(
               icon: Icons.high_quality_outlined,
