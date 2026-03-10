@@ -24,6 +24,10 @@ class SessionProvider extends ChangeNotifier {
   DateTime? _lastFrameReceivedAt;
   DateTime? _lastReconnectAttemptAt;
   bool _reconnectInFlight = false;
+  int? _lastFrameIdentity;
+  DateTime? _lastFrameNotifiedAt;
+  Timer? _pendingFrameNotify;
+  static const _minFrameInterval = Duration(milliseconds: 33); // ~30fps cap
 
   SessionInfo? get currentSession => _currentSession;
   Uint8List? get currentFrame => _currentFrame;
@@ -82,6 +86,10 @@ class SessionProvider extends ChangeNotifier {
     _lastFrameReceivedAt = null;
     _lastReconnectAttemptAt = null;
     _reconnectInFlight = false;
+    _lastFrameIdentity = null;
+    _lastFrameNotifiedAt = null;
+    _pendingFrameNotify?.cancel();
+    _pendingFrameNotify = null;
     _stopClipboardSync();
     final subscription = _frameSubscription;
     _frameSubscription = null;
@@ -103,6 +111,14 @@ class SessionProvider extends ChangeNotifier {
     );
   }
 
+  Future<bool> sendNormalizedTap(String sessionId, Offset normalizedPosition) {
+    return _bridge.sendRemoteTap(
+      sessionId,
+      normalizedX: normalizedPosition.dx.clamp(0.0, 1.0),
+      normalizedY: normalizedPosition.dy.clamp(0.0, 1.0),
+    );
+  }
+
   Future<bool> sendAction(String sessionId, String action) {
     return _bridge.sendRemoteAction(sessionId, action);
   }
@@ -116,6 +132,17 @@ class SessionProvider extends ChangeNotifier {
       sessionId,
       normalizedX: localPosition.dx / viewportSize.width,
       normalizedY: localPosition.dy / viewportSize.height,
+    );
+  }
+
+  Future<bool> sendNormalizedLongPress(
+    String sessionId,
+    Offset normalizedPosition,
+  ) {
+    return _bridge.sendRemoteLongPress(
+      sessionId,
+      normalizedX: normalizedPosition.dx.clamp(0.0, 1.0),
+      normalizedY: normalizedPosition.dy.clamp(0.0, 1.0),
     );
   }
 
@@ -134,6 +161,20 @@ class SessionProvider extends ChangeNotifier {
       startY: start.dy / viewportSize.height,
       endX: end.dx / viewportSize.width,
       endY: end.dy / viewportSize.height,
+    );
+  }
+
+  Future<bool> sendNormalizedDrag(
+    String sessionId,
+    Offset normalizedStart,
+    Offset normalizedEnd,
+  ) {
+    return _bridge.sendRemoteDrag(
+      sessionId,
+      startX: normalizedStart.dx.clamp(0.0, 1.0),
+      startY: normalizedStart.dy.clamp(0.0, 1.0),
+      endX: normalizedEnd.dx.clamp(0.0, 1.0),
+      endY: normalizedEnd.dy.clamp(0.0, 1.0),
     );
   }
 
@@ -182,6 +223,7 @@ class SessionProvider extends ChangeNotifier {
   @override
   void dispose() {
     _stopClipboardSync(notify: false);
+    _pendingFrameNotify?.cancel();
     unawaited(_frameSubscription?.cancel());
     super.dispose();
   }
@@ -202,17 +244,58 @@ class SessionProvider extends ChangeNotifier {
         unawaited(_attemptReconnect(session));
         return;
       }
+
+      // --- Frame deduplication: skip notification if identical frame ---
+      final frameId = identityHashCode(frame.bytes);
+      final isDuplicate = frameId == _lastFrameIdentity &&
+          frame.width == _frameWidth &&
+          frame.height == _frameHeight;
+
       _currentFrame = frame.bytes;
       _frameWidth = frame.width;
       _frameHeight = frame.height;
-      _isRemoteOnline = true;
-      _connectionStatusLabel = '在线';
       _lastFrameReceivedAt = DateTime.now();
       _reconnectInFlight = false;
+      _lastFrameIdentity = frameId;
+
+      // Update session state (latency / online status) always
+      final wasOffline = !_isRemoteOnline;
+      _isRemoteOnline = true;
+      _connectionStatusLabel = '在线';
       _currentSession = _currentSession?.copyWith(
         latencyMs: frame.latencyMs,
         state: SessionState.active,
       );
+
+      // If we just came back online, notify immediately
+      if (wasOffline) {
+        _pendingFrameNotify?.cancel();
+        _pendingFrameNotify = null;
+        _lastFrameNotifiedAt = DateTime.now();
+        notifyListeners();
+        return;
+      }
+
+      // If duplicate frame, skip notification entirely
+      if (isDuplicate) return;
+
+      // --- Frame rate limiting: cap at ~30fps ---
+      final now = DateTime.now();
+      final lastNotified = _lastFrameNotifiedAt;
+      if (lastNotified != null &&
+          now.difference(lastNotified) < _minFrameInterval) {
+        // Schedule a deferred notify if not already pending
+        _pendingFrameNotify ??= Timer(_minFrameInterval, () {
+          _pendingFrameNotify = null;
+          _lastFrameNotifiedAt = DateTime.now();
+          notifyListeners();
+        });
+        return;
+      }
+
+      _pendingFrameNotify?.cancel();
+      _pendingFrameNotify = null;
+      _lastFrameNotifiedAt = now;
       notifyListeners();
     });
   }
@@ -284,6 +367,15 @@ class SessionProvider extends ChangeNotifier {
     if (_reconnectInFlight) {
       return;
     }
+    if (_bridge.isSessionTerminated(session.sessionId)) {
+      _connectionStatusLabel = '已被对端断开';
+      _currentSession = _currentSession?.copyWith(
+        state: SessionState.disconnected,
+      );
+      notifyListeners();
+      return;
+    }
+
     final password = _sessionPassword;
     if (password == null || password.isEmpty) {
       return;

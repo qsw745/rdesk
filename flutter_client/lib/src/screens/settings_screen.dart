@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/android_host_provider.dart';
 import '../providers/settings_provider.dart';
@@ -13,10 +12,7 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('设置'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/'),
-        ),
+        automaticallyImplyLeading: false,
       ),
       body: Consumer<SettingsProvider>(
         builder: (context, settings, _) {
@@ -402,6 +398,22 @@ class SettingsScreen extends StatelessWidget {
                                       : host.stopHosting,
                                   icon: const Icon(Icons.stop),
                                   label: const Text('停止服务'),
+                                ),
+                                FilledButton.tonalIcon(
+                                  onPressed: host.busy || !host.canDisconnectViewers
+                                      ? null
+                                      : () async {
+                                          final ok = await host.disconnectCurrentViewer();
+                                          if (!context.mounted) return;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(ok ? '已断开当前远控连接' : '断开远控失败'),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        },
+                                  icon: const Icon(Icons.link_off),
+                                  label: const Text('断开当前远控'),
                                 ),
                                 OutlinedButton.icon(
                                   onPressed: host.openAccessibilitySettings,

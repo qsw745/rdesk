@@ -5,17 +5,22 @@ import 'package:flutter/foundation.dart';
 
 import '../models/device.dart';
 import '../services/rdesk_bridge_service.dart';
-import '../services/android_host_service.dart';
+import '../services/android_host_service.dart'; // Reuse AndroidHostState / AndroidHostFrame
+import '../services/desktop_host_service.dart';
 
-class AndroidHostProvider extends ChangeNotifier {
+/// Host provider for desktop platforms (macOS, Windows, Linux).
+///
+/// Mirrors [AndroidHostProvider] but uses [DesktopHostService] for
+/// screen capture and input simulation instead of Android MethodChannel.
+class DesktopHostProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
-  final _service = AndroidHostService.instance;
+  final _service = DesktopHostService.instance;
 
   AndroidHostState _state = const AndroidHostState(
     state: 'idle',
-    hasPermission: false,
+    hasPermission: true,
     isRunning: false,
-    accessibilityEnabled: false,
+    accessibilityEnabled: true,
   );
   AndroidHostFrame? _previewFrame;
   bool _busy = false;
@@ -30,46 +35,26 @@ class AndroidHostProvider extends ChangeNotifier {
   bool _relayCommandBusy = false;
   bool _relayUploadBusy = false;
   int? _lastUploadedFrameTimestampMs;
-  String? _lastRemoteTap;
-  String? _lastRemoteAction;
-  String? _lastRemoteGesture;
-  String? _lastRemoteText;
-  String? _lastRemoteClipboard;
 
   AndroidHostState get state => _state;
   AndroidHostFrame? get previewFrame => _previewFrame;
   String? get lanRelayEndpoint => _lanRelayEndpoint;
-  String? get lastRemoteTap => _lastRemoteTap;
-  String? get lastRemoteAction => _lastRemoteAction;
-  String? get lastRemoteGesture => _lastRemoteGesture;
-  String? get lastRemoteText => _lastRemoteText;
-  String? get lastRemoteClipboard => _lastRemoteClipboard;
   bool get busy => _busy;
   String? get error => _error;
   bool get canDisconnectViewers =>
       _state.isRunning && _localDevice != null && (_relayHostToken?.isNotEmpty ?? false);
 
   Future<void> initialize({bool enabled = true}) async {
-    if (!enabled) {
-      return;
-    }
+    if (!enabled) return;
     _localDevice = await _bridge.getLocalDeviceInfo();
     await _run(() async {
       _state = await _service.getState();
     }, clearError: false);
   }
 
-  Future<void> requestPermission() async {
-    await _run(() async {
-      _state = await _service.requestPermission();
-    });
-  }
-
   Future<void> startHosting() async {
     await _run(() async {
       _state = await _service.startHosting();
-      // Keep screen on while hosting to prevent sleep
-      await _service.setKeepScreenOn(enabled: true);
       _ensurePreviewPolling();
       await _ensureLanRelay();
       await _registerPreviewHost();
@@ -92,9 +77,7 @@ class AndroidHostProvider extends ChangeNotifier {
         if (_localDevice != null) {
           try {
             await _bridge.unregisterPreviewHost(_localDevice!.deviceId);
-          } catch (_) {
-            // Ignore best-effort unregister failures.
-          }
+          } catch (_) {}
         }
         await _closeLanRelay();
       }
@@ -111,8 +94,14 @@ class AndroidHostProvider extends ChangeNotifier {
     }, clearError: false);
   }
 
-  Future<void> openAccessibilitySettings() =>
-      _service.openAccessibilitySettings();
+  @override
+  void dispose() {
+    _previewTimer?.cancel();
+    _registrationTimer?.cancel();
+    _relayCommandTimer?.cancel();
+    unawaited(_closeLanRelay(notify: false));
+    super.dispose();
+  }
 
   Future<bool> disconnectCurrentViewer() async {
     final device = _localDevice;
@@ -134,25 +123,15 @@ class AndroidHostProvider extends ChangeNotifier {
     return ok;
   }
 
-  @override
-  void dispose() {
-    _previewTimer?.cancel();
-    _registrationTimer?.cancel();
-    _relayCommandTimer?.cancel();
-    unawaited(_closeLanRelay(notify: false));
-    super.dispose();
-  }
+  // ---------- internal ----------
 
   Future<void> _run(
     Future<void> Function() action, {
     bool clearError = true,
   }) async {
     _busy = true;
-    if (clearError) {
-      _error = null;
-    }
+    if (clearError) _error = null;
     notifyListeners();
-
     try {
       await action();
     } catch (error) {
@@ -165,12 +144,10 @@ class AndroidHostProvider extends ChangeNotifier {
 
   void _ensurePreviewPolling() {
     _previewTimer?.cancel();
-    if (!_state.isRunning) {
-      return;
-    }
+    if (!_state.isRunning) return;
     unawaited(_pollPreviewFrame());
     _previewTimer = Timer.periodic(
-      const Duration(milliseconds: 150),
+      const Duration(milliseconds: 300), // ~3.3 fps for desktop
       (_) => unawaited(_pollPreviewFrame()),
     );
   }
@@ -182,14 +159,10 @@ class AndroidHostProvider extends ChangeNotifier {
         final changed = _previewFrame?.timestampMs != frame.timestampMs ||
             _previewFrame?.bytes.length != frame.bytes.length;
         _previewFrame = frame;
-        if (changed) {
-          notifyListeners();
-        }
+        if (changed) notifyListeners();
         await _uploadRelayFrame(frame);
       }
-    } catch (_) {
-      // Ignore transient preview polling failures while the service is warming up.
-    }
+    } catch (_) {}
   }
 
   void _ensureRelayCommandPolling() {
@@ -199,24 +172,22 @@ class AndroidHostProvider extends ChangeNotifier {
     }
     unawaited(_pollRelayCommand());
     _relayCommandTimer = Timer.periodic(
-      const Duration(milliseconds: 100),
+      const Duration(milliseconds: 150),
       (_) => unawaited(_pollRelayCommand()),
     );
   }
 
+  // ---------- LAN HTTP relay (same as Android) ----------
+
   Future<void> _ensureLanRelay() async {
-    if (_lanRelayServer != null) {
-      return;
-    }
+    if (_lanRelayServer != null) return;
 
     final server = await HttpServer.bind(InternetAddress.anyIPv4, 22330);
     _lanRelayServer = server;
     final localIp = await _resolveLocalIpv4();
-    if (localIp != null) {
-      _lanRelayEndpoint = '$localIp:${server.port}';
-    } else {
-      _lanRelayEndpoint = '127.0.0.1:${server.port}';
-    }
+    _lanRelayEndpoint = localIp != null
+        ? '$localIp:${server.port}'
+        : '127.0.0.1:${server.port}';
     notifyListeners();
     await _registerPreviewHost();
 
@@ -233,12 +204,10 @@ class AndroidHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
-
           response.headers.contentType = ContentType('image', 'jpeg');
           response.headers.set('X-RDesk-Width', frame.width.toString());
           response.headers.set('X-RDesk-Height', frame.height.toString());
-          response.headers
-              .set('X-RDesk-Timestamp', frame.timestampMs.toString());
+          response.headers.set('X-RDesk-Timestamp', frame.timestampMs.toString());
           response.add(frame.bytes);
           await response.close();
           return;
@@ -246,15 +215,14 @@ class AndroidHostProvider extends ChangeNotifier {
 
         if (request.uri.path == '/health') {
           response.headers.contentType = ContentType.json;
-          response.write(
-            jsonEncode(<String, Object?>{
-              'state': _state.state,
-              'running': _state.isRunning,
-              'hasPermission': _state.hasPermission,
-              'hasFrame': _previewFrame != null,
-              'endpoint': _lanRelayEndpoint,
-            }),
-          );
+          response.write(jsonEncode(<String, Object?>{
+            'state': _state.state,
+            'running': _state.isRunning,
+            'hasPermission': _state.hasPermission,
+            'hasFrame': _previewFrame != null,
+            'endpoint': _lanRelayEndpoint,
+            'platform': Platform.operatingSystem,
+          }));
           await response.close();
           return;
         }
@@ -271,12 +239,6 @@ class AndroidHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
-
-          // Auto-wake screen when a remote viewer connects
-          try {
-            await _service.wakeScreen();
-          } catch (_) {}
-
           await _bridge.trustIncomingViewer(
             deviceId: deviceId,
             hostname: hostname,
@@ -300,20 +262,12 @@ class AndroidHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
-
-          _lastRemoteTap = '${(x * 100).round()}%, ${(y * 100).round()}%';
-          notifyListeners();
-          try {
-            await _service.showRemoteTapIndicator(
-              normalizedX: x,
-              normalizedY: y,
-            );
-          } catch (_) {
-            // Keep endpoint available even if native indicator fails.
-          }
-
+          final ok = await _service.performRemoteTap(
+            normalizedX: x,
+            normalizedY: y,
+          );
           response.headers.contentType = ContentType.json;
-          response.write(jsonEncode(<String, Object?>{'ok': true}));
+          response.write(jsonEncode(<String, Object?>{'ok': ok}));
           await response.close();
           return;
         }
@@ -328,24 +282,14 @@ class AndroidHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
-
-          _lastRemoteAction = action;
-          notifyListeners();
-
-          bool ok;
-          if (action == 'wake_screen') {
-            ok = await _service.wakeScreen();
-          } else {
-            ok = await _service.performRemoteAction(action);
-          }
+          final ok = await _service.performRemoteAction(action);
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{'ok': ok}));
           await response.close();
           return;
         }
 
-        if (request.uri.path == '/input/long_press' &&
-            request.method == 'POST') {
+        if (request.uri.path == '/input/long_press' && request.method == 'POST') {
           final body = await utf8.decoder.bind(request).join();
           final payload = jsonDecode(body) as Map<String, dynamic>;
           final x = (payload['x'] as num?)?.toDouble();
@@ -356,10 +300,6 @@ class AndroidHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
-
-          _lastRemoteGesture =
-              'long_press ${(x * 100).round()}%, ${(y * 100).round()}%';
-          notifyListeners();
           final ok = await _service.performRemoteLongPress(
             normalizedX: x,
             normalizedY: y,
@@ -377,19 +317,12 @@ class AndroidHostProvider extends ChangeNotifier {
           final startY = (payload['startY'] as num?)?.toDouble();
           final endX = (payload['endX'] as num?)?.toDouble();
           final endY = (payload['endY'] as num?)?.toDouble();
-          if (startX == null ||
-              startY == null ||
-              endX == null ||
-              endY == null) {
+          if (startX == null || startY == null || endX == null || endY == null) {
             response.statusCode = HttpStatus.badRequest;
             response.write('missing drag coordinates');
             await response.close();
             return;
           }
-
-          _lastRemoteGesture =
-              'drag ${(startX * 100).round()}%, ${(startY * 100).round()}% -> ${(endX * 100).round()}%, ${(endY * 100).round()}%';
-          notifyListeners();
           final ok = await _service.performRemoteDrag(
             startX: startX,
             startY: startY,
@@ -412,9 +345,6 @@ class AndroidHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
-
-          _lastRemoteText = text;
-          notifyListeners();
           final ok = await _service.performRemoteTextInput(text);
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{'ok': ok}));
@@ -432,9 +362,6 @@ class AndroidHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
-
-          _lastRemoteClipboard = text;
-          notifyListeners();
           final ok = await _service.setClipboardText(text);
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{'ok': ok}));
@@ -444,8 +371,6 @@ class AndroidHostProvider extends ChangeNotifier {
 
         if (request.uri.path == '/clipboard/get' && request.method == 'GET') {
           final text = await _service.getClipboardText();
-          _lastRemoteClipboard = text;
-          notifyListeners();
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{'text': text}));
           await response.close();
@@ -464,9 +389,7 @@ class AndroidHostProvider extends ChangeNotifier {
     _lanRelayServer = null;
     _lanRelayEndpoint = null;
     _lastUploadedFrameTimestampMs = null;
-    if (notify) {
-      notifyListeners();
-    }
+    if (notify) notifyListeners();
   }
 
   Future<String?> _resolveLocalIpv4() async {
@@ -475,50 +398,30 @@ class AndroidHostProvider extends ChangeNotifier {
       includeLoopback: false,
     );
     final candidates = <({int score, String address})>[];
-
     for (final interface in interfaces) {
       final name = interface.name.toLowerCase();
       final score = switch (name) {
-        final value
-            when value.contains('wlan') ||
-                value.contains('wifi') ||
-                value.contains('eth') ||
-                value.contains('en') ||
-                value.contains('ap') =>
-          0,
-        final value
-            when value.contains('rmnet') ||
-                value.contains('ccmni') ||
-                value.contains('pdp') ||
-                value.contains('cell') ||
-                value.contains('mobile') =>
-          2,
+        final v when v.contains('en') || v.contains('eth') || v.contains('wlan') || v.contains('wifi') => 0,
+        final v when v.contains('utun') || v.contains('bridge') || v.contains('lo') => 3,
         _ => 1,
       };
-
       for (final address in interface.addresses) {
-        final raw = address.address;
-        if (address.isLoopback || !raw.contains('.')) {
-          continue;
-        }
-        candidates.add((score: score, address: raw));
+        if (address.isLoopback || !address.address.contains('.')) continue;
+        candidates.add((score: score, address: address.address));
       }
     }
-
-    if (candidates.isEmpty) {
-      return null;
-    }
-
-    candidates.sort((left, right) => left.score.compareTo(right.score));
+    if (candidates.isEmpty) return null;
+    candidates.sort((a, b) => a.score.compareTo(b.score));
     return candidates.first.address;
   }
+
+  // ---------- signaling server registration ----------
 
   Future<void> _registerPreviewHost() async {
     final device = _localDevice;
     final endpoint = _lanRelayEndpoint;
-    if (device == null || endpoint == null || !_state.isRunning) {
-      return;
-    }
+    if (device == null || endpoint == null || !_state.isRunning) return;
+
     final password = await _bridge.getActiveAccessPassword();
     final settings = await _bridge.loadSettings();
     final trustedViewerIds = await _bridge.listTrustedIncomingViewerIds();
@@ -555,7 +458,6 @@ class AndroidHostProvider extends ChangeNotifier {
         _lastUploadedFrameTimestampMs == frame.timestampMs) {
       return;
     }
-
     _relayUploadBusy = true;
     try {
       await _bridge.uploadRelayPreviewFrame(
@@ -568,21 +470,16 @@ class AndroidHostProvider extends ChangeNotifier {
       );
       _lastUploadedFrameTimestampMs = frame.timestampMs;
     } catch (_) {
-      // Keep hosting alive on transient relay upload failures.
     } finally {
       _relayUploadBusy = false;
     }
   }
 
   Future<void> _pollRelayCommand() async {
-    if (_relayCommandBusy) {
-      return;
-    }
+    if (_relayCommandBusy) return;
     final device = _localDevice;
     final hostToken = _relayHostToken;
-    if (device == null || hostToken == null || hostToken.isEmpty) {
-      return;
-    }
+    if (device == null || hostToken == null || hostToken.isEmpty) return;
 
     _relayCommandBusy = true;
     try {
@@ -590,9 +487,7 @@ class AndroidHostProvider extends ChangeNotifier {
         deviceId: device.deviceId,
         hostToken: hostToken,
       );
-      if (command == null || command.commandId.isEmpty) {
-        return;
-      }
+      if (command == null || command.commandId.isEmpty) return;
 
       var ok = false;
       String? text;
@@ -602,10 +497,6 @@ class AndroidHostProvider extends ChangeNotifier {
           final hostname = command.payload['hostname'] as String?;
           final peerOs = command.payload['peerOs'] as String?;
           if (deviceId != null && hostname != null && peerOs != null) {
-            // Auto-wake screen when a remote viewer connects via relay
-            try {
-              await _service.wakeScreen();
-            } catch (_) {}
             await _bridge.trustIncomingViewer(
               deviceId: deviceId,
               hostname: hostname,
@@ -614,87 +505,46 @@ class AndroidHostProvider extends ChangeNotifier {
             await _registerPreviewHost();
             ok = true;
           }
-          break;
         case 'tap':
           final x = (command.payload['x'] as num?)?.toDouble();
           final y = (command.payload['y'] as num?)?.toDouble();
           if (x != null && y != null) {
-            _lastRemoteTap = '${(x * 100).round()}%, ${(y * 100).round()}%';
-            notifyListeners();
-            await _service.showRemoteTapIndicator(
-              normalizedX: x,
-              normalizedY: y,
-            );
-            ok = true;
+            ok = await _service.performRemoteTap(normalizedX: x, normalizedY: y);
           }
-          break;
         case 'action':
           final action = command.payload['action'] as String?;
           if (action != null && action.isNotEmpty) {
-            _lastRemoteAction = action;
-            notifyListeners();
-            if (action == 'wake_screen') {
-              ok = await _service.wakeScreen();
-            } else {
-              ok = await _service.performRemoteAction(action);
-            }
+            ok = await _service.performRemoteAction(action);
           }
-          break;
         case 'long_press':
           final x = (command.payload['x'] as num?)?.toDouble();
           final y = (command.payload['y'] as num?)?.toDouble();
           if (x != null && y != null) {
-            _lastRemoteGesture =
-                'long_press ${(x * 100).round()}%, ${(y * 100).round()}%';
-            notifyListeners();
-            ok = await _service.performRemoteLongPress(
-              normalizedX: x,
-              normalizedY: y,
-            );
+            ok = await _service.performRemoteLongPress(normalizedX: x, normalizedY: y);
           }
-          break;
         case 'drag':
           final startX = (command.payload['startX'] as num?)?.toDouble();
           final startY = (command.payload['startY'] as num?)?.toDouble();
           final endX = (command.payload['endX'] as num?)?.toDouble();
           final endY = (command.payload['endY'] as num?)?.toDouble();
-          if (startX != null &&
-              startY != null &&
-              endX != null &&
-              endY != null) {
-            _lastRemoteGesture =
-                'drag ${(startX * 100).round()}%, ${(startY * 100).round()}% -> ${(endX * 100).round()}%, ${(endY * 100).round()}%';
-            notifyListeners();
+          if (startX != null && startY != null && endX != null && endY != null) {
             ok = await _service.performRemoteDrag(
-              startX: startX,
-              startY: startY,
-              endX: endX,
-              endY: endY,
+              startX: startX, startY: startY, endX: endX, endY: endY,
             );
           }
-          break;
         case 'text':
           final input = command.payload['text'] as String?;
           if (input != null) {
-            _lastRemoteText = input;
-            notifyListeners();
             ok = await _service.performRemoteTextInput(input);
           }
-          break;
         case 'clipboard_set':
           final input = command.payload['text'] as String?;
           if (input != null) {
-            _lastRemoteClipboard = input;
-            notifyListeners();
             ok = await _service.setClipboardText(input);
           }
-          break;
         case 'clipboard_get':
           text = await _service.getClipboardText();
-          _lastRemoteClipboard = text;
-          notifyListeners();
           ok = true;
-          break;
       }
 
       await _bridge.submitHostedCommandResult(
@@ -705,7 +555,6 @@ class AndroidHostProvider extends ChangeNotifier {
         text: text,
       );
     } catch (_) {
-      // Ignore transient relay command failures and continue polling.
     } finally {
       _relayCommandBusy = false;
     }

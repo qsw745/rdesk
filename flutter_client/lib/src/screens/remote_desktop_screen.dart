@@ -25,6 +25,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
   bool _showToolbar = true;
   bool _showHint = true;
   bool? _lastAutoClipboardSync;
+  bool _handledRemoteTermination = false;
 
   @override
   void initState() {
@@ -39,7 +40,11 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
     final autoClipboardSync = context.select<SettingsProvider, bool>(
       (provider) => provider.autoClipboardSync,
     );
+    final connectionStatusLabel = context.select<SessionProvider, String>(
+      (provider) => provider.connectionStatusLabel,
+    );
     _syncAutoClipboardSetting(autoClipboardSync);
+    _handleRemoteTermination(connectionStatusLabel);
     final mediaQuery = MediaQuery.of(context);
     final topPadding = mediaQuery.padding.top;
     final bottomPadding = mediaQuery.padding.bottom;
@@ -258,6 +263,24 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
               enabled: enabled,
             ),
       );
+    });
+  }
+
+  void _handleRemoteTermination(String connectionStatusLabel) {
+    if (_handledRemoteTermination || connectionStatusLabel != '已被对端断开') {
+      return;
+    }
+    _handledRemoteTermination = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<SessionProvider>().clearSession();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('远程连接已被对端主动断开'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      context.go('/');
     });
   }
 }

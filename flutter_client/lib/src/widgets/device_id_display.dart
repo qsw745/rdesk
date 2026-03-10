@@ -219,20 +219,24 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
                       ),
                         child: Row(
                           children: [
-                            Text(
-                              hasPassword ? _maskedPassword : '------',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w700,
-                              letterSpacing: _showPassword ? 4 : 6,
+                            Expanded(
+                              child: Text(
+                                hasPassword ? _maskedPassword : '------',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: _showPassword ? 4 : 6,
+                                ),
+                              ),
                             ),
-                          ),
-                          const Spacer(),
-                          Icon(
-                            _showPassword ? Icons.visibility_off : Icons.visibility,
-                            size: 20,
-                            color: Colors.grey,
-                          ),
+                            const SizedBox(width: 8),
+                            Icon(
+                              _showPassword ? Icons.visibility_off : Icons.visibility,
+                              size: 20,
+                              color: Colors.grey,
+                            ),
                         ],
                       ),
                     ),

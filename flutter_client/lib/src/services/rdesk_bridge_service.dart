@@ -64,6 +64,27 @@ class PreviewResolveResult {
   });
 }
 
+class HostedRelayCommand {
+  final String commandId;
+  final String kind;
+  final Map<String, dynamic> payload;
+
+  const HostedRelayCommand({
+    required this.commandId,
+    required this.kind,
+    required this.payload,
+  });
+
+  factory HostedRelayCommand.fromJson(Map<String, dynamic> json) {
+    return HostedRelayCommand(
+      commandId: json['command_id'] as String? ?? '',
+      kind: json['kind'] as String? ?? '',
+      payload: (json['payload'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{},
+    );
+  }
+}
+
 class RdeskBridgeService {
   RdeskBridgeService._();
 
@@ -82,6 +103,33 @@ class RdeskBridgeService {
   static const _trustedIncomingViewersKey = 'rdesk.trusted_incoming_viewers';
   static const _chatPrefix = 'rdesk.chat.';
   final Map<String, Uri> _sessionPreviewEndpoints = <String, Uri>{};
+  final Set<String> _terminatedSessions = <String>{};
+
+  // ── Persistent HTTP clients for connection reuse (keep-alive) ──
+  HttpClient? _frameClient;
+  HttpClient? _controlClient;
+
+  HttpClient get _getFrameClient {
+    _frameClient ??= HttpClient()
+      ..connectionTimeout = const Duration(seconds: 3)
+      ..idleTimeout = const Duration(seconds: 15);
+    return _frameClient!;
+  }
+
+  HttpClient get _getControlClient {
+    _controlClient ??= HttpClient()
+      ..connectionTimeout = const Duration(seconds: 2)
+      ..idleTimeout = const Duration(seconds: 15);
+    return _controlClient!;
+  }
+
+  /// Closes persistent HTTP clients (call on disconnect).
+  void closePersistentClients() {
+    _frameClient?.close();
+    _frameClient = null;
+    _controlClient?.close();
+    _controlClient = null;
+  }
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -122,7 +170,6 @@ class RdeskBridgeService {
       throw Exception('设备ID必须是9位数字');
     }
 
-    await Future<void>.delayed(const Duration(milliseconds: 550));
     final localDevice = await getLocalDeviceInfo();
     final resolved = await _resolvePreviewEndpoint(
       deviceId,
@@ -140,6 +187,7 @@ class RdeskBridgeService {
     }
 
     final sessionId = 'session-${DateTime.now().millisecondsSinceEpoch}';
+    _terminatedSessions.remove(sessionId);
     if (resolved.endpoint != null) {
       _sessionPreviewEndpoints[sessionId] = resolved.endpoint!;
     }
@@ -176,13 +224,19 @@ class RdeskBridgeService {
     String sessionId, {
     required String peerId,
   }) async* {
+    int consecutiveErrors = 0;
     for (var tick = 0; true; tick++) {
+      final endpoint = _sessionPreviewEndpoints[sessionId];
       final remoteFrame = await _fetchRemotePreviewFrame(
-        endpoint: _sessionPreviewEndpoints[sessionId],
+        sessionId,
+        endpoint: endpoint,
       );
       if (remoteFrame != null) {
+        consecutiveErrors = 0;
         yield remoteFrame;
-      } else if (_sessionPreviewEndpoints.containsKey(sessionId)) {
+      } else if (_terminatedSessions.contains(sessionId) ||
+          _sessionPreviewEndpoints.containsKey(sessionId)) {
+        consecutiveErrors++;
         yield null;
       } else {
         yield await _renderDemoFrame(
@@ -191,13 +245,20 @@ class RdeskBridgeService {
           tick: tick,
         );
       }
-      await Future<void>.delayed(const Duration(milliseconds: 900));
+      // Adaptive polling: fast when healthy, back off on errors
+      final delayMs = consecutiveErrors > 5
+          ? 500
+          : consecutiveErrors > 0
+              ? 200
+              : 100; // ~10fps when healthy
+      await Future<void>.delayed(Duration(milliseconds: delayMs));
     }
   }
 
   Future<void> disconnect(String sessionId) async {
-    await Future<void>.delayed(const Duration(milliseconds: 150));
     _sessionPreviewEndpoints.remove(sessionId);
+    _terminatedSessions.remove(sessionId);
+    closePersistentClients();
   }
 
   Future<List<ConnectionRecord>> listConnectionHistory() async {
@@ -567,7 +628,7 @@ class RdeskBridgeService {
     await Future<void>.delayed(const Duration(milliseconds: 400));
   }
 
-  Future<void> registerPreviewHost({
+  Future<String?> registerPreviewHost({
     required String deviceId,
     required String endpoint,
     required String platform,
@@ -600,6 +661,12 @@ class RdeskBridgeService {
         throw HttpException('register failed: ${response.statusCode}',
             uri: apiBase);
       }
+      final body = await utf8.decoder.bind(response).join();
+      if (body.isEmpty) {
+        return null;
+      }
+      final payload = jsonDecode(body) as Map<String, dynamic>;
+      return payload['host_token'] as String?;
     } finally {
       client.close(force: true);
     }
@@ -625,6 +692,157 @@ class RdeskBridgeService {
     }
   }
 
+  Future<bool> disconnectHostedViewers({
+    required String deviceId,
+    required String hostToken,
+  }) async {
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+
+    try {
+      final request = await client
+          .postUrl(apiBase.replace(path: '/api/preview/disconnect_viewers'));
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode(<String, String>{
+          'device_id': deviceId,
+          'host_token': hostToken,
+        }),
+      );
+      final response = await request.close();
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        return false;
+      }
+      final body = await utf8.decoder.bind(response).join();
+      if (body.isEmpty) return true;
+      final payload = jsonDecode(body) as Map<String, dynamic>;
+      return payload['ok'] != false;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> uploadRelayPreviewFrame({
+    required String deviceId,
+    required String hostToken,
+    required Uint8List bytes,
+    required int width,
+    required int height,
+    required int timestampMs,
+  }) async {
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+
+    try {
+      final request = await client.postUrl(
+        apiBase.replace(
+          path: '/api/preview/host/frame',
+          queryParameters: <String, String>{
+            'device_id': deviceId,
+            'host_token': hostToken,
+            'width': width.toString(),
+            'height': height.toString(),
+            'timestamp_ms': timestampMs.toString(),
+          },
+        ),
+      );
+      request.headers.contentType = ContentType('image', 'jpeg');
+      request.add(bytes);
+      final response = await request.close();
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException('frame upload failed: ${response.statusCode}',
+            uri: apiBase);
+      }
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<HostedRelayCommand?> pollHostedCommand({
+    required String deviceId,
+    required String hostToken,
+  }) async {
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+
+    try {
+      final request = await client.getUrl(
+        apiBase.replace(
+          path: '/api/preview/host/control/poll',
+          queryParameters: <String, String>{
+            'device_id': deviceId,
+            'host_token': hostToken,
+          },
+        ),
+      );
+      final response = await request.close();
+      if (response.statusCode == HttpStatus.noContent) {
+        return null;
+      }
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+          'command poll failed: ${response.statusCode}',
+          uri: apiBase,
+        );
+      }
+      final body = await utf8.decoder.bind(response).join();
+      if (body.isEmpty) {
+        return null;
+      }
+      final payload = jsonDecode(body) as Map<String, dynamic>;
+      return HostedRelayCommand.fromJson(payload);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> submitHostedCommandResult({
+    required String deviceId,
+    required String hostToken,
+    required String commandId,
+    required bool ok,
+    String? text,
+  }) async {
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+
+    try {
+      final request = await client.postUrl(
+        apiBase.replace(
+          path: '/api/preview/host/control/result',
+          queryParameters: <String, String>{
+            'device_id': deviceId,
+            'host_token': hostToken,
+          },
+        ),
+      );
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode(<String, Object?>{
+          'command_id': commandId,
+          'ok': ok,
+          'text': text,
+        }),
+      );
+      final response = await request.close();
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+          'command result failed: ${response.statusCode}',
+          uri: apiBase,
+        );
+      }
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   Future<PreviewResolveResult> refreshSessionEndpoint(
     String sessionId, {
     required String deviceId,
@@ -637,9 +855,34 @@ class RdeskBridgeService {
       requesterId: localDevice.deviceId,
     );
     if (resolved.found && resolved.authorized && resolved.endpoint != null) {
+      _terminatedSessions.remove(sessionId);
       _sessionPreviewEndpoints[sessionId] = resolved.endpoint!;
     }
     return resolved;
+  }
+
+  bool isSessionTerminated(String sessionId) {
+    return _terminatedSessions.contains(sessionId);
+  }
+
+  // ── Fast control command helper (reuses persistent client) ──
+  Future<bool> _postControl(Uri uri, Map<String, dynamic> body) async {
+    try {
+      final request = await _getControlClient.postUrl(uri);
+      request.headers.contentType = ContentType.json;
+      request.write(jsonEncode(body));
+      final response = await request.close();
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        return false;
+      }
+      final respBody = await utf8.decoder.bind(response).join();
+      if (respBody.isEmpty) return true;
+      final payload = jsonDecode(respBody) as Map<String, dynamic>;
+      return payload['ok'] != false; // treat missing 'ok' as success
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> sendRemoteTap(
@@ -647,51 +890,18 @@ class RdeskBridgeService {
     required double normalizedX,
     required double normalizedY,
   }) async {
-    final controlUri = await _resolveControlUri(sessionId, '/input/tap');
-    if (controlUri == null) {
-      return false;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-    try {
-      final request = await client.postUrl(controlUri);
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, double>{
-          'x': normalizedX.clamp(0, 1),
-          'y': normalizedY.clamp(0, 1),
-        }),
-      );
-      final response = await request.close();
-      return response.statusCode == HttpStatus.ok;
-    } catch (_) {
-      return false;
-    } finally {
-      client.close(force: true);
-    }
+    final controlUri = _resolveControlUri(sessionId, '/input/tap');
+    if (controlUri == null) return false;
+    return _postControl(controlUri, <String, double>{
+      'x': normalizedX.clamp(0, 1),
+      'y': normalizedY.clamp(0, 1),
+    });
   }
 
   Future<bool> sendRemoteAction(String sessionId, String action) async {
-    final controlUri = await _resolveControlUri(sessionId, '/input/action');
-    if (controlUri == null) {
-      return false;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-    try {
-      final request = await client.postUrl(controlUri);
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(<String, String>{'action': action}));
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        return false;
-      }
-      final body = await utf8.decoder.bind(response).join();
-      final payload = jsonDecode(body) as Map<String, dynamic>;
-      return payload['ok'] == true;
-    } catch (_) {
-      return false;
-    } finally {
-      client.close(force: true);
-    }
+    final controlUri = _resolveControlUri(sessionId, '/input/action');
+    if (controlUri == null) return false;
+    return _postControl(controlUri, <String, String>{'action': action});
   }
 
   Future<bool> sendRemoteLongPress(
@@ -699,32 +909,12 @@ class RdeskBridgeService {
     required double normalizedX,
     required double normalizedY,
   }) async {
-    final controlUri = await _resolveControlUri(sessionId, '/input/long_press');
-    if (controlUri == null) {
-      return false;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-    try {
-      final request = await client.postUrl(controlUri);
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, double>{
-          'x': normalizedX.clamp(0, 1),
-          'y': normalizedY.clamp(0, 1),
-        }),
-      );
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        return false;
-      }
-      final body = await utf8.decoder.bind(response).join();
-      final payload = jsonDecode(body) as Map<String, dynamic>;
-      return payload['ok'] == true;
-    } catch (_) {
-      return false;
-    } finally {
-      client.close(force: true);
-    }
+    final controlUri = _resolveControlUri(sessionId, '/input/long_press');
+    if (controlUri == null) return false;
+    return _postControl(controlUri, <String, double>{
+      'x': normalizedX.clamp(0, 1),
+      'y': normalizedY.clamp(0, 1),
+    });
   }
 
   Future<bool> sendRemoteDrag(
@@ -734,94 +924,36 @@ class RdeskBridgeService {
     required double endX,
     required double endY,
   }) async {
-    final controlUri = await _resolveControlUri(sessionId, '/input/drag');
-    if (controlUri == null) {
-      return false;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-    try {
-      final request = await client.postUrl(controlUri);
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, double>{
-          'startX': startX.clamp(0, 1),
-          'startY': startY.clamp(0, 1),
-          'endX': endX.clamp(0, 1),
-          'endY': endY.clamp(0, 1),
-        }),
-      );
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        return false;
-      }
-      final body = await utf8.decoder.bind(response).join();
-      final payload = jsonDecode(body) as Map<String, dynamic>;
-      return payload['ok'] == true;
-    } catch (_) {
-      return false;
-    } finally {
-      client.close(force: true);
-    }
+    final controlUri = _resolveControlUri(sessionId, '/input/drag');
+    if (controlUri == null) return false;
+    return _postControl(controlUri, <String, double>{
+      'startX': startX.clamp(0, 1),
+      'startY': startY.clamp(0, 1),
+      'endX': endX.clamp(0, 1),
+      'endY': endY.clamp(0, 1),
+    });
   }
 
   Future<bool> sendRemoteTextInput(String sessionId, String text) async {
-    final controlUri = await _resolveControlUri(sessionId, '/input/text');
-    if (controlUri == null) {
-      return false;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-    try {
-      final request = await client.postUrl(controlUri);
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(<String, String>{'text': text}));
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        return false;
-      }
-      final body = await utf8.decoder.bind(response).join();
-      final payload = jsonDecode(body) as Map<String, dynamic>;
-      return payload['ok'] == true;
-    } catch (_) {
-      return false;
-    } finally {
-      client.close(force: true);
-    }
+    final controlUri = _resolveControlUri(sessionId, '/input/text');
+    if (controlUri == null) return false;
+    return _postControl(controlUri, <String, String>{'text': text});
   }
 
   Future<bool> sendRemoteClipboard(String sessionId, String text) async {
-    final controlUri = await _resolveControlUri(sessionId, '/clipboard/set');
-    if (controlUri == null) {
-      return false;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-    try {
-      final request = await client.postUrl(controlUri);
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(<String, String>{'text': text}));
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        return false;
-      }
-      final body = await utf8.decoder.bind(response).join();
-      final payload = jsonDecode(body) as Map<String, dynamic>;
-      return payload['ok'] == true;
-    } catch (_) {
-      return false;
-    } finally {
-      client.close(force: true);
-    }
+    final controlUri = _resolveControlUri(sessionId, '/clipboard/set');
+    if (controlUri == null) return false;
+    return _postControl(controlUri, <String, String>{'text': text});
   }
 
   Future<String?> fetchRemoteClipboard(String sessionId) async {
-    final controlUri = await _resolveControlUri(sessionId, '/clipboard/get');
-    if (controlUri == null) {
-      return null;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+    final controlUri = _resolveControlUri(sessionId, '/clipboard/get');
+    if (controlUri == null) return null;
     try {
-      final request = await client.getUrl(controlUri);
+      final request = await _getControlClient.getUrl(controlUri);
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
         return null;
       }
       final body = await utf8.decoder.bind(response).join();
@@ -829,22 +961,13 @@ class RdeskBridgeService {
       return payload['text'] as String?;
     } catch (_) {
       return null;
-    } finally {
-      client.close(force: true);
     }
   }
 
-  Future<Uri?> _resolveControlUri(String sessionId, String path) async {
-    Uri? target = _sessionPreviewEndpoints[sessionId];
-    if (target == null) {
-      final settings = await loadSettings();
-      final configured = settings.signalingServer.trim();
-      if (configured.isEmpty ||
-          configured == AppConstants.defaultSignalingServer) {
-        return null;
-      }
-      target = _normalizeFrameUri(configured);
-    }
+  /// Synchronous URI resolution — no async I/O, just map lookup.
+  Uri? _resolveControlUri(String sessionId, String path) {
+    final target = _sessionPreviewEndpoints[sessionId];
+    if (target == null) return null;
     return target.replace(path: path);
   }
 
@@ -897,25 +1020,25 @@ class RdeskBridgeService {
         length, (_) => alphabet[random.nextInt(alphabet.length)]).join();
   }
 
-  Future<RemoteFrameData?> _fetchRemotePreviewFrame({
+  Future<RemoteFrameData?> _fetchRemotePreviewFrame(
+    String sessionId, {
     Uri? endpoint,
   }) async {
-    Uri? uri = endpoint;
-    if (uri == null) {
-      final settings = await loadSettings();
-      final configured = settings.signalingServer.trim();
-      if (configured.isEmpty ||
-          configured == AppConstants.defaultSignalingServer) {
+    if (endpoint == null) return null;
+
+    final stopwatch = Stopwatch()..start();
+    try {
+      final request = await _getFrameClient.getUrl(endpoint);
+      final response = await request.close();
+      if (response.statusCode == HttpStatus.unauthorized ||
+          response.statusCode == HttpStatus.forbidden) {
+        _terminatedSessions.add(sessionId);
+        _sessionPreviewEndpoints.remove(sessionId);
+        await response.drain<void>();
         return null;
       }
-      uri = _normalizeFrameUri(configured);
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-
-    try {
-      final request = await client.getUrl(uri);
-      final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
         return null;
       }
 
@@ -923,6 +1046,7 @@ class RdeskBridgeService {
       await for (final chunk in response) {
         builder.add(chunk);
       }
+      stopwatch.stop();
 
       final bytes = builder.takeBytes();
       if (bytes.isEmpty) {
@@ -938,12 +1062,10 @@ class RdeskBridgeService {
         bytes: bytes,
         width: width,
         height: height,
-        latencyMs: 48,
+        latencyMs: stopwatch.elapsedMilliseconds,
       );
     } catch (_) {
       return null;
-    } finally {
-      client.close(force: true);
     }
   }
 
@@ -1033,13 +1155,10 @@ class RdeskBridgeService {
     required String sessionId,
     required DeviceInfo requester,
   }) async {
-    final trustUri = await _resolveControlUri(sessionId, '/session/trust');
-    if (trustUri == null) {
-      return;
-    }
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+    final trustUri = _resolveControlUri(sessionId, '/session/trust');
+    if (trustUri == null) return;
     try {
-      final request = await client.postUrl(trustUri);
+      final request = await _getControlClient.postUrl(trustUri);
       request.headers.contentType = ContentType.json;
       request.write(
         jsonEncode(<String, String>{
@@ -1051,8 +1170,6 @@ class RdeskBridgeService {
       await request.close();
     } catch (_) {
       // Trust sync is best-effort for MVP flows.
-    } finally {
-      client.close(force: true);
     }
   }
 
