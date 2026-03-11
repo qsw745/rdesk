@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/device.dart';
 import '../services/rdesk_bridge_service.dart';
@@ -11,11 +12,17 @@ class AndroidHostProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
   final _service = AndroidHostService.instance;
 
+  static const _guardModeEnabledKey = 'android_guard_mode_enabled';
+
   AndroidHostState _state = const AndroidHostState(
     state: 'idle',
     hasPermission: false,
     isRunning: false,
     accessibilityEnabled: false,
+    overlayEnabled: false,
+    notificationsEnabled: false,
+    batteryOptimizationIgnored: false,
+    manufacturer: '',
   );
   AndroidHostFrame? _previewFrame;
   bool _busy = false;
@@ -27,6 +34,7 @@ class AndroidHostProvider extends ChangeNotifier {
   String? _lanRelayEndpoint;
   DeviceInfo? _localDevice;
   String? _relayHostToken;
+  bool _guardModeEnabled = false;
   bool _relayCommandBusy = false;
   bool _relayUploadBusy = false;
   int? _lastUploadedFrameTimestampMs;
@@ -46,22 +54,59 @@ class AndroidHostProvider extends ChangeNotifier {
   String? get lastRemoteClipboard => _lastRemoteClipboard;
   bool get busy => _busy;
   String? get error => _error;
-  bool get canDisconnectViewers =>
-      _state.isRunning && _localDevice != null && (_relayHostToken?.isNotEmpty ?? false);
+  bool get canDisconnectViewers => _state.isRunning && _localDevice != null;
+  bool get guardModeEnabled => _guardModeEnabled;
+  bool get isReadyForRemoteRequests =>
+      _state.hasPermission &&
+      _state.accessibilityEnabled &&
+      _state.notificationsEnabled &&
+      _state.batteryOptimizationIgnored;
+  bool get needsManualScreenCaptureConsent => !_state.hasPermission;
+  String get autostartGuidance => switch (_state.manufacturer.toLowerCase()) {
+        'xiaomi' ||
+        'redmi' ||
+        'poco' =>
+          '建议在 MIUI/HyperOS 的“自启动”和“无限制电量”中允许 RDesk 常驻。',
+        'oppo' || 'oneplus' || 'realme' => '建议在系统管家里允许 RDesk 自启动，并关闭后台冻结/耗电限制。',
+        'vivo' || 'iqoo' => '建议在 i 管家中允许 RDesk 后台高耗电、自启动和悬浮窗。',
+        'huawei' || 'honor' => '建议在启动管理中允许 RDesk 自启动，并关闭电池优化。',
+        'samsung' => '建议把 RDesk 加入“永不休眠的应用”，避免系统回收。',
+        _ => '如果系统有“自启动/后台保护/无限制电量”设置，建议把 RDesk 加入白名单。',
+      };
 
   Future<void> initialize({bool enabled = true}) async {
     if (!enabled) {
       return;
     }
     _localDevice = await _bridge.getLocalDeviceInfo();
+    final prefs = await SharedPreferences.getInstance();
+    _guardModeEnabled = prefs.getBool(_guardModeEnabledKey) ?? false;
     await _run(() async {
       _state = await _service.getState();
+      if (_guardModeEnabled && _state.hasPermission && !_state.isRunning) {
+        _state = await _service.startHosting();
+      }
+      if (_state.isRunning) {
+        await _service.setKeepScreenOn(enabled: true);
+        _ensurePreviewPolling();
+        await _ensureLanRelay();
+        await _registerPreviewHost();
+        _ensureRelayCommandPolling();
+      }
     }, clearError: false);
   }
 
   Future<void> requestPermission() async {
     await _run(() async {
       _state = await _service.requestPermission();
+      if (_guardModeEnabled && _state.hasPermission && !_state.isRunning) {
+        _state = await _service.startHosting();
+        await _service.setKeepScreenOn(enabled: true);
+        _ensurePreviewPolling();
+        await _ensureLanRelay();
+        await _registerPreviewHost();
+        _ensureRelayCommandPolling();
+      }
     });
   }
 
@@ -114,24 +159,65 @@ class AndroidHostProvider extends ChangeNotifier {
   Future<void> openAccessibilitySettings() =>
       _service.openAccessibilitySettings();
 
+  Future<void> setGuardModeEnabled(bool enabled) async {
+    _guardModeEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_guardModeEnabledKey, enabled);
+    notifyListeners();
+    if (enabled) {
+      await refresh();
+      if (_state.hasPermission && !_state.isRunning) {
+        await startHosting();
+      }
+    } else if (_state.isRunning) {
+      await stopHosting();
+    }
+  }
+
+  Future<void> openOverlaySettings() => _service.openOverlaySettings();
+
+  Future<void> openNotificationSettings() =>
+      _service.openNotificationSettings();
+
+  Future<void> openBatteryOptimizationSettings() =>
+      _service.openBatteryOptimizationSettings();
+
+  Future<void> openAppDetailsSettings() => _service.openAppDetailsSettings();
+
   Future<bool> disconnectCurrentViewer() async {
     final device = _localDevice;
     final hostToken = _relayHostToken;
-    if (!_state.isRunning || device == null || hostToken == null || hostToken.isEmpty) {
+    if (!_state.isRunning || device == null) {
       return false;
     }
 
-    var ok = false;
     await _run(() async {
-      ok = await _bridge.disconnectHostedViewers(
-        deviceId: device.deviceId,
-        hostToken: hostToken,
-      );
-      if (!ok) {
-        throw Exception('断开远控失败');
+      // 1) Try server-side disconnect (best-effort)
+      if (hostToken != null && hostToken.isNotEmpty) {
+        try {
+          serverOk = await _bridge.disconnectHostedViewers(
+            deviceId: device.deviceId,
+            hostToken: hostToken,
+          );
+        } catch (_) {
+          // Server unreachable is fine — we still do local cleanup below.
+        }
       }
+
+      // 2) Always do local cleanup: close LAN relay to cut direct connections
+      await _closeLanRelay();
+
+      // 3) Invalidate old host token so stale viewer sessions can't reconnect
+      _relayHostToken = null;
+      _lastUploadedFrameTimestampMs = null;
+
+      // 4) Re-open LAN relay on a new port and re-register with fresh token
+      await _ensureLanRelay();
+      await _registerPreviewHost();
+      _ensureRelayCommandPolling();
     });
-    return ok;
+    // Even if server call failed, local cleanup succeeded
+    return true;
   }
 
   @override
@@ -209,7 +295,7 @@ class AndroidHostProvider extends ChangeNotifier {
       return;
     }
 
-    final server = await HttpServer.bind(InternetAddress.anyIPv4, 22330);
+    final server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
     _lanRelayServer = server;
     final localIp = await _resolveLocalIpv4();
     if (localIp != null) {
@@ -519,6 +605,15 @@ class AndroidHostProvider extends ChangeNotifier {
     if (device == null || endpoint == null || !_state.isRunning) {
       return;
     }
+
+    // If host token was cleared (e.g. after disconnect), unregister first
+    // so the server generates a fresh token on re-register.
+    if (_relayHostToken == null) {
+      try {
+        await _bridge.unregisterPreviewHost(device.deviceId);
+      } catch (_) {}
+    }
+
     final password = await _bridge.getActiveAccessPassword();
     final settings = await _bridge.loadSettings();
     final trustedViewerIds = await _bridge.listTrustedIncomingViewerIds();

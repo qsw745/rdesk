@@ -1,14 +1,19 @@
 package com.example.rdesk
 
 import android.app.Activity
+import android.app.KeyguardManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
+import android.view.WindowManager
 import android.widget.Toast
+import androidx.core.app.NotificationManagerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -20,6 +25,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        RdeskApplicationHolder.applicationContext = applicationContext
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -39,6 +45,12 @@ class MainActivity : FlutterActivity() {
                 "getClipboardText" -> getClipboardText(result)
                 "performRemoteAction" -> performRemoteAction(call, result)
                 "openAccessibilitySettings" -> openAccessibilitySettings(result)
+                "openOverlaySettings" -> openOverlaySettings(result)
+                "openNotificationSettings" -> openNotificationSettings(result)
+                "openBatteryOptimizationSettings" -> openBatteryOptimizationSettings(result)
+                "openAppDetailsSettings" -> openAppDetailsSettings(result)
+                "wakeScreen" -> wakeScreen(result)
+                "setKeepScreenOn" -> setKeepScreenOn(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -107,6 +119,54 @@ class MainActivity : FlutterActivity() {
 
     private fun openAccessibilitySettings(result: MethodChannel.Result) {
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        result.success(null)
+    }
+
+    private fun openOverlaySettings(result: MethodChannel.Result) {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:$packageName"),
+        )
+        startActivity(intent)
+        result.success(null)
+    }
+
+    private fun openNotificationSettings(result: MethodChannel.Result) {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+        }
+        startActivity(intent)
+        result.success(null)
+    }
+
+    private fun openBatteryOptimizationSettings(result: MethodChannel.Result) {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            !pm.isIgnoringBatteryOptimizations(packageName)
+        ) {
+            Intent(
+                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:$packageName"),
+            )
+        } else {
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        }
+        startActivity(intent)
+        result.success(null)
+    }
+
+    private fun openAppDetailsSettings(result: MethodChannel.Result) {
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            },
+        )
         result.success(null)
     }
 
@@ -190,6 +250,61 @@ class MainActivity : FlutterActivity() {
         result.success(text)
     }
 
+    @Suppress("DEPRECATION")
+    private fun wakeScreen(result: MethodChannel.Result) {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+
+            // 1. Acquire wake lock to turn screen ON
+            if (!pm.isInteractive) {
+                val wakeLock = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+                        or PowerManager.ACQUIRE_CAUSES_WAKEUP
+                        or PowerManager.ON_AFTER_RELEASE,
+                    "rdesk:wake-screen"
+                )
+                wakeLock.acquire(5000L) // hold for 5 seconds, then auto-release
+            }
+
+            // 2. Dismiss keyguard (works only if no secure lock is set)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+                km.requestDismissKeyguard(this, object : KeyguardManager.KeyguardDismissCallback() {
+                    override fun onDismissSucceeded() {}
+                    override fun onDismissCancelled() {}
+                    override fun onDismissError() {}
+                })
+            } else {
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                        or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                        or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+
+            // 3. Ensure our activity window also stays on
+            runOnUiThread {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+
+            result.success(true)
+        } catch (e: Exception) {
+            result.success(false)
+        }
+    }
+
+    private fun setKeepScreenOn(call: MethodCall, result: MethodChannel.Result) {
+        val enabled = call.argument<Boolean>("enabled") ?: true
+        runOnUiThread {
+            if (enabled) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+        result.success(true)
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -220,6 +335,10 @@ enum class ScreenCaptureState {
     ERROR,
 }
 
+object RdeskApplicationHolder {
+    lateinit var applicationContext: Context
+}
+
 object ScreenCaptureStore {
     var permissionResultCode: Int? = null
     var permissionData: Intent? = null
@@ -231,14 +350,24 @@ object ScreenCaptureStore {
 
     fun hasPermission(): Boolean = permissionResultCode != null && permissionData != null
 
-    fun toMap(message: String? = null): Map<String, Any?> =
-        mapOf(
+    fun toMap(message: String? = null): Map<String, Any?> {
+        val context = RdeskApplicationHolder.applicationContext
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return mapOf(
             "state" to state.name.lowercase(),
             "hasPermission" to hasPermission(),
             "isRunning" to (state == ScreenCaptureState.RUNNING),
             "accessibilityEnabled" to (RdeskAccessibilityService.instance != null),
+            "overlayEnabled" to Settings.canDrawOverlays(context),
+            "notificationsEnabled" to NotificationManagerCompat.from(context).areNotificationsEnabled(),
+            "batteryOptimizationIgnored" to (
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                    powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                ),
+            "manufacturer" to Build.MANUFACTURER,
             "message" to message,
         )
+    }
 
     fun frameToMap(): Map<String, Any?> =
         mapOf(

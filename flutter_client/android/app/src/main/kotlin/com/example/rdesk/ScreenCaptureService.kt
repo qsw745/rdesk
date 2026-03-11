@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.PowerManager
 import java.io.ByteArrayOutputStream
 
 class ScreenCaptureService : Service() {
@@ -25,6 +26,7 @@ class ScreenCaptureService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
+    private var cpuWakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,6 +55,7 @@ class ScreenCaptureService : Service() {
         super.onDestroy()
     }
 
+    @Suppress("DEPRECATION")
     private fun startCapture() {
         if (!ScreenCaptureStore.hasPermission()) {
             ScreenCaptureStore.state = ScreenCaptureState.ERROR
@@ -62,6 +65,16 @@ class ScreenCaptureService : Service() {
         if (mediaProjection != null) {
             ScreenCaptureStore.state = ScreenCaptureState.RUNNING
             return
+        }
+
+        // Acquire a partial wake lock to keep CPU alive even when screen is off.
+        // This ensures frame capture and command polling continue working.
+        if (cpuWakeLock == null) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            cpuWakeLock = pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "rdesk:capture-cpu"
+            ).apply { acquire() }
         }
 
         val projectionManager =
@@ -159,6 +172,12 @@ class ScreenCaptureService : Service() {
         captureThread?.quitSafely()
         captureThread = null
         captureHandler = null
+
+        // Release CPU wake lock
+        cpuWakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        cpuWakeLock = null
 
         if (ScreenCaptureStore.state == ScreenCaptureState.RUNNING ||
             ScreenCaptureStore.state == ScreenCaptureState.ERROR

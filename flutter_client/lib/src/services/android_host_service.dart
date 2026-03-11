@@ -5,6 +5,10 @@ class AndroidHostState {
   final bool hasPermission;
   final bool isRunning;
   final bool accessibilityEnabled;
+  final bool overlayEnabled;
+  final bool notificationsEnabled;
+  final bool batteryOptimizationIgnored;
+  final String manufacturer;
   final String? message;
 
   const AndroidHostState({
@@ -12,6 +16,10 @@ class AndroidHostState {
     required this.hasPermission,
     required this.isRunning,
     required this.accessibilityEnabled,
+    required this.overlayEnabled,
+    required this.notificationsEnabled,
+    required this.batteryOptimizationIgnored,
+    required this.manufacturer,
     this.message,
   });
 
@@ -21,6 +29,11 @@ class AndroidHostState {
       hasPermission: (map['hasPermission'] as bool?) ?? false,
       isRunning: (map['isRunning'] as bool?) ?? false,
       accessibilityEnabled: (map['accessibilityEnabled'] as bool?) ?? false,
+      overlayEnabled: (map['overlayEnabled'] as bool?) ?? false,
+      notificationsEnabled: (map['notificationsEnabled'] as bool?) ?? false,
+      batteryOptimizationIgnored:
+          (map['batteryOptimizationIgnored'] as bool?) ?? false,
+      manufacturer: (map['manufacturer'] as String?) ?? '',
       message: map['message'] as String?,
     );
   }
@@ -56,30 +69,32 @@ class AndroidHostService {
   static const _channel = MethodChannel('com.example.rdesk/android_host');
 
   Future<AndroidHostState> getState() async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('getScreenCaptureState');
+    final result = await _channel
+        .invokeMethod<Map<dynamic, dynamic>>('getScreenCaptureState');
     return AndroidHostState.fromMap(result ?? const <String, dynamic>{});
   }
 
   Future<AndroidHostState> requestPermission() async {
-    final result =
-        await _channel.invokeMethod<Map<dynamic, dynamic>>('requestScreenCapturePermission');
+    final result = await _channel
+        .invokeMethod<Map<dynamic, dynamic>>('requestScreenCapturePermission');
     return AndroidHostState.fromMap(result ?? const <String, dynamic>{});
   }
 
   Future<AndroidHostState> startHosting() async {
-    final result =
-        await _channel.invokeMethod<Map<dynamic, dynamic>>('startScreenCaptureService');
+    final result = await _channel
+        .invokeMethod<Map<dynamic, dynamic>>('startScreenCaptureService');
     return AndroidHostState.fromMap(result ?? const <String, dynamic>{});
   }
 
   Future<AndroidHostState> stopHosting() async {
-    final result =
-        await _channel.invokeMethod<Map<dynamic, dynamic>>('stopScreenCaptureService');
+    final result = await _channel
+        .invokeMethod<Map<dynamic, dynamic>>('stopScreenCaptureService');
     return AndroidHostState.fromMap(result ?? const <String, dynamic>{});
   }
 
   Future<AndroidHostFrame?> getLatestFrame() async {
-    final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('getLatestCapturedFrame');
+    final result = await _channel
+        .invokeMethod<Map<dynamic, dynamic>>('getLatestCapturedFrame');
     if (result == null) {
       return null;
     }
@@ -159,10 +174,41 @@ class AndroidHostService {
     await _channel.invokeMethod<void>('openAccessibilitySettings');
   }
 
+  Future<void> openOverlaySettings() async {
+    await _channel.invokeMethod<void>('openOverlaySettings');
+  }
+
+  Future<void> openNotificationSettings() async {
+    await _channel.invokeMethod<void>('openNotificationSettings');
+  }
+
+  Future<void> openBatteryOptimizationSettings() async {
+    await _channel.invokeMethod<void>('openBatteryOptimizationSettings');
+  }
+
+  Future<void> openAppDetailsSettings() async {
+    await _channel.invokeMethod<void>('openAppDetailsSettings');
+  }
+
   Future<bool> performRemoteAction(String action) async {
     final result = await _channel.invokeMethod<bool>(
       'performRemoteAction',
       <String, String>{'action': action},
+    );
+    return result ?? false;
+  }
+
+  /// Wake the screen and dismiss keyguard (if no secure lock is set).
+  Future<bool> wakeScreen() async {
+    final result = await _channel.invokeMethod<bool>('wakeScreen');
+    return result ?? false;
+  }
+
+  /// Set FLAG_KEEP_SCREEN_ON to prevent screen from turning off.
+  Future<bool> setKeepScreenOn({required bool enabled}) async {
+    final result = await _channel.invokeMethod<bool>(
+      'setKeepScreenOn',
+      <String, bool>{'enabled': enabled},
     );
     return result ?? false;
   }

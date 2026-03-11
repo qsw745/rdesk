@@ -21,6 +21,10 @@ class DesktopHostProvider extends ChangeNotifier {
     hasPermission: true,
     isRunning: false,
     accessibilityEnabled: true,
+    overlayEnabled: true,
+    notificationsEnabled: true,
+    batteryOptimizationIgnored: true,
+    manufacturer: 'desktop',
   );
   AndroidHostFrame? _previewFrame;
   bool _busy = false;
@@ -42,7 +46,9 @@ class DesktopHostProvider extends ChangeNotifier {
   bool get busy => _busy;
   String? get error => _error;
   bool get canDisconnectViewers =>
-      _state.isRunning && _localDevice != null && (_relayHostToken?.isNotEmpty ?? false);
+      _state.isRunning &&
+      _localDevice != null &&
+      (_relayHostToken?.isNotEmpty ?? false);
 
   Future<void> initialize({bool enabled = true}) async {
     if (!enabled) return;
@@ -106,21 +112,32 @@ class DesktopHostProvider extends ChangeNotifier {
   Future<bool> disconnectCurrentViewer() async {
     final device = _localDevice;
     final hostToken = _relayHostToken;
-    if (!_state.isRunning || device == null || hostToken == null || hostToken.isEmpty) {
+    if (!_state.isRunning || device == null) {
       return false;
     }
 
-    var ok = false;
     await _run(() async {
-      ok = await _bridge.disconnectHostedViewers(
-        deviceId: device.deviceId,
-        hostToken: hostToken,
-      );
-      if (!ok) {
-        throw Exception('断开远控失败');
+      if (hostToken != null && hostToken.isNotEmpty) {
+        try {
+          await _bridge.disconnectHostedViewers(
+            deviceId: device.deviceId,
+            hostToken: hostToken,
+          );
+        } catch (_) {
+          // Server-side cleanup is best effort; local reset below is what
+          // reliably severs the active viewer session.
+        }
       }
+
+      await _closeLanRelay();
+      _relayHostToken = null;
+      _lastUploadedFrameTimestampMs = null;
+
+      await _ensureLanRelay();
+      await _registerPreviewHost();
+      _ensureRelayCommandPolling();
     });
-    return ok;
+    return _error == null;
   }
 
   // ---------- internal ----------
@@ -182,7 +199,7 @@ class DesktopHostProvider extends ChangeNotifier {
   Future<void> _ensureLanRelay() async {
     if (_lanRelayServer != null) return;
 
-    final server = await HttpServer.bind(InternetAddress.anyIPv4, 22330);
+    final server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
     _lanRelayServer = server;
     final localIp = await _resolveLocalIpv4();
     _lanRelayEndpoint = localIp != null
@@ -207,7 +224,8 @@ class DesktopHostProvider extends ChangeNotifier {
           response.headers.contentType = ContentType('image', 'jpeg');
           response.headers.set('X-RDesk-Width', frame.width.toString());
           response.headers.set('X-RDesk-Height', frame.height.toString());
-          response.headers.set('X-RDesk-Timestamp', frame.timestampMs.toString());
+          response.headers
+              .set('X-RDesk-Timestamp', frame.timestampMs.toString());
           response.add(frame.bytes);
           await response.close();
           return;
@@ -289,7 +307,8 @@ class DesktopHostProvider extends ChangeNotifier {
           return;
         }
 
-        if (request.uri.path == '/input/long_press' && request.method == 'POST') {
+        if (request.uri.path == '/input/long_press' &&
+            request.method == 'POST') {
           final body = await utf8.decoder.bind(request).join();
           final payload = jsonDecode(body) as Map<String, dynamic>;
           final x = (payload['x'] as num?)?.toDouble();
@@ -317,7 +336,10 @@ class DesktopHostProvider extends ChangeNotifier {
           final startY = (payload['startY'] as num?)?.toDouble();
           final endX = (payload['endX'] as num?)?.toDouble();
           final endY = (payload['endY'] as num?)?.toDouble();
-          if (startX == null || startY == null || endX == null || endY == null) {
+          if (startX == null ||
+              startY == null ||
+              endX == null ||
+              endY == null) {
             response.statusCode = HttpStatus.badRequest;
             response.write('missing drag coordinates');
             await response.close();
@@ -401,8 +423,17 @@ class DesktopHostProvider extends ChangeNotifier {
     for (final interface in interfaces) {
       final name = interface.name.toLowerCase();
       final score = switch (name) {
-        final v when v.contains('en') || v.contains('eth') || v.contains('wlan') || v.contains('wifi') => 0,
-        final v when v.contains('utun') || v.contains('bridge') || v.contains('lo') => 3,
+        final v
+            when v.contains('en') ||
+                v.contains('eth') ||
+                v.contains('wlan') ||
+                v.contains('wifi') =>
+          0,
+        final v
+            when v.contains('utun') ||
+                v.contains('bridge') ||
+                v.contains('lo') =>
+          3,
         _ => 1,
       };
       for (final address in interface.addresses) {
@@ -421,6 +452,12 @@ class DesktopHostProvider extends ChangeNotifier {
     final device = _localDevice;
     final endpoint = _lanRelayEndpoint;
     if (device == null || endpoint == null || !_state.isRunning) return;
+
+    if (_relayHostToken == null) {
+      try {
+        await _bridge.unregisterPreviewHost(device.deviceId);
+      } catch (_) {}
+    }
 
     final password = await _bridge.getActiveAccessPassword();
     final settings = await _bridge.loadSettings();
@@ -509,7 +546,8 @@ class DesktopHostProvider extends ChangeNotifier {
           final x = (command.payload['x'] as num?)?.toDouble();
           final y = (command.payload['y'] as num?)?.toDouble();
           if (x != null && y != null) {
-            ok = await _service.performRemoteTap(normalizedX: x, normalizedY: y);
+            ok =
+                await _service.performRemoteTap(normalizedX: x, normalizedY: y);
           }
         case 'action':
           final action = command.payload['action'] as String?;
@@ -520,16 +558,23 @@ class DesktopHostProvider extends ChangeNotifier {
           final x = (command.payload['x'] as num?)?.toDouble();
           final y = (command.payload['y'] as num?)?.toDouble();
           if (x != null && y != null) {
-            ok = await _service.performRemoteLongPress(normalizedX: x, normalizedY: y);
+            ok = await _service.performRemoteLongPress(
+                normalizedX: x, normalizedY: y);
           }
         case 'drag':
           final startX = (command.payload['startX'] as num?)?.toDouble();
           final startY = (command.payload['startY'] as num?)?.toDouble();
           final endX = (command.payload['endX'] as num?)?.toDouble();
           final endY = (command.payload['endY'] as num?)?.toDouble();
-          if (startX != null && startY != null && endX != null && endY != null) {
+          if (startX != null &&
+              startY != null &&
+              endX != null &&
+              endY != null) {
             ok = await _service.performRemoteDrag(
-              startX: startX, startY: startY, endX: endX, endY: endY,
+              startX: startX,
+              startY: startY,
+              endX: endX,
+              endY: endY,
             );
           }
         case 'text':
