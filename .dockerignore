@@ -1,0 +1,11 @@
+.git
+.codex
+.DS_Store
+target
+flutter_client/build
+flutter_client/.dart_tool
+flutter_client/.flutter-plugins
+flutter_client/.flutter-plugins-dependencies
+flutter_client/android/.gradle
+flutter_client/ios/Pods
+flutter_client/macos/Pods

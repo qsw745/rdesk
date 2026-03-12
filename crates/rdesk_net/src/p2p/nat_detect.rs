@@ -85,8 +85,7 @@ pub async fn detect_nat_type(stun_servers: &[&str]) -> Result<NatType> {
     if stun_servers.len() < MIN_STUN_SERVERS {
         warn!(
             count = stun_servers.len(),
-            "not enough STUN servers for NAT detection, need at least {}",
-            MIN_STUN_SERVERS
+            "not enough STUN servers for NAT detection, need at least {}", MIN_STUN_SERVERS
         );
         return Ok(NatType::Unknown);
     }

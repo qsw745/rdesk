@@ -40,8 +40,7 @@ pub fn send_mouse_event(
         "sending mouse event"
     );
 
-    let client = crate::state::get_client(&session_id)
-        .context("session is not connected")?;
+    let client = crate::state::get_client(&session_id).context("session is not connected")?;
 
     let mouse = message::MouseEvent {
         x,
@@ -61,20 +60,14 @@ pub fn send_mouse_event(
 /// `key_code` is the platform-independent key code, `down` indicates whether
 /// the key is being pressed (`true`) or released (`false`), and `modifiers`
 /// is a bitmask of active modifier keys.
-pub fn send_key_event(
-    session_id: String,
-    key_code: u32,
-    down: bool,
-    modifiers: i32,
-) -> Result<()> {
+pub fn send_key_event(session_id: String, key_code: u32, down: bool, modifiers: i32) -> Result<()> {
     trace!(
         session_id = %session_id,
         key_code, down, modifiers,
         "sending key event"
     );
 
-    let client = crate::state::get_client(&session_id)
-        .context("session is not connected")?;
+    let client = crate::state::get_client(&session_id).context("session is not connected")?;
 
     let key = message::KeyEvent {
         key_code,
@@ -105,8 +98,7 @@ pub fn send_touch_event(
         "sending touch event"
     );
 
-    let client = crate::state::get_client(&session_id)
-        .context("session is not connected")?;
+    let client = crate::state::get_client(&session_id).context("session is not connected")?;
 
     let proto_points: Vec<message::TouchPoint> = points
         .into_iter()
@@ -134,8 +126,7 @@ pub fn send_touch_event(
 /// the decoder detects corruption and needs a full refresh.
 pub fn request_keyframe(session_id: String) -> Result<()> {
     debug!(session_id = %session_id, "requesting keyframe");
-    let _client = crate::state::get_client(&session_id)
-        .context("session is not connected")?;
+    let _client = crate::state::get_client(&session_id).context("session is not connected")?;
 
     Ok(())
 }

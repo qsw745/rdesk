@@ -13,6 +13,8 @@ class AndroidHostProvider extends ChangeNotifier {
   final _service = AndroidHostService.instance;
 
   static const _guardModeEnabledKey = 'android_guard_mode_enabled';
+  static const _previewPollInterval = Duration(milliseconds: 80);
+  static const _relayCommandPollInterval = Duration(milliseconds: 60);
 
   AndroidHostState _state = const AndroidHostState(
     state: 'idle',
@@ -195,7 +197,7 @@ class AndroidHostProvider extends ChangeNotifier {
       // 1) Try server-side disconnect (best-effort)
       if (hostToken != null && hostToken.isNotEmpty) {
         try {
-          serverOk = await _bridge.disconnectHostedViewers(
+          await _bridge.disconnectHostedViewers(
             deviceId: device.deviceId,
             hostToken: hostToken,
           );
@@ -211,13 +213,21 @@ class AndroidHostProvider extends ChangeNotifier {
       _relayHostToken = null;
       _lastUploadedFrameTimestampMs = null;
 
-      // 4) Re-open LAN relay on a new port and re-register with fresh token
+      // 4) Revoke auto-trust and rotate the temporary password so the kicked
+      // viewer cannot immediately auto-reconnect with cached trust/password.
+      final settings = await _bridge.loadSettings();
+      await _bridge.clearTrustedIncomingViewers();
+      final permanentPassword = settings.permanentPassword?.trim();
+      if (permanentPassword == null || permanentPassword.isEmpty) {
+        await _bridge.generateTemporaryPassword();
+      }
+
+      // 5) Re-open LAN relay on a new port and re-register with fresh token
       await _ensureLanRelay();
       await _registerPreviewHost();
       _ensureRelayCommandPolling();
     });
-    // Even if server call failed, local cleanup succeeded
-    return true;
+    return _error == null;
   }
 
   @override
@@ -256,7 +266,7 @@ class AndroidHostProvider extends ChangeNotifier {
     }
     unawaited(_pollPreviewFrame());
     _previewTimer = Timer.periodic(
-      const Duration(milliseconds: 150),
+      _previewPollInterval,
       (_) => unawaited(_pollPreviewFrame()),
     );
   }
@@ -285,7 +295,7 @@ class AndroidHostProvider extends ChangeNotifier {
     }
     unawaited(_pollRelayCommand());
     _relayCommandTimer = Timer.periodic(
-      const Duration(milliseconds: 100),
+      _relayCommandPollInterval,
       (_) => unawaited(_pollRelayCommand()),
     );
   }
@@ -389,17 +399,13 @@ class AndroidHostProvider extends ChangeNotifier {
 
           _lastRemoteTap = '${(x * 100).round()}%, ${(y * 100).round()}%';
           notifyListeners();
-          try {
-            await _service.showRemoteTapIndicator(
-              normalizedX: x,
-              normalizedY: y,
-            );
-          } catch (_) {
-            // Keep endpoint available even if native indicator fails.
-          }
+          final ok = await _service.showRemoteTapIndicator(
+            normalizedX: x,
+            normalizedY: y,
+          );
 
           response.headers.contentType = ContentType.json;
-          response.write(jsonEncode(<String, Object?>{'ok': true}));
+          response.write(jsonEncode(<String, Object?>{'ok': ok}));
           await response.close();
           return;
         }
@@ -617,6 +623,7 @@ class AndroidHostProvider extends ChangeNotifier {
     final password = await _bridge.getActiveAccessPassword();
     final settings = await _bridge.loadSettings();
     final trustedViewerIds = await _bridge.listTrustedIncomingViewerIds();
+    final authToken = await _bridge.getAccountToken();
 
     final hostToken = await _bridge.registerPreviewHost(
       deviceId: device.deviceId,
@@ -626,6 +633,7 @@ class AndroidHostProvider extends ChangeNotifier {
       password: password,
       autoAccept: settings.autoAccept,
       trustedViewerIds: trustedViewerIds,
+      authToken: authToken,
     );
     if (hostToken != null && hostToken.isNotEmpty) {
       _relayHostToken = hostToken;
@@ -716,11 +724,10 @@ class AndroidHostProvider extends ChangeNotifier {
           if (x != null && y != null) {
             _lastRemoteTap = '${(x * 100).round()}%, ${(y * 100).round()}%';
             notifyListeners();
-            await _service.showRemoteTapIndicator(
+            ok = await _service.showRemoteTapIndicator(
               normalizedX: x,
               normalizedY: y,
             );
-            ok = true;
           }
           break;
         case 'action':

@@ -7,6 +7,7 @@ void main() {
     await tester.pumpWidget(const RDeskApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('RDesk 远程桌面'), findsOneWidget);
+    expect(find.text('RDesk'), findsOneWidget);
+    expect(find.text('连接远程设备'), findsOneWidget);
   });
 }

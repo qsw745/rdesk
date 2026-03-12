@@ -43,7 +43,11 @@ impl NoiseSession {
             .write_message(plaintext, &mut buf)
             .map_err(|e| CryptoError::Encryption(format!("noise encrypt failed: {e}")))?;
         buf.truncate(len);
-        trace!(plaintext_len = plaintext.len(), ciphertext_len = len, "encrypted message");
+        trace!(
+            plaintext_len = plaintext.len(),
+            ciphertext_len = len,
+            "encrypted message"
+        );
         Ok(buf)
     }
 
@@ -55,7 +59,11 @@ impl NoiseSession {
             .read_message(ciphertext, &mut buf)
             .map_err(|e| CryptoError::Decryption(format!("noise decrypt failed: {e}")))?;
         buf.truncate(len);
-        trace!(ciphertext_len = ciphertext.len(), plaintext_len = len, "decrypted message");
+        trace!(
+            ciphertext_len = ciphertext.len(),
+            plaintext_len = len,
+            "decrypted message"
+        );
         Ok(buf)
     }
 
@@ -74,9 +82,11 @@ impl NoiseSession {
 /// `local_private_key` must be a 32-byte X25519 private key.
 pub fn build_initiator(local_private_key: &[u8]) -> Result<HandshakeState> {
     validate_key_length(local_private_key)?;
-    let builder = Builder::new(NOISE_PATTERN.parse().map_err(|_| {
-        CryptoError::Handshake("failed to parse noise pattern".into())
-    })?)
+    let builder = Builder::new(
+        NOISE_PATTERN
+            .parse()
+            .map_err(|_| CryptoError::Handshake("failed to parse noise pattern".into()))?,
+    )
     .local_private_key(local_private_key);
 
     let state = builder
@@ -92,9 +102,11 @@ pub fn build_initiator(local_private_key: &[u8]) -> Result<HandshakeState> {
 /// `local_private_key` must be a 32-byte X25519 private key.
 pub fn build_responder(local_private_key: &[u8]) -> Result<HandshakeState> {
     validate_key_length(local_private_key)?;
-    let builder = Builder::new(NOISE_PATTERN.parse().map_err(|_| {
-        CryptoError::Handshake("failed to parse noise pattern".into())
-    })?)
+    let builder = Builder::new(
+        NOISE_PATTERN
+            .parse()
+            .map_err(|_| CryptoError::Handshake("failed to parse noise pattern".into()))?,
+    )
     .local_private_key(local_private_key);
 
     let state = builder
@@ -121,7 +133,11 @@ pub fn handshake_write(
     let len = state
         .write_message(payload, buf)
         .map_err(|e| CryptoError::Handshake(format!("handshake write failed: {e}")))?;
-    trace!(payload_len = payload.len(), msg_len = len, "handshake write");
+    trace!(
+        payload_len = payload.len(),
+        msg_len = len,
+        "handshake write"
+    );
     Ok(len)
 }
 

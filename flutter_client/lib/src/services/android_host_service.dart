@@ -105,17 +105,18 @@ class AndroidHostService {
     return AndroidHostFrame.fromMap(result);
   }
 
-  Future<void> showRemoteTapIndicator({
+  Future<bool> showRemoteTapIndicator({
     required double normalizedX,
     required double normalizedY,
   }) async {
-    await _channel.invokeMethod<void>(
+    final result = await _channel.invokeMethod<bool>(
       'showRemoteTapIndicator',
       <String, double>{
         'x': normalizedX,
         'y': normalizedY,
       },
     );
+    return result ?? false;
   }
 
   Future<bool> performRemoteLongPress({

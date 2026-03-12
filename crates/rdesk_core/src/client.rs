@@ -9,12 +9,12 @@
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use rdesk_common::config::AppConfig;
-use rdesk_common::protos::message::{MouseEvent, KeyEvent, TouchEvent};
+use rdesk_common::protos::message::{KeyEvent, MouseEvent, TouchEvent};
 
-use crate::codec::{self, VideoDecoder, DecodedFrame};
+use crate::codec::{self, DecodedFrame, VideoDecoder};
 use crate::session::{Session, SessionState};
 
 /// Controller-side remote desktop client.

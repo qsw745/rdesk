@@ -110,17 +110,13 @@ impl QuicConnection {
 
     /// Close the connection gracefully.
     pub fn close(&self, code: u32, reason: &[u8]) {
-        self.connection
-            .close(quinn::VarInt::from_u32(code), reason);
+        self.connection.close(quinn::VarInt::from_u32(code), reason);
     }
 
     // -- internal helpers --
 
     /// Open a bidirectional stream and write the type tag as the first byte.
-    async fn open_typed_stream(
-        &self,
-        stream_type: StreamType,
-    ) -> Result<(SendStream, RecvStream)> {
+    async fn open_typed_stream(&self, stream_type: StreamType) -> Result<(SendStream, RecvStream)> {
         let (mut send, recv) = self
             .connection
             .open_bi()

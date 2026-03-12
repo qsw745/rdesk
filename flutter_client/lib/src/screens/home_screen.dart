@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/connection_info.dart';
 import '../models/session.dart';
+import '../providers/auth_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
@@ -21,6 +22,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _deviceIdController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _accountUsernameController = TextEditingController();
+  final _accountPasswordController = TextEditingController();
+  final _accountDisplayNameController = TextEditingController();
   bool _showPassword = false;
   bool _didApplyPendingQuickConnect = false;
 
@@ -34,6 +38,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _deviceIdController.dispose();
     _passwordController.dispose();
+    _accountUsernameController.dispose();
+    _accountPasswordController.dispose();
+    _accountDisplayNameController.dispose();
     super.dispose();
   }
 
@@ -203,6 +210,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         },
                       ),
+                      const SizedBox(height: 20),
+
+                      _buildAccountSection(context, isDark),
                       const SizedBox(height: 20),
 
                       // Connect card
@@ -550,6 +560,315 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildAccountSection(BuildContext context, bool isDark) {
+    return Consumer2<AuthProvider, ConnectionProvider>(
+      builder: (context, auth, connection, _) {
+        final session = auth.session;
+        final localDeviceId = connection.localDevice?.deviceId;
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.04),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppTheme.successGreen.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.account_circle_outlined,
+                      color: AppTheme.successGreen,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      session == null ? '账号设备' : '我的设备',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  if (session != null)
+                    IconButton(
+                      onPressed: auth.busy ? null : auth.refreshDevices,
+                      icon: const Icon(Icons.refresh_rounded),
+                      tooltip: '刷新设备',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (session == null) ...[
+                Text(
+                  '登录同一个账号后，可在这里看到该账号下当前在线的设备，便于快速发起远程连接。',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: isDark ? Colors.white70 : AppTheme.textMuted,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: auth.busy
+                            ? null
+                            : () => _showAccountDialog(
+                                  context,
+                                  registerMode: false,
+                                ),
+                        child: const Text('登录账号'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: auth.busy
+                            ? null
+                            : () => _showAccountDialog(
+                                  context,
+                                  registerMode: true,
+                                ),
+                        child: const Text('注册账号'),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            session.displayName,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '@${session.username}',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: isDark
+                                          ? Colors.white70
+                                          : AppTheme.textMuted,
+                                    ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: auth.busy ? null : auth.logout,
+                      icon: const Icon(Icons.logout_rounded, size: 16),
+                      label: const Text('退出'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (auth.error != null && auth.error!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      auth.error!,
+                      style: const TextStyle(
+                        color: AppTheme.errorRed,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                if (auth.busy)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (auth.devices.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 18,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryBlue.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Text(
+                      '该账号下暂时没有在线设备。已登录的设备开始共享后，会自动出现在这里。',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  )
+                else
+                  Column(
+                    children: auth.devices.map((device) {
+                      final isCurrent = device.deviceId == localDeviceId;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _AccountDeviceTile(
+                          hostname: device.hostname,
+                          deviceId: device.deviceId,
+                          platform: device.platform,
+                          isCurrent: isCurrent,
+                          updatedAt: device.updatedAt,
+                          onTap: isCurrent
+                              ? null
+                              : () => _handleAccountDeviceTap(device.deviceId),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showAccountDialog(
+    BuildContext context, {
+    required bool registerMode,
+  }) async {
+    var obscure = true;
+    if (!registerMode) {
+      _accountDisplayNameController.clear();
+    }
+    _accountPasswordController.clear();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text(registerMode ? '注册账号' : '登录账号'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: _accountUsernameController,
+                      decoration: const InputDecoration(
+                        labelText: '账号',
+                        hintText: '输入用户名',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (registerMode) ...[
+                      TextField(
+                        controller: _accountDisplayNameController,
+                        decoration: const InputDecoration(
+                          labelText: '显示名称',
+                          hintText: '可选，留空则使用账号名',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    TextField(
+                      controller: _accountPasswordController,
+                      obscureText: obscure,
+                      decoration: InputDecoration(
+                        labelText: '密码',
+                        hintText: '至少 6 位',
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(() => obscure = !obscure),
+                          icon: Icon(
+                            obscure
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final username = _accountUsernameController.text.trim();
+                    final password = _accountPasswordController.text;
+                    if (username.isEmpty || password.length < 6) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('请输入账号，并确保密码至少 6 位'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                      return;
+                    }
+
+                    final auth = context.read<AuthProvider>();
+                    final ok = registerMode
+                        ? await auth.register(
+                            username: username,
+                            password: password,
+                            displayName:
+                                _accountDisplayNameController.text.trim(),
+                          )
+                        : await auth.login(
+                            username: username,
+                            password: password,
+                          );
+                    if (!context.mounted) return;
+                    if (ok) {
+                      Navigator.pop(dialogContext);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(auth.error ?? '账号操作失败'),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  child: Text(registerMode ? '注册并登录' : '登录'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _handleAccountDeviceTap(String deviceId) async {
+    await _applyQuickConnectPeer(deviceId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已带入账号设备，输入密码后即可连接'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _handleRecentConnectionTap(ConnectionRecord record) async {
     await _applyQuickConnectPeer(record.peerId);
     if (_passwordController.text.trim().isEmpty) {
@@ -886,6 +1205,107 @@ class _RecentConnectionTile extends StatelessWidget {
                 child: const Icon(Icons.arrow_forward_rounded,
                     color: AppTheme.primaryBlue, size: 18),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountDeviceTile extends StatelessWidget {
+  final String hostname;
+  final String deviceId;
+  final String platform;
+  final bool isCurrent;
+  final DateTime updatedAt;
+  final VoidCallback? onTap;
+
+  const _AccountDeviceTile({
+    required this.hostname,
+    required this.deviceId,
+    required this.platform,
+    required this.isCurrent,
+    required this.updatedAt,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.04),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.devices_rounded,
+                  color: AppTheme.primaryBlue,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      hostname,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$deviceId · $platform · ${updatedAt.toString().substring(0, 16)}',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : AppTheme.textMuted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isCurrent)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.successGreen.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    '本机',
+                    style: TextStyle(
+                      color: AppTheme.successGreen,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              else
+                const Icon(Icons.chevron_right_rounded),
             ],
           ),
         ),

@@ -141,42 +141,34 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                     _dragCurrent = null;
                     return;
                   }
-                  setState(() {
-                    _dragStart = _positionInContentRect(
-                      normalized,
-                      contentRect,
-                    );
-                    _dragCurrent = _dragStart;
-                  });
+                  _dragStart = _positionInContentRect(
+                    normalized,
+                    contentRect,
+                  );
+                  _dragCurrent = _dragStart;
                 },
           onPanUpdate: widget.onRemoteDrag == null
               ? null
               : (details) {
                   if (_dragStart == null) return;
-                  setState(() {
-                    _dragCurrent = _clampToContentRect(
-                      details.localPosition,
-                      contentRect,
-                    );
-                  });
+                  _dragCurrent = _clampToContentRect(
+                    details.localPosition,
+                    contentRect,
+                  );
                 },
           onPanCancel: widget.onRemoteDrag == null
               ? null
               : () {
-                  setState(() {
-                    _dragStart = null;
-                    _dragCurrent = null;
-                  });
+                  _dragStart = null;
+                  _dragCurrent = null;
                 },
           onPanEnd: widget.onRemoteDrag == null
               ? null
               : (_) {
                   final start = _dragStart;
                   final end = _dragCurrent;
-                  setState(() {
-                    _dragStart = null;
-                    _dragCurrent = null;
-                  });
+                  _dragStart = null;
+                  _dragCurrent = null;
                   if (start == null || end == null) return;
                   if ((end - start).distance < threshold) return;
                   final normalizedStart =
@@ -215,16 +207,6 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
               ),
               // Offline status overlay
               _OfflineOverlay(),
-              // Drag indicator
-              if (_dragStart != null && _dragCurrent != null)
-                IgnorePointer(
-                  child: CustomPaint(
-                    painter: _DragPainter(
-                      start: _dragStart!,
-                      end: _dragCurrent!,
-                    ),
-                  ),
-                ),
             ],
           ),
         );
@@ -396,35 +378,5 @@ class _OfflineOverlay extends StatelessWidget {
         );
       },
     );
-  }
-}
-
-class _DragPainter extends CustomPainter {
-  final Offset start;
-  final Offset end;
-
-  const _DragPainter({
-    required this.start,
-    required this.end,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final linePaint = Paint()
-      ..color = const Color(0xFF33D1FF)
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-    final pointPaint = Paint()
-      ..color = const Color(0xFF33D1FF)
-      ..style = PaintingStyle.fill;
-
-    canvas.drawLine(start, end, linePaint);
-    canvas.drawCircle(start, 8, pointPaint);
-    canvas.drawCircle(end, 8, pointPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _DragPainter oldDelegate) {
-    return oldDelegate.start != start || oldDelegate.end != end;
   }
 }

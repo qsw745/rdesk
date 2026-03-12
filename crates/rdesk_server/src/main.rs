@@ -1,21 +1,23 @@
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::path::Path as FsPath;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Parser;
 use dashmap::DashMap;
+use rdesk_common::{hash_password, verify_password};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -23,6 +25,8 @@ use uuid::Uuid;
 const PREVIEW_TTL_MS: u64 = 30_000;
 const VIEWER_SESSION_TTL_MS: u64 = 30 * 60 * 1_000;
 const COMMAND_TTL_MS: u64 = 15_000;
+const AUTH_SESSION_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
+const MIN_PASSWORD_LEN: usize = 6;
 
 #[derive(Debug, Parser)]
 #[command(name = "rdesk-server")]
@@ -34,20 +38,45 @@ struct Args {
     signaling_port: u16,
     #[arg(long, default_value_t = 21117)]
     relay_port: u16,
+    #[arg(long, default_value = "data/rdesk-users.json")]
+    user_store_path: String,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct AppState {
     previews: Arc<DashMap<String, PreviewRegistration>>,
     frames: Arc<DashMap<String, FrameSnapshot>>,
     viewer_sessions: Arc<DashMap<String, ViewerSession>>,
     command_queues: Arc<DashMap<String, VecDeque<PendingCommand>>>,
     command_waiters: Arc<DashMap<String, oneshot::Sender<CommandResult>>>,
+    users: Arc<DashMap<String, UserRecord>>,
+    username_index: Arc<DashMap<String, String>>,
+    auth_sessions: Arc<DashMap<String, AuthSession>>,
+    user_store_path: Arc<String>,
+    user_store_write: Arc<Mutex<()>>,
+}
+
+impl AppState {
+    fn new(user_store_path: String) -> Self {
+        Self {
+            previews: Arc::new(DashMap::new()),
+            frames: Arc::new(DashMap::new()),
+            viewer_sessions: Arc::new(DashMap::new()),
+            command_queues: Arc::new(DashMap::new()),
+            command_waiters: Arc::new(DashMap::new()),
+            users: Arc::new(DashMap::new()),
+            username_index: Arc::new(DashMap::new()),
+            auth_sessions: Arc::new(DashMap::new()),
+            user_store_path: Arc::new(user_store_path),
+            user_store_write: Arc::new(Mutex::new(())),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PreviewRegistration {
     device_id: String,
+    user_id: Option<String>,
     platform: String,
     hostname: String,
     password_hash: String,
@@ -73,6 +102,21 @@ struct ViewerSession {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct UserRecord {
+    user_id: String,
+    username: String,
+    display_name: String,
+    password_hash: String,
+    created_at_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+struct AuthSession {
+    user_id: String,
+    last_seen_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct PendingCommand {
     command_id: String,
     kind: String,
@@ -91,6 +135,7 @@ struct RegisterPreviewRequest {
     device_id: String,
     #[serde(rename = "endpoint")]
     _endpoint: Option<String>,
+    auth_token: Option<String>,
     platform: String,
     hostname: String,
     password_hash: String,
@@ -112,6 +157,39 @@ struct UnregisterPreviewRequest {
 struct DisconnectViewersRequest {
     device_id: String,
     host_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AccountAuthRequest {
+    username: String,
+    password: String,
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct AccountSessionResponse {
+    token: String,
+    user_id: String,
+    username: String,
+    display_name: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AccountDeviceSummary {
+    device_id: String,
+    hostname: String,
+    platform: String,
+    updated_at_ms: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct AccountDevicesResponse {
+    devices: Vec<AccountDeviceSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorResponse {
+    message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -219,7 +297,8 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    let state = AppState::default();
+    let state = AppState::new(args.user_store_path.clone());
+    load_users(&state).await?;
     let app = Router::new()
         .route("/health", get(health))
         .route("/frame.jpg", get(fetch_frame))
@@ -237,6 +316,9 @@ async fn main() -> Result<()> {
         .route("/api/preview/resolve/:device_id", post(resolve_preview))
         .route("/api/preview/host/frame", post(upload_frame))
         .route("/api/preview/host/control/poll", get(poll_host_command))
+        .route("/api/account/register", post(register_account))
+        .route("/api/account/login", post(login_account))
+        .route("/api/account/devices", get(list_account_devices))
         .route(
             "/api/preview/host/control/result",
             post(complete_host_command),
@@ -273,6 +355,102 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     })
 }
 
+async fn register_account(
+    State(state): State<AppState>,
+    Json(request): Json<AccountAuthRequest>,
+) -> Response {
+    let username = normalize_username(&request.username);
+    let password = request.password.trim().to_string();
+    if username.is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "账号不能为空");
+    }
+    if password.len() < MIN_PASSWORD_LEN {
+        return error_response(StatusCode::BAD_REQUEST, "密码至少需要 6 位");
+    }
+    if state.username_index.contains_key(&username) {
+        return error_response(StatusCode::CONFLICT, "账号已存在");
+    }
+
+    let password_hash = match hash_password(&password) {
+        Ok(hash) => hash,
+        Err(err) => {
+            warn!(error = %err, "failed to hash account password");
+            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "密码处理失败");
+        }
+    };
+
+    let display_name = request
+        .display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&username)
+        .to_string();
+    let user = UserRecord {
+        user_id: new_token(),
+        username: username.clone(),
+        display_name,
+        password_hash,
+        created_at_ms: now_ms(),
+    };
+    state.users.insert(user.user_id.clone(), user.clone());
+    state.username_index.insert(username.clone(), user.user_id.clone());
+
+    if let Err(err) = persist_users(&state).await {
+        state.users.remove(&user.user_id);
+        state.username_index.remove(&username);
+        warn!(error = %err, "failed to persist registered user");
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "保存账号失败");
+    }
+
+    Json(create_account_session(&state, &user)).into_response()
+}
+
+async fn login_account(
+    State(state): State<AppState>,
+    Json(request): Json<AccountAuthRequest>,
+) -> Response {
+    let username = normalize_username(&request.username);
+    let password = request.password.trim().to_string();
+    let Some(user_id) = state.username_index.get(&username).map(|entry| entry.value().clone()) else {
+        return error_response(StatusCode::UNAUTHORIZED, "账号或密码错误");
+    };
+    let Some(user) = state.users.get(&user_id).map(|entry| entry.clone()) else {
+        return error_response(StatusCode::UNAUTHORIZED, "账号或密码错误");
+    };
+
+    let verified = verify_password(&password, &user.password_hash).unwrap_or(false);
+    if !verified {
+        return error_response(StatusCode::UNAUTHORIZED, "账号或密码错误");
+    }
+
+    Json(create_account_session(&state, &user)).into_response()
+}
+
+async fn list_account_devices(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let Some(user) = authenticated_user(&state, &headers) else {
+        return error_response(StatusCode::UNAUTHORIZED, "登录状态已失效");
+    };
+
+    let mut devices: Vec<AccountDeviceSummary> = state
+        .previews
+        .iter()
+        .filter(|entry| {
+            entry.user_id.as_deref() == Some(user.user_id.as_str())
+                && is_fresh(entry.updated_at_ms, PREVIEW_TTL_MS)
+        })
+        .map(|entry| AccountDeviceSummary {
+            device_id: entry.device_id.clone(),
+            hostname: entry.hostname.clone(),
+            platform: entry.platform.clone(),
+            updated_at_ms: entry.updated_at_ms,
+        })
+        .collect();
+    devices.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+
+    (StatusCode::OK, Json(AccountDevicesResponse { devices })).into_response()
+}
+
 async fn register_preview(
     State(state): State<AppState>,
     Json(request): Json<RegisterPreviewRequest>,
@@ -285,6 +463,10 @@ async fn register_preview(
 
     let registration = PreviewRegistration {
         device_id: request.device_id.clone(),
+        user_id: request
+            .auth_token
+            .as_deref()
+            .and_then(|token| validate_auth_session(&state, token)),
         platform: request.platform,
         hostname: request.hostname,
         password_hash: request.password_hash,
@@ -649,6 +831,89 @@ async fn forward_command(
     }
 }
 
+fn create_account_session(state: &AppState, user: &UserRecord) -> AccountSessionResponse {
+    let token = new_token();
+    state.auth_sessions.insert(
+        token.clone(),
+        AuthSession {
+            user_id: user.user_id.clone(),
+            last_seen_ms: now_ms(),
+        },
+    );
+    AccountSessionResponse {
+        token,
+        user_id: user.user_id.clone(),
+        username: user.username.clone(),
+        display_name: user.display_name.clone(),
+    }
+}
+
+fn authenticated_user(state: &AppState, headers: &HeaderMap) -> Option<UserRecord> {
+    let token = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(parse_bearer_token)?;
+    let user_id = validate_auth_session(state, token)?;
+    state.users.get(&user_id).map(|entry| entry.clone())
+}
+
+fn parse_bearer_token(value: &str) -> Option<&str> {
+    value
+        .strip_prefix("Bearer ")
+        .or_else(|| value.strip_prefix("bearer "))
+        .filter(|token| !token.is_empty())
+}
+
+fn validate_auth_session(state: &AppState, token: &str) -> Option<String> {
+    let Some(mut session) = state.auth_sessions.get_mut(token) else {
+        return None;
+    };
+    if !is_fresh(session.last_seen_ms, AUTH_SESSION_TTL_MS) {
+        return None;
+    }
+    session.last_seen_ms = now_ms();
+    Some(session.user_id.clone())
+}
+
+async fn load_users(state: &AppState) -> Result<()> {
+    let path = FsPath::new(state.user_store_path.as_str());
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let raw = tokio::fs::read_to_string(path).await?;
+    if raw.trim().is_empty() {
+        return Ok(());
+    }
+    let users: Vec<UserRecord> = serde_json::from_str(&raw)?;
+    for user in users {
+        state.username_index.insert(user.username.clone(), user.user_id.clone());
+        state.users.insert(user.user_id.clone(), user);
+    }
+    Ok(())
+}
+
+async fn persist_users(state: &AppState) -> Result<()> {
+    let _guard = state.user_store_write.lock().await;
+    let path = FsPath::new(state.user_store_path.as_str());
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    let users: Vec<UserRecord> = state.users.iter().map(|entry| entry.clone()).collect();
+    let payload = serde_json::to_string_pretty(&users)?;
+    tokio::fs::write(path, payload).await?;
+    Ok(())
+}
+
+fn normalize_username(raw: &str) -> String {
+    raw.trim().to_lowercase()
+}
+
+fn error_response(status: StatusCode, message: &str) -> Response {
+    (status, Json(ErrorResponse { message: message.to_string() })).into_response()
+}
+
 fn validate_viewer(state: &AppState, device_id: &str, token: &str) -> bool {
     let Some(mut session) = state.viewer_sessions.get_mut(token) else {
         return false;
@@ -689,6 +954,16 @@ fn cleanup_expired(state: AppState) {
         .collect();
     for token in stale_sessions {
         state.viewer_sessions.remove(&token);
+    }
+
+    let stale_auth_sessions: Vec<String> = state
+        .auth_sessions
+        .iter()
+        .filter(|entry| now.saturating_sub(entry.last_seen_ms) > AUTH_SESSION_TTL_MS)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for token in stale_auth_sessions {
+        state.auth_sessions.remove(&token);
     }
 
     let queue_ids: Vec<String> = state

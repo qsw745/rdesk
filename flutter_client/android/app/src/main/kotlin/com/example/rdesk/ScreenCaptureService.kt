@@ -19,8 +19,11 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
 import java.io.ByteArrayOutputStream
+import kotlin.math.roundToInt
 
 class ScreenCaptureService : Service() {
+    private val maxFrameWidthPx = 1280
+    private val jpegQuality = 65
     private var mediaProjection: MediaProjection? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -113,13 +116,27 @@ class ScreenCaptureService : Service() {
                     val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
                     bitmap.recycle()
 
+                    val scale =
+                        minOf(1.0, maxFrameWidthPx.toDouble() / width.toDouble())
+                    val outputWidth = (width * scale).roundToInt().coerceAtLeast(1)
+                    val outputHeight = (height * scale).roundToInt().coerceAtLeast(1)
+                    val encoded =
+                        if (outputWidth == width && outputHeight == height) {
+                            cropped
+                        } else {
+                            Bitmap.createScaledBitmap(cropped, outputWidth, outputHeight, true)
+                        }
+                    if (encoded !== cropped) {
+                        cropped.recycle()
+                    }
+
                     val stream = ByteArrayOutputStream()
-                    cropped.compress(Bitmap.CompressFormat.JPEG, 72, stream)
-                    cropped.recycle()
+                    encoded.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)
+                    encoded.recycle()
 
                     ScreenCaptureStore.latestFrame = stream.toByteArray()
-                    ScreenCaptureStore.latestFrameWidth = width
-                    ScreenCaptureStore.latestFrameHeight = height
+                    ScreenCaptureStore.latestFrameWidth = outputWidth
+                    ScreenCaptureStore.latestFrameHeight = outputHeight
                     ScreenCaptureStore.latestFrameTimestampMs = System.currentTimeMillis()
                     ScreenCaptureStore.state = ScreenCaptureState.RUNNING
                 } catch (_: Throwable) {

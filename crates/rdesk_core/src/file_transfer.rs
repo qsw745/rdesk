@@ -21,7 +21,11 @@ pub async fn list_directory(path: &str) -> Result<Vec<FileEntry>> {
         .with_context(|| format!("failed to read directory: {path}"))?;
     let mut out = Vec::new();
 
-    while let Some(entry) = entries.next_entry().await.context("failed to read directory entry")? {
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .context("failed to read directory entry")?
+    {
         let metadata = entry
             .metadata()
             .await
@@ -83,9 +87,8 @@ pub async fn receive_file(session_id: &str, remote_path: &str, local_path: &str)
         }
     }
 
-    let placeholder = format!(
-        "rdesk stub download\nsession={session_id}\nremote_path={remote_path}\n"
-    );
+    let placeholder =
+        format!("rdesk stub download\nsession={session_id}\nremote_path={remote_path}\n");
     tokio::fs::write(local_path, placeholder)
         .await
         .with_context(|| format!("failed to write placeholder file: {local_path}"))?;

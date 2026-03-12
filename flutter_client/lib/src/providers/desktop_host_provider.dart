@@ -462,6 +462,7 @@ class DesktopHostProvider extends ChangeNotifier {
     final password = await _bridge.getActiveAccessPassword();
     final settings = await _bridge.loadSettings();
     final trustedViewerIds = await _bridge.listTrustedIncomingViewerIds();
+    final authToken = await _bridge.getAccountToken();
 
     final hostToken = await _bridge.registerPreviewHost(
       deviceId: device.deviceId,
@@ -471,6 +472,7 @@ class DesktopHostProvider extends ChangeNotifier {
       password: password,
       autoAccept: settings.autoAccept,
       trustedViewerIds: trustedViewerIds,
+      authToken: authToken,
     );
     if (hostToken != null && hostToken.isNotEmpty) {
       _relayHostToken = hostToken;

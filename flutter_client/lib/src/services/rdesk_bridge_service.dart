@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/account.dart';
 import '../models/chat_message.dart';
 import '../models/connection_info.dart';
 import '../models/device.dart';
@@ -89,6 +90,9 @@ class RdeskBridgeService {
   RdeskBridgeService._();
 
   static final RdeskBridgeService instance = RdeskBridgeService._();
+  static const _healthyFramePollDelayMs = 50;
+  static const _recoveringFramePollDelayMs = 150;
+  static const _offlineFramePollDelayMs = 400;
   static const _deviceIdKey = 'rdesk.device_id';
   static const _tempPasswordKey = 'rdesk.temp_password';
   static const _connectionsKey = 'rdesk.connection_logs';
@@ -101,6 +105,10 @@ class RdeskBridgeService {
   static const _permanentPasswordKey = 'rdesk.permanent_password';
   static const _trustedPeersKey = 'rdesk.trusted_peers';
   static const _trustedIncomingViewersKey = 'rdesk.trusted_incoming_viewers';
+  static const _accountTokenKey = 'rdesk.account_token';
+  static const _accountUserIdKey = 'rdesk.account_user_id';
+  static const _accountUsernameKey = 'rdesk.account_username';
+  static const _accountDisplayNameKey = 'rdesk.account_display_name';
   static const _chatPrefix = 'rdesk.chat.';
   final Map<String, Uri> _sessionPreviewEndpoints = <String, Uri>{};
   final Set<String> _terminatedSessions = <String>{};
@@ -226,6 +234,11 @@ class RdeskBridgeService {
   }) async* {
     int consecutiveErrors = 0;
     for (var tick = 0; true; tick++) {
+      if (_terminatedSessions.contains(sessionId)) {
+        yield null;
+        return;
+      }
+
       final endpoint = _sessionPreviewEndpoints[sessionId];
       final remoteFrame = await _fetchRemotePreviewFrame(
         sessionId,
@@ -234,8 +247,7 @@ class RdeskBridgeService {
       if (remoteFrame != null) {
         consecutiveErrors = 0;
         yield remoteFrame;
-      } else if (_terminatedSessions.contains(sessionId) ||
-          _sessionPreviewEndpoints.containsKey(sessionId)) {
+      } else if (_sessionPreviewEndpoints.containsKey(sessionId)) {
         consecutiveErrors++;
         yield null;
       } else {
@@ -247,17 +259,17 @@ class RdeskBridgeService {
       }
       // Adaptive polling: fast when healthy, back off on errors
       final delayMs = consecutiveErrors > 5
-          ? 500
+          ? _offlineFramePollDelayMs
           : consecutiveErrors > 0
-              ? 200
-              : 100; // ~10fps when healthy
+              ? _recoveringFramePollDelayMs
+              : _healthyFramePollDelayMs;
       await Future<void>.delayed(Duration(milliseconds: delayMs));
     }
   }
 
   Future<void> disconnect(String sessionId) async {
+    _terminatedSessions.add(sessionId);
     _sessionPreviewEndpoints.remove(sessionId);
-    _terminatedSessions.remove(sessionId);
     closePersistentClients();
   }
 
@@ -535,6 +547,97 @@ class RdeskBridgeService {
     return getTemporaryPassword();
   }
 
+  Future<AccountSession?> getSavedAccountSession() async {
+    final prefs = await _prefs;
+    final token = prefs.getString(_accountTokenKey);
+    final userId = prefs.getString(_accountUserIdKey);
+    final username = prefs.getString(_accountUsernameKey);
+    if (token == null || userId == null || username == null) {
+      return null;
+    }
+    return AccountSession(
+      token: token,
+      userId: userId,
+      username: username,
+      displayName: prefs.getString(_accountDisplayNameKey) ?? username,
+    );
+  }
+
+  Future<void> saveAccountSession(AccountSession session) async {
+    final prefs = await _prefs;
+    await prefs.setString(_accountTokenKey, session.token);
+    await prefs.setString(_accountUserIdKey, session.userId);
+    await prefs.setString(_accountUsernameKey, session.username);
+    await prefs.setString(_accountDisplayNameKey, session.displayName);
+  }
+
+  Future<void> clearSavedAccountSession() async {
+    final prefs = await _prefs;
+    await prefs.remove(_accountTokenKey);
+    await prefs.remove(_accountUserIdKey);
+    await prefs.remove(_accountUsernameKey);
+    await prefs.remove(_accountDisplayNameKey);
+  }
+
+  Future<String?> getAccountToken() async {
+    final session = await getSavedAccountSession();
+    return session?.token;
+  }
+
+  Future<AccountSession> registerAccount({
+    required String username,
+    required String password,
+    String? displayName,
+  }) async {
+    final payload = await _postJson(
+      path: '/api/account/register',
+      body: <String, Object?>{
+        'username': username.trim(),
+        'password': password,
+        'display_name': displayName?.trim(),
+      },
+    );
+    return _parseAccountSession(payload);
+  }
+
+  Future<AccountSession> loginAccount({
+    required String username,
+    required String password,
+  }) async {
+    final payload = await _postJson(
+      path: '/api/account/login',
+      body: <String, Object?>{
+        'username': username.trim(),
+        'password': password,
+      },
+    );
+    return _parseAccountSession(payload);
+  }
+
+  Future<List<AccountDevice>> listAccountDevices() async {
+    final session = await getSavedAccountSession();
+    if (session == null) {
+      return const [];
+    }
+    final payload = await _getJson(
+      path: '/api/account/devices',
+      bearerToken: session.token,
+    );
+    final devices = (payload['devices'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+    return devices
+        .map(
+          (item) => AccountDevice(
+            deviceId: item['device_id'] as String? ?? '',
+            hostname: item['hostname'] as String? ?? '未命名设备',
+            platform: item['platform'] as String? ?? 'unknown',
+            updatedAtMs: (item['updated_at_ms'] as num?)?.toInt() ?? 0,
+          ),
+        )
+        .where((item) => item.deviceId.isNotEmpty)
+        .toList();
+  }
+
   Future<List<ChatMessage>> listChatMessages(String sessionId) async {
     final prefs = await _prefs;
     final raw = prefs.getString('$_chatPrefix$sessionId');
@@ -636,6 +739,7 @@ class RdeskBridgeService {
     required String password,
     required bool autoAccept,
     required List<String> trustedViewerIds,
+    String? authToken,
   }) async {
     final settings = await loadSettings();
     final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
@@ -646,7 +750,7 @@ class RdeskBridgeService {
           await client.postUrl(apiBase.replace(path: '/api/preview/register'));
       request.headers.contentType = ContentType.json;
       request.write(
-        jsonEncode(<String, Object>{
+        jsonEncode(<String, Object?>{
           'device_id': deviceId,
           'endpoint': endpoint,
           'platform': platform,
@@ -654,6 +758,7 @@ class RdeskBridgeService {
           'password_hash': _hashAccessSecret(password),
           'auto_accept': autoAccept,
           'trusted_viewers': trustedViewerIds,
+          'auth_token': authToken,
         }),
       );
       final response = await request.close();
@@ -1087,6 +1192,91 @@ class RdeskBridgeService {
     return endpoint.startsWith('http://') || endpoint.startsWith('https://')
         ? Uri.parse(endpoint)
         : Uri.parse('http://$endpoint');
+  }
+
+  Future<Map<String, dynamic>> _postJson({
+    required String path,
+    required Map<String, Object?> body,
+    String? bearerToken,
+  }) async {
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+
+    try {
+      final request = await client.postUrl(apiBase.replace(path: path));
+      request.headers.contentType = ContentType.json;
+      if (bearerToken != null && bearerToken.isNotEmpty) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');
+      }
+      request.write(jsonEncode(body));
+      final response = await request.close();
+      final raw = await utf8.decoder.bind(response).join();
+      if (response.statusCode != HttpStatus.ok) {
+        throw Exception(_extractApiMessage(raw, fallback: '请求失败'));
+      }
+      if (raw.isEmpty) {
+        return const <String, dynamic>{};
+      }
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<Map<String, dynamic>> _getJson({
+    required String path,
+    String? bearerToken,
+  }) async {
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+
+    try {
+      final request = await client.getUrl(apiBase.replace(path: path));
+      if (bearerToken != null && bearerToken.isNotEmpty) {
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');
+      }
+      final response = await request.close();
+      final raw = await utf8.decoder.bind(response).join();
+      if (response.statusCode != HttpStatus.ok) {
+        throw Exception(_extractApiMessage(raw, fallback: '请求失败'));
+      }
+      if (raw.isEmpty) {
+        return const <String, dynamic>{};
+      }
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  AccountSession _parseAccountSession(Map<String, dynamic> payload) {
+    final token = payload['token'] as String? ?? '';
+    final userId = payload['user_id'] as String? ?? '';
+    final username = payload['username'] as String? ?? '';
+    final displayName = payload['display_name'] as String? ?? username;
+    if (token.isEmpty || userId.isEmpty || username.isEmpty) {
+      throw Exception('账号响应不完整');
+    }
+    return AccountSession(
+      token: token,
+      userId: userId,
+      username: username,
+      displayName: displayName,
+    );
+  }
+
+  String _extractApiMessage(String raw, {required String fallback}) {
+    if (raw.isEmpty) {
+      return fallback;
+    }
+    try {
+      final payload = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      return payload['message'] as String? ?? fallback;
+    } catch (_) {
+      return fallback;
+    }
   }
 
   Future<PreviewResolveResult> _resolvePreviewEndpoint(

@@ -122,9 +122,8 @@ pub fn load_keypair(path: &Path) -> Result<KeyPair> {
 
 /// Decode a hex string into a fixed-size 32-byte array.
 fn decode_hex_key(hex_str: &str, label: &str) -> Result<[u8; 32]> {
-    let bytes = hex::decode(hex_str).map_err(|e| {
-        CryptoError::InvalidKey(format!("invalid hex in {label} key: {e}"))
-    })?;
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| CryptoError::InvalidKey(format!("invalid hex in {label} key: {e}")))?;
     let arr: [u8; 32] = bytes.try_into().map_err(|v: Vec<u8>| {
         CryptoError::InvalidKey(format!(
             "{label} key has wrong length: expected 32, got {}",
@@ -140,11 +139,7 @@ fn decode_hex_key(hex_str: &str, label: &str) -> Result<[u8; 32]> {
 mod hex {
     /// Encode bytes as a lowercase hex string.
     pub fn encode(bytes: impl AsRef<[u8]>) -> String {
-        bytes
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect()
+        bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
     }
 
     /// Decode a hex string into bytes.

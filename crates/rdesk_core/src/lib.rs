@@ -10,9 +10,9 @@
 
 pub mod capture;
 pub mod chat;
+pub mod client;
 pub mod clipboard;
 pub mod codec;
-pub mod client;
 pub mod file_transfer;
 pub mod input;
 pub mod server;

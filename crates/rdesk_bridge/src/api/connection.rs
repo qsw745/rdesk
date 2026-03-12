@@ -22,9 +22,7 @@ pub fn get_device_id() -> String {
         Err(e) => {
             tracing::error!("failed to get device ID: {e:#}");
             // Return the ID from config as a fallback.
-            AppConfig::load()
-                .map(|c| c.device_id)
-                .unwrap_or_default()
+            AppConfig::load().map(|c| c.device_id).unwrap_or_default()
         }
     }
 }
@@ -51,8 +49,7 @@ pub fn set_permanent_password(password_value: String) -> Result<()> {
         config.permanent_password = None;
         info!("permanent password cleared");
     } else {
-        let hash =
-            password::hash_password(&password_value).context("failed to hash password")?;
+        let hash = password::hash_password(&password_value).context("failed to hash password")?;
         config.permanent_password = Some(hash);
         info!("permanent password updated");
     }
@@ -96,7 +93,8 @@ pub async fn disconnect(session_id: String) -> Result<()> {
     info!(session_id = %session_id, "disconnecting session");
 
     let Some(client) = crate::state::remove_client(&session_id)
-        .context("failed to access bridge session registry")? else {
+        .context("failed to access bridge session registry")?
+    else {
         anyhow::bail!("session not found: {}", session_id);
     };
 

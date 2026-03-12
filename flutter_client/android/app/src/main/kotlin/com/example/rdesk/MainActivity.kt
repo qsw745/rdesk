@@ -12,7 +12,6 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.core.app.NotificationManagerCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -103,18 +102,7 @@ class MainActivity : FlutterActivity() {
         val y = call.argument<Double>("y") ?: 0.0
         val dispatched =
             RdeskAccessibilityService.instance?.performTap(x, y) ?: false
-        runOnUiThread {
-            Toast.makeText(
-                this,
-                if (dispatched) {
-                    "已执行远程点击 ${(x * 100).toInt()}%, ${(y * 100).toInt()}%"
-                } else {
-                    "收到远程点击 ${(x * 100).toInt()}%, ${(y * 100).toInt()}%（未启用无障碍）"
-                },
-                Toast.LENGTH_SHORT,
-            ).show()
-        }
-        result.success(null)
+        result.success(dispatched)
     }
 
     private fun openAccessibilitySettings(result: MethodChannel.Result) {
@@ -173,15 +161,6 @@ class MainActivity : FlutterActivity() {
     private fun performRemoteAction(call: MethodCall, result: MethodChannel.Result) {
         val action = call.argument<String>("action") ?: ""
         val performed = RdeskAccessibilityService.instance?.performAction(action) ?: false
-        if (!performed) {
-            runOnUiThread {
-                Toast.makeText(
-                    this,
-                    "未执行动作 $action（请确认已启用无障碍控制）",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
         result.success(performed)
     }
 
@@ -189,15 +168,6 @@ class MainActivity : FlutterActivity() {
         val x = call.argument<Double>("x") ?: 0.0
         val y = call.argument<Double>("y") ?: 0.0
         val performed = RdeskAccessibilityService.instance?.performLongPress(x, y) ?: false
-        if (!performed) {
-            runOnUiThread {
-                Toast.makeText(
-                    this,
-                    "未执行长按（请确认已启用无障碍控制）",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
         result.success(performed)
     }
 
@@ -208,30 +178,12 @@ class MainActivity : FlutterActivity() {
         val endY = call.argument<Double>("endY") ?: 0.0
         val performed =
             RdeskAccessibilityService.instance?.performDrag(startX, startY, endX, endY) ?: false
-        if (!performed) {
-            runOnUiThread {
-                Toast.makeText(
-                    this,
-                    "未执行拖拽（请确认已启用无障碍控制）",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
         result.success(performed)
     }
 
     private fun performRemoteTextInput(call: MethodCall, result: MethodChannel.Result) {
         val text = call.argument<String>("text") ?: ""
         val performed = RdeskAccessibilityService.instance?.performTextInput(text) ?: false
-        if (!performed) {
-            runOnUiThread {
-                Toast.makeText(
-                    this,
-                    "未写入文本（请先让 Android 输入框获得焦点并启用无障碍控制）",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        }
         result.success(performed)
     }
 

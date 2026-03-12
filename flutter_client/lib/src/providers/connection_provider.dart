@@ -22,9 +22,15 @@ class ConnectionProvider extends ChangeNotifier {
   String? get pendingQuickConnectPeerId => _pendingQuickConnectPeerId;
 
   Future<void> initialize() async {
-    _localDevice = await _bridge.getLocalDeviceInfo();
-    _temporaryPassword = await _bridge.getTemporaryPassword();
-    _recentConnections = await _bridge.listConnectionHistory();
+    try {
+      _localDevice = await _bridge.getLocalDeviceInfo();
+      _temporaryPassword = await _bridge.getTemporaryPassword();
+      _recentConnections = await _bridge.listConnectionHistory();
+      _errorMessage = null;
+    } catch (e) {
+      _connectionState = SessionState.error;
+      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+    }
     notifyListeners();
   }
 

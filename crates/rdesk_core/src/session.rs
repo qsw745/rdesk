@@ -6,7 +6,7 @@
 //! (capture, codec, input, clipboard, etc.) and coordinates their operation.
 
 use std::sync::Arc;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{watch, Mutex};
 use tracing::{info, warn};
 
 use crate::capture::ScreenCapturer;

@@ -70,8 +70,8 @@ impl VideoDecoder for RawDecoder {
         let width = u32::from_be_bytes(data[0..4].try_into().unwrap());
         let height = u32::from_be_bytes(data[4..8].try_into().unwrap());
         let payload = &data[HEADER_LEN..];
-        let pixels = decompress_size_prepended(payload)
-            .context("failed to decompress raw frame payload")?;
+        let pixels =
+            decompress_size_prepended(payload).context("failed to decompress raw frame payload")?;
 
         Ok(DecodedFrame {
             width,

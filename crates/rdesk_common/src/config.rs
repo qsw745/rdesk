@@ -40,11 +40,11 @@ pub struct AppConfig {
 }
 
 fn default_signaling_server() -> String {
-    "rs.rdesk.com:21116".to_string()
+    "qisw.top".to_string()
 }
 
 fn default_relay_server() -> String {
-    "rs.rdesk.com:21117".to_string()
+    "qisw.top".to_string()
 }
 
 impl Default for AppConfig {
@@ -66,8 +66,9 @@ impl AppConfig {
             .context("failed to determine config directory")?;
         let config_dir = dirs.config_dir().to_path_buf();
         if !config_dir.exists() {
-            fs::create_dir_all(&config_dir)
-                .with_context(|| format!("failed to create config dir: {}", config_dir.display()))?;
+            fs::create_dir_all(&config_dir).with_context(|| {
+                format!("failed to create config dir: {}", config_dir.display())
+            })?;
         }
         Ok(config_dir)
     }
@@ -101,8 +102,7 @@ impl AppConfig {
     /// Persist the current configuration to disk.
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
-        let data = serde_json::to_string_pretty(self)
-            .context("failed to serialise config")?;
+        let data = serde_json::to_string_pretty(self).context("failed to serialise config")?;
         fs::write(&path, data)
             .with_context(|| format!("failed to write config file: {}", path.display()))?;
         Ok(())

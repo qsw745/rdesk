@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use rdesk_common::config::AppConfig;
 

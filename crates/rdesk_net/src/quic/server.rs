@@ -35,7 +35,8 @@ impl QuicServer {
             .context("failed to generate self-signed certificate")?;
 
         let cert_der = CertificateDer::from(cert_key.cert);
-        let key_der = rustls::pki_types::PrivatePkcs8KeyDer::from(cert_key.key_pair.serialize_der());
+        let key_der =
+            rustls::pki_types::PrivatePkcs8KeyDer::from(cert_key.key_pair.serialize_der());
 
         // Build rustls server config.
         let mut rustls_config = rustls::ServerConfig::builder_with_provider(Arc::new(
@@ -49,8 +50,8 @@ impl QuicServer {
 
         rustls_config.alpn_protocols = vec![b"rdesk".to_vec()];
 
-        let quic_server_config =
-            QuicServerConfig::try_from(rustls_config).context("failed to create QuicServerConfig")?;
+        let quic_server_config = QuicServerConfig::try_from(rustls_config)
+            .context("failed to create QuicServerConfig")?;
 
         let mut transport = quinn::TransportConfig::default();
         transport.max_idle_timeout(Some(
@@ -83,9 +84,7 @@ impl QuicServer {
             .await
             .ok_or_else(|| anyhow::anyhow!("QUIC endpoint closed"))?;
 
-        let connection = incoming
-            .await
-            .context("failed to accept QUIC connection")?;
+        let connection = incoming.await.context("failed to accept QUIC connection")?;
 
         info!(
             remote = %connection.remote_address(),

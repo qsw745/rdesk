@@ -129,10 +129,7 @@ fn build_binding_request(transaction_id: &[u8; 12]) -> Vec<u8> {
 }
 
 /// Parse a STUN Binding Response and extract the mapped address.
-fn parse_binding_response(
-    data: &[u8],
-    expected_txn_id: &[u8; 12],
-) -> Result<SocketAddr> {
+fn parse_binding_response(data: &[u8], expected_txn_id: &[u8; 12]) -> Result<SocketAddr> {
     if data.len() < STUN_HEADER_SIZE {
         return Err(anyhow!("STUN response too short: {} bytes", data.len()));
     }
@@ -140,10 +137,7 @@ fn parse_binding_response(
     // Verify message type.
     let msg_type = u16::from_be_bytes([data[0], data[1]]);
     if msg_type != BINDING_RESPONSE {
-        return Err(anyhow!(
-            "unexpected STUN message type: 0x{:04x}",
-            msg_type
-        ));
+        return Err(anyhow!("unexpected STUN message type: 0x{:04x}", msg_type));
     }
 
     // Verify magic cookie.
@@ -192,7 +186,11 @@ fn parse_binding_response(
                 }
             }
             _ => {
-                trace!(attr_type = attr_type, attr_len = attr_len, "skipping unknown STUN attribute");
+                trace!(
+                    attr_type = attr_type,
+                    attr_len = attr_len,
+                    "skipping unknown STUN attribute"
+                );
             }
         }
 

@@ -4,8 +4,8 @@ import '../services/rdesk_bridge_service.dart';
 
 class SettingsProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
-  String _signalingServer = 'rs.rdesk.com:21116';
-  String _relayServer = 'rs.rdesk.com:21117';
+  String _signalingServer = 'qisw.top';
+  String _relayServer = 'qisw.top';
   bool _autoAccept = false;
   bool _autoClipboardSync = false;
   bool _rememberTrustedPeers = true;
@@ -26,16 +26,21 @@ class SettingsProvider extends ChangeNotifier {
       List.unmodifiable(_trustedIncomingViewers);
 
   Future<void> loadSettings() async {
-    final settings = await _bridge.loadSettings();
-    _signalingServer = settings.signalingServer;
-    _relayServer = settings.relayServer;
-    _autoAccept = settings.autoAccept;
-    _autoClipboardSync = settings.autoClipboardSync;
-    _rememberTrustedPeers = settings.rememberTrustedPeers;
-    _theme = settings.theme;
-    _permanentPassword = settings.permanentPassword;
-    _trustedPeers = await _bridge.listTrustedPeers();
-    _trustedIncomingViewers = await _bridge.listTrustedIncomingViewers();
+    try {
+      final settings = await _bridge.loadSettings();
+      _signalingServer = settings.signalingServer;
+      _relayServer = settings.relayServer;
+      _autoAccept = settings.autoAccept;
+      _autoClipboardSync = settings.autoClipboardSync;
+      _rememberTrustedPeers = settings.rememberTrustedPeers;
+      _theme = settings.theme;
+      _permanentPassword = settings.permanentPassword;
+      _trustedPeers = await _bridge.listTrustedPeers();
+      _trustedIncomingViewers = await _bridge.listTrustedIncomingViewers();
+    } catch (_) {
+      _trustedPeers = [];
+      _trustedIncomingViewers = [];
+    }
     notifyListeners();
   }
 

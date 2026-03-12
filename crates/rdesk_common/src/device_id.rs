@@ -46,8 +46,8 @@ pub fn validate_device_id(id: &str) -> bool {
 
 /// Return the path to the persisted device ID file.
 fn device_id_path() -> Result<PathBuf> {
-    let dirs = ProjectDirs::from("com", "rdesk", "rdesk")
-        .context("failed to determine data directory")?;
+    let dirs =
+        ProjectDirs::from("com", "rdesk", "rdesk").context("failed to determine data directory")?;
     let data_dir = dirs.data_dir().to_path_buf();
     if !data_dir.exists() {
         fs::create_dir_all(&data_dir)

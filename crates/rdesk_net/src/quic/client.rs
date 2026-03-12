@@ -40,7 +40,8 @@ impl QuicClient {
             .context("failed to generate self-signed certificate")?;
 
         let cert_der = CertificateDer::from(cert_key.cert);
-        let key_der = rustls::pki_types::PrivatePkcs8KeyDer::from(cert_key.key_pair.serialize_der());
+        let key_der =
+            rustls::pki_types::PrivatePkcs8KeyDer::from(cert_key.key_pair.serialize_der());
 
         // Build rustls client config that accepts any server certificate.
         let mut rustls_config = rustls::ClientConfig::builder_with_provider(Arc::new(
@@ -55,8 +56,8 @@ impl QuicClient {
 
         rustls_config.alpn_protocols = vec![b"rdesk".to_vec()];
 
-        let quic_client_config =
-            QuicClientConfig::try_from(rustls_config).context("failed to create QuicClientConfig")?;
+        let quic_client_config = QuicClientConfig::try_from(rustls_config)
+            .context("failed to create QuicClientConfig")?;
 
         let mut transport = quinn::TransportConfig::default();
         transport.max_idle_timeout(Some(
@@ -88,9 +89,7 @@ impl QuicClient {
             .connect(addr, "rdesk")
             .context("failed to initiate QUIC connection")?;
 
-        let connection = connecting
-            .await
-            .context("QUIC handshake failed")?;
+        let connection = connecting.await.context("QUIC handshake failed")?;
 
         info!(
             remote = %connection.remote_address(),

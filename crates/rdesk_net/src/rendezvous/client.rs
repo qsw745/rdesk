@@ -36,7 +36,11 @@ impl RendezvousClient {
         })
     }
 
-    pub async fn punch_hole(&mut self, _device_id: &str, _token: &str) -> Result<PunchHoleResponse> {
+    pub async fn punch_hole(
+        &mut self,
+        _device_id: &str,
+        _token: &str,
+    ) -> Result<PunchHoleResponse> {
         Ok(PunchHoleResponse {
             socket_addr: Vec::new(),
             nat_type: 0,
