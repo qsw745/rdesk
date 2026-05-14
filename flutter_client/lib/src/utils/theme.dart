@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class AppTheme {
   static const Color primaryBlue = Color(0xFF2196F3);
@@ -11,6 +12,20 @@ class AppTheme {
   static const Color surfaceDark = Color(0xFF121218);
   static const Color textDark = Color(0xFF0F172A);
   static const Color textMuted = Color(0xFF64748B);
+
+  static const SystemUiOverlayStyle lightStatusBarStyle = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemStatusBarContrastEnforced: false,
+  );
+
+  static const SystemUiOverlayStyle darkStatusBarStyle = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    statusBarBrightness: Brightness.dark,
+    systemStatusBarContrastEnforced: false,
+  );
 
   static const LinearGradient brandGradient = LinearGradient(
     colors: [Color(0xFF42A5F5), Color(0xFF1976D2)],
@@ -47,6 +62,7 @@ class AppTheme {
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0.5,
+        systemOverlayStyle: lightStatusBarStyle,
         titleTextStyle: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w700,
@@ -141,6 +157,7 @@ class AppTheme {
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0.5,
+        systemOverlayStyle: darkStatusBarStyle,
         titleTextStyle: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w700,
