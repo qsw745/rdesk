@@ -1,4 +1,4 @@
-package com.example.rdesk
+package com.qsw.rdesk
 
 import android.app.Activity
 import android.app.KeyguardManager
@@ -28,7 +28,7 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.example.rdesk/android_host",
+            "com.qsw.rdesk/android_host",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getScreenCaptureState" -> result.success(ScreenCaptureStore.toMap())
@@ -39,6 +39,7 @@ class MainActivity : FlutterActivity() {
                 "showRemoteTapIndicator" -> showRemoteTapIndicator(call, result)
                 "performRemoteLongPress" -> performRemoteLongPress(call, result)
                 "performRemoteDrag" -> performRemoteDrag(call, result)
+                "performRemoteDragPath" -> performRemoteDragPath(call, result)
                 "performRemoteTextInput" -> performRemoteTextInput(call, result)
                 "setClipboardText" -> setClipboardText(call, result)
                 "getClipboardText" -> getClipboardText(result)
@@ -178,6 +179,16 @@ class MainActivity : FlutterActivity() {
         val endY = call.argument<Double>("endY") ?: 0.0
         val performed =
             RdeskAccessibilityService.instance?.performDrag(startX, startY, endX, endY) ?: false
+        result.success(performed)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun performRemoteDragPath(call: MethodCall, result: MethodChannel.Result) {
+        val rawPoints = call.argument<List<List<Double>>>("points") ?: emptyList()
+        val durationMs = call.argument<Long>("durationMs") ?: 0L
+        val points = rawPoints.map { Pair(it[0], it[1]) }
+        val performed =
+            RdeskAccessibilityService.instance?.performDragPath(points, durationMs) ?: false
         result.success(performed)
     }
 

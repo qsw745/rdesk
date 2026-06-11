@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/android_host_provider.dart';
+import '../providers/desktop_host_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/theme.dart';
 
@@ -14,7 +17,6 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('设置'),
-        automaticallyImplyLeading: false,
       ),
       body: Consumer<SettingsProvider>(
         builder: (context, settings, _) {
@@ -79,6 +81,24 @@ class SettingsScreen extends StatelessWidget {
                       subtitle: '保存最近成功连接的设备密码，用于快捷重连',
                       value: settings.rememberTrustedPeers,
                       onChanged: settings.setRememberTrustedPeers,
+                    ),
+                    _divider(isDark),
+                    _SwitchTile(
+                      icon: Icons.screen_lock_portrait_rounded,
+                      iconColor: AppTheme.errorRed,
+                      title: '断开后自动锁屏',
+                      subtitle: '远控连接断开后自动锁定被控端屏幕',
+                      value: settings.lockAfterDisconnect,
+                      onChanged: settings.setLockAfterDisconnect,
+                    ),
+                    _divider(isDark),
+                    _SwitchTile(
+                      icon: Icons.settings_remote_rounded,
+                      iconColor: AppTheme.primaryBlue,
+                      title: '无人值守模式',
+                      subtitle: '开启后设备保持在线，允许通过永久密码直接连接',
+                      value: settings.unattendedMode,
+                      onChanged: settings.setUnattendedMode,
                     ),
                   ],
                 ),
@@ -328,12 +348,14 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
 
-              // Android host section
+              // Mobile host section (Android & iOS)
               if (!kIsWeb &&
-                  defaultTargetPlatform == TargetPlatform.android) ...[
+                  (defaultTargetPlatform == TargetPlatform.android ||
+                      (!kIsWeb && Platform.isIOS))) ...[
                 const SizedBox(height: 24),
                 _SectionHeader(
-                    icon: Icons.cast_connected_rounded, label: '安卓被控端'),
+                    icon: Icons.cast_connected_rounded,
+                    label: Platform.isIOS ? 'iOS 被控端' : '安卓被控端'),
                 const SizedBox(height: 10),
                 Consumer<AndroidHostProvider>(
                   builder: (context, host, _) {
@@ -342,6 +364,25 @@ class SettingsScreen extends StatelessWidget {
                       isDark: isDark,
                       onDisconnect: () =>
                           _confirmDisconnectViewers(context, host),
+                    );
+                  },
+                ),
+              ],
+
+              // Desktop host section (macOS / Windows / Linux)
+              if (!kIsWeb &&
+                  (Platform.isMacOS ||
+                      Platform.isWindows ||
+                      Platform.isLinux)) ...[
+                const SizedBox(height: 24),
+                const _SectionHeader(
+                    icon: Icons.desktop_windows_rounded, label: '桌面被控端'),
+                const SizedBox(height: 10),
+                Consumer<DesktopHostProvider>(
+                  builder: (context, host, _) {
+                    return _DesktopHostCard(
+                      host: host,
+                      isDark: isDark,
                     );
                   },
                 ),
@@ -360,7 +401,7 @@ class SettingsScreen extends StatelessWidget {
                         color: Colors.grey,
                       ),
                       title: const Text('版本', style: TextStyle(fontSize: 14)),
-                      subtitle: Text('0.1.0',
+                      subtitle: Text('2.1.0',
                           style: TextStyle(
                               color: Colors.grey.shade500, fontSize: 12)),
                     ),
@@ -836,7 +877,7 @@ class _AndroidHostCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '安卓守护模式',
+                        Platform.isIOS ? 'iOS 被控模式' : '安卓守护模式',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w700,
                             ),
@@ -855,7 +896,9 @@ class _AndroidHostCard extends StatelessWidget {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              '$stateText · ${host.state.accessibilityEnabled ? "无障碍已开启" : "无障碍未开启"}',
+                              Platform.isIOS
+                                  ? stateText
+                                  : '$stateText · ${host.state.accessibilityEnabled ? "无障碍已开启" : "无障碍未开启"}',
                               style: TextStyle(
                                   fontSize: 12, color: Colors.grey.shade500),
                             ),
@@ -886,10 +929,12 @@ class _AndroidHostCard extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                     value: host.guardModeEnabled,
                     onChanged: host.busy ? null : host.setGuardModeEnabled,
-                    title: const Text('保持安卓随时待控'),
+                    title: Text(Platform.isIOS ? '保持 iOS 随时待控' : '保持安卓随时待控'),
                     subtitle: Text(
                       host.guardModeEnabled
-                          ? '已启用：进入 App 时会尽量自动恢复前台服务并保持在线。'
+                          ? Platform.isIOS
+                              ? '已启用：进入 App 时会尝试恢复屏幕广播并保持在线。'
+                              : '已启用：进入 App 时会尽量自动恢复前台服务并保持在线。'
                           : '关闭后将只保留手动启动的被控端服务。',
                       style:
                           TextStyle(fontSize: 12, color: Colors.grey.shade600),
@@ -897,7 +942,9 @@ class _AndroidHostCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '一次性完成下面清单后，iPhone 端发起远控会更顺畅；但 Android 录屏授权在重启、系统回收或权限失效后，仍可能需要你再确认一次。',
+                    Platform.isIOS
+                        ? 'iOS 使用 ReplayKit 广播扩展录屏。启动被控后需在系统弹窗中确认开始广播，之后远端设备即可看到画面。'
+                        : '一次性完成下面清单后，iPhone 端发起远控会更顺畅；但 Android 录屏授权在重启、系统回收或权限失效后，仍可能需要你再确认一次。',
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.5,
@@ -907,99 +954,139 @@ class _AndroidHostCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-            _ChecklistTile(
-              label: '录屏权限',
-              description: host.state.hasPermission
-                  ? '已授予；守护模式可直接恢复前台服务。'
-                  : '首次必须手动确认系统录屏弹窗。',
-              done: host.state.hasPermission,
-              actionLabel: '去授权',
-              onPressed: host.busy ? null : host.requestPermission,
-            ),
-            const SizedBox(height: 10),
-            _ChecklistTile(
-              label: '无障碍控制',
-              description: host.state.accessibilityEnabled
-                  ? '已开启；远程点击、返回、拖拽、文本输入可下发到系统界面。'
-                  : '未开启时只能看屏幕，无法稳定控制系统 UI。',
-              done: host.state.accessibilityEnabled,
-              actionLabel: '去开启',
-              onPressed: host.openAccessibilitySettings,
-            ),
-            const SizedBox(height: 10),
-            _ChecklistTile(
-              label: '悬浮窗 / Overlay',
-              description: host.state.overlayEnabled
-                  ? '已允许；便于后续扩展远控提示与状态浮层。'
-                  : '建议开启，避免后续提示被系统拦截。',
-              done: host.state.overlayEnabled,
-              actionLabel: '去设置',
-              onPressed: host.openOverlaySettings,
-            ),
-            const SizedBox(height: 10),
-            _ChecklistTile(
-              label: '通知权限',
-              description: host.state.notificationsEnabled
-                  ? '已允许；前台服务通知更稳定。'
-                  : '建议开启，否则系统可能限制前台服务可见性。',
-              done: host.state.notificationsEnabled,
-              actionLabel: '去设置',
-              onPressed: host.openNotificationSettings,
-            ),
-            const SizedBox(height: 10),
-            _ChecklistTile(
-              label: '忽略电池优化',
-              description: host.state.batteryOptimizationIgnored
-                  ? '已加入白名单；后台驻留更稳定。'
-                  : '建议改为不受限制，减少系统杀后台。',
-              done: host.state.batteryOptimizationIgnored,
-              actionLabel: '去设置',
-              onPressed: host.openBatteryOptimizationSettings,
-            ),
-            const SizedBox(height: 10),
-            _ChecklistTile(
-              label: '厂商自启动 / 后台保护',
-              description: host.autostartGuidance,
-              done: false,
-              actionLabel: '应用详情',
-              onPressed: host.openAppDetailsSettings,
-            ),
-
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: (host.isReadyForRemoteRequests
-                        ? AppTheme.successGreen
-                        : AppTheme.warningAmber)
-                    .withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
+            // Android-specific permissions checklist
+            if (defaultTargetPlatform == TargetPlatform.android) ...[
+              const SizedBox(height: 14),
+              _ChecklistTile(
+                label: '录屏权限',
+                description: host.state.hasPermission
+                    ? '已授予；守护模式可直接恢复前台服务。'
+                    : '首次必须手动确认系统录屏弹窗。',
+                done: host.state.hasPermission,
+                actionLabel: '去授权',
+                onPressed: host.busy ? null : host.requestPermission,
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    host.isReadyForRemoteRequests
-                        ? Icons.verified_rounded
-                        : Icons.info_outline_rounded,
-                    size: 18,
-                    color: host.isReadyForRemoteRequests
-                        ? AppTheme.successGreen
-                        : AppTheme.warningAmber,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
+              const SizedBox(height: 10),
+              _ChecklistTile(
+                label: '无障碍控制',
+                description: host.state.accessibilityEnabled
+                    ? '已开启；远程点击、返回、拖拽、文本输入可下发到系统界面。'
+                    : '未开启时只能看屏幕，无法稳定控制系统 UI。',
+                done: host.state.accessibilityEnabled,
+                actionLabel: '去开启',
+                onPressed: host.openAccessibilitySettings,
+              ),
+              const SizedBox(height: 10),
+              _ChecklistTile(
+                label: '悬浮窗 / Overlay',
+                description: host.state.overlayEnabled
+                    ? '已允许；便于后续扩展远控提示与状态浮层。'
+                    : '建议开启，避免后续提示被系统拦截。',
+                done: host.state.overlayEnabled,
+                actionLabel: '去设置',
+                onPressed: host.openOverlaySettings,
+              ),
+              const SizedBox(height: 10),
+              _ChecklistTile(
+                label: '通知权限',
+                description: host.state.notificationsEnabled
+                    ? '已允许；前台服务通知更稳定。'
+                    : '建议开启，否则系统可能限制前台服务可见性。',
+                done: host.state.notificationsEnabled,
+                actionLabel: '去设置',
+                onPressed: host.openNotificationSettings,
+              ),
+              const SizedBox(height: 10),
+              _ChecklistTile(
+                label: '忽略电池优化',
+                description: host.state.batteryOptimizationIgnored
+                    ? '已加入白名单；后台驻留更稳定。'
+                    : '建议改为不受限制，减少系统杀后台。',
+                done: host.state.batteryOptimizationIgnored,
+                actionLabel: '去设置',
+                onPressed: host.openBatteryOptimizationSettings,
+              ),
+              const SizedBox(height: 10),
+              _ChecklistTile(
+                label: '厂商自启动 / 后台保护',
+                description: host.autostartGuidance,
+                done: false,
+                actionLabel: '应用详情',
+                onPressed: host.openAppDetailsSettings,
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: (host.isReadyForRemoteRequests
+                          ? AppTheme.successGreen
+                          : AppTheme.warningAmber)
+                      .withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
                       host.isReadyForRemoteRequests
-                          ? '主要守护项已就绪。只要录屏权限没有被系统回收，Android 会尽量保持在线并等待 iPhone 发起连接。'
-                          : '还有初始化项未完成。即使已能看屏幕，也建议把清单补齐，才能降低下次远控失败或被系统回收的概率。',
-                      style: const TextStyle(fontSize: 12.5, height: 1.5),
+                          ? Icons.verified_rounded
+                          : Icons.info_outline_rounded,
+                      size: 18,
+                      color: host.isReadyForRemoteRequests
+                          ? AppTheme.successGreen
+                          : AppTheme.warningAmber,
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        host.isReadyForRemoteRequests
+                            ? '主要守护项已就绪。只要录屏权限没有被系统回收，Android 会尽量保持在线并等待 iPhone 发起连接。'
+                            : '还有初始化项未完成。即使已能看屏幕，也建议把清单补齐，才能降低下次远控失败或被系统回收的概率。',
+                        style: const TextStyle(fontSize: 12.5, height: 1.5),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+            ],
+
+            // iOS-specific info
+            if (Platform.isIOS) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: (host.state.isRunning
+                          ? AppTheme.successGreen
+                          : AppTheme.warningAmber)
+                      .withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      host.state.isRunning
+                          ? Icons.verified_rounded
+                          : Icons.info_outline_rounded,
+                      size: 18,
+                      color: host.state.isRunning
+                          ? AppTheme.successGreen
+                          : AppTheme.warningAmber,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        host.state.isRunning
+                            ? '屏幕广播运行中。远端设备可实时看到 iPhone 画面。'
+                            : 'iOS 因系统限制，无法像 Android 一样进行远程触控操作，但可以共享屏幕画面。点击"开始被控"后在系统弹窗中确认即可。',
+                        style: const TextStyle(fontSize: 12.5, height: 1.5),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             if (host.error != null) ...[
               const SizedBox(height: 12),
@@ -1199,6 +1286,247 @@ class _AndroidHostCard extends StatelessWidget {
             ),
           )),
     ];
+  }
+}
+
+class _DesktopHostCard extends StatelessWidget {
+  final DesktopHostProvider host;
+  final bool isDark;
+
+  const _DesktopHostCard({
+    required this.host,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.read<SettingsProvider>();
+    final running = host.state.isRunning;
+    final hasPermission = host.state.hasPermission;
+    final registered = host.hostRegistered;
+    final statusText = !running
+        ? '共享服务未启动'
+        : (!hasPermission ? '缺少屏幕录制权限' : (registered ? '共享服务在线' : '共享服务注册中'));
+    final statusColor = registered
+        ? AppTheme.successGreen
+        : running
+            ? AppTheme.warningAmber
+            : Colors.grey;
+    final diagnostics = <String>{
+      if (host.hostRegistrationError != null &&
+          host.hostRegistrationError!.isNotEmpty)
+        host.hostRegistrationError!,
+      if (host.error != null && host.error!.isNotEmpty) host.error!,
+    }.toList();
+
+    return _CardContainer(
+      isDark: isDark,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    registered
+                        ? Icons.cast_connected_rounded
+                        : Icons.desktop_windows_rounded,
+                    color: statusColor,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '桌面共享服务',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              statusText,
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.grey.shade500),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '刷新共享状态',
+                  onPressed: host.busy ? null : host.refresh,
+                  icon: const Icon(Icons.refresh_rounded, size: 20),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _infoRow('本机设备ID', host.localDeviceId ?? '-'),
+                  const SizedBox(height: 6),
+                  _infoRow('共享注册', registered ? '已注册' : '未注册'),
+                  const SizedBox(height: 6),
+                  _infoRow('屏幕录制权限', hasPermission ? '已授权' : '未授权'),
+                  const SizedBox(height: 6),
+                  _infoRow(
+                    '辅助功能权限',
+                    host.state.accessibilityEnabled ? '已授权' : '未授权',
+                  ),
+                  const SizedBox(height: 6),
+                  _infoRow(
+                    '上次注册时间',
+                    _formatDateTime(host.lastHostRegistrationAt),
+                  ),
+                  const SizedBox(height: 6),
+                  _infoRow('注册重试次数', '${host.registrationAttempts}'),
+                  const SizedBox(height: 6),
+                  _infoRow('信令地址', settings.signalingServer),
+                  if (host.lanRelayEndpoint != null &&
+                      host.lanRelayEndpoint!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _infoRow('局域网中继', host.lanRelayEndpoint!),
+                  ],
+                ],
+              ),
+            ),
+            if (diagnostics.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              for (final message in diagnostics) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.errorRed.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppTheme.errorRed.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber_rounded,
+                          color: AppTheme.errorRed, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          message,
+                          style: const TextStyle(
+                            color: AppTheme.errorRed,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (message != diagnostics.last) const SizedBox(height: 8),
+              ],
+            ],
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _ActionButton(
+                  icon: Icons.play_arrow_rounded,
+                  label: '启动共享',
+                  filled: true,
+                  onPressed: host.busy ? null : host.startHosting,
+                ),
+                _ActionButton(
+                  icon: Icons.restart_alt_rounded,
+                  label: '重启共享',
+                  onPressed: host.busy
+                      ? null
+                      : () async {
+                          await host.stopHosting();
+                          await host.startHosting();
+                        },
+                ),
+                _ActionButton(
+                  icon: Icons.stop_rounded,
+                  label: '停止共享',
+                  onPressed:
+                      host.busy || !running ? null : () => host.stopHosting(),
+                ),
+                _ActionButton(
+                  icon: Icons.screenshot_monitor_rounded,
+                  label: '屏幕录制权限',
+                  onPressed: host.openScreenRecordingSettings,
+                ),
+                _ActionButton(
+                  icon: Icons.accessibility_new_rounded,
+                  label: '辅助功能权限',
+                  onPressed: host.openAccessibilitySettings,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 88,
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+        ),
+        Expanded(
+          child: SelectableText(
+            value,
+            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDateTime(DateTime? value) {
+    if (value == null) return '-';
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    final second = value.second.toString().padLeft(2, '0');
+    return '${value.year}-$month-$day $hour:$minute:$second';
   }
 }
 

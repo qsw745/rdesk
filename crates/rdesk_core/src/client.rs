@@ -80,25 +80,12 @@ impl RemoteClient {
         // if !login_resp.success { bail!("authentication failed: {}", login_resp.error); }
 
         // --- 4. Build session ------------------------------------------------
-        let session_id = format!("client-{}-{}", &config.device_id, device_id);
-        let mut session = Session::new(session_id);
-        session.set_decoder(Box::new(codec::vpx::RawDecoder::new()));
-        session.start()?;
-        session.activate()?;
-        let session = Arc::new(session);
-
-        let decoder = session
-            .decoder()
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("decoder was not attached to session"))?;
-
-        info!(remote_device = %device_id, "client session created (stub connection)");
-
-        Ok(Self {
-            session,
-            decoder,
-            remote_device_id: device_id.to_string(),
-        })
+        // The rendezvous, QUIC, and Noise steps above are not yet implemented.
+        // Return an explicit error so callers do not get a false "connected" state.
+        anyhow::bail!(
+            "RemoteClient::connect() is not yet implemented — \
+             rendezvous, QUIC, and Noise handshake stubs have not been wired up"
+        )
     }
 
     /// Begin receiving and decoding video frames from the remote host.

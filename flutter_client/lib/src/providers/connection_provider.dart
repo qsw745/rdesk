@@ -64,6 +64,31 @@ class ConnectionProvider extends ChangeNotifier {
     }
   }
 
+  /// Direct IP connection (LAN / Tailscale) — bypasses signaling server.
+  Future<String?> connectDirectIp(String address, {String? password}) async {
+    _connectionState = SessionState.connecting;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final sessionId = await _bridge.connectDirectIp(address, password: password);
+      _connectionState = SessionState.active;
+      _recentConnections = await _bridge.listConnectionHistory();
+      notifyListeners();
+      return sessionId;
+    } catch (e) {
+      _connectionState = SessionState.error;
+      _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      await _bridge.recordConnectionFailure(
+        peerId: address,
+        failureReason: _errorMessage!,
+      );
+      _recentConnections = await _bridge.listConnectionHistory();
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> disconnect(String sessionId) async {
     await _bridge.disconnect(sessionId);
     _connectionState = SessionState.idle;

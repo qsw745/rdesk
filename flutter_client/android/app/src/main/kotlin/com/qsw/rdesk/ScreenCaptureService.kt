@@ -1,4 +1,4 @@
-package com.example.rdesk
+package com.qsw.rdesk
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -18,18 +18,21 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
 class ScreenCaptureService : Service() {
-    private val maxFrameWidthPx = 1280
-    private val jpegQuality = 65
+    private val maxFrameLongEdgePx = 960
+    private val minFrameIntervalMs = 100L
+    private val jpegQuality = 55
     private var mediaProjection: MediaProjection? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var lastEncodedFrameAtMs = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -95,6 +98,7 @@ class ScreenCaptureService : Service() {
         val width = metrics.widthPixels
         val height = metrics.heightPixels
         val densityDpi = metrics.densityDpi
+        lastEncodedFrameAtMs = 0L
 
         captureThread = HandlerThread("rdesk-screen-capture").also { it.start() }
         captureHandler = Handler(captureThread!!.looper)
@@ -103,6 +107,12 @@ class ScreenCaptureService : Service() {
             setOnImageAvailableListener({ reader ->
                 val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
                 try {
+                    val elapsedNow = SystemClock.elapsedRealtime()
+                    if (elapsedNow - lastEncodedFrameAtMs < minFrameIntervalMs) {
+                        return@setOnImageAvailableListener
+                    }
+                    lastEncodedFrameAtMs = elapsedNow
+
                     val plane = image.planes.firstOrNull() ?: return@setOnImageAvailableListener
                     val pixelStride = plane.pixelStride
                     val rowStride = plane.rowStride
@@ -116,8 +126,9 @@ class ScreenCaptureService : Service() {
                     val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
                     bitmap.recycle()
 
+                    val maxDimension = maxOf(width, height).toDouble()
                     val scale =
-                        minOf(1.0, maxFrameWidthPx.toDouble() / width.toDouble())
+                        minOf(1.0, maxFrameLongEdgePx.toDouble() / maxDimension)
                     val outputWidth = (width * scale).roundToInt().coerceAtLeast(1)
                     val outputHeight = (height * scale).roundToInt().coerceAtLeast(1)
                     val encoded =
@@ -237,8 +248,8 @@ class ScreenCaptureService : Service() {
     }
 
     companion object {
-        const val ACTION_START = "com.example.rdesk.action.START_CAPTURE"
-        const val ACTION_STOP = "com.example.rdesk.action.STOP_CAPTURE"
+        const val ACTION_START = "com.qsw.rdesk.action.START_CAPTURE"
+        const val ACTION_STOP = "com.qsw.rdesk.action.STOP_CAPTURE"
         private const val CHANNEL_ID = "rdesk_screen_capture"
         private const val NOTIFICATION_ID = 2201
     }

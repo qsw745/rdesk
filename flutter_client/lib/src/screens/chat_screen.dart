@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/session_provider.dart';
 import '../models/chat_message.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -32,6 +33,21 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
+  bool _disconnectHandled = false;
+  static const _terminalStates = {
+    '已被对端断开', '已离线', '设备离线', '密码已变更', '重连失败',
+  };
+
+  void _checkDisconnect(String label) {
+    if (_disconnectHandled || !_terminalStates.contains(label)) return;
+    _disconnectHandled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<SessionProvider>().clearSession();
+      context.go('/');
+    });
+  }
+
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
@@ -52,6 +68,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final statusLabel = context.select<SessionProvider, String>(
+      (p) => p.connectionStatusLabel,
+    );
+    _checkDisconnect(statusLabel);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('聊天'),

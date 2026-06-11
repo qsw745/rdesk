@@ -66,7 +66,7 @@ class AndroidHostService {
   AndroidHostService._();
 
   static final AndroidHostService instance = AndroidHostService._();
-  static const _channel = MethodChannel('com.example.rdesk/android_host');
+  static const _channel = MethodChannel('com.qsw.rdesk/android_host');
 
   Future<AndroidHostState> getState() async {
     final result = await _channel
@@ -146,6 +146,16 @@ class AndroidHostService {
         'startY': startY,
         'endX': endX,
         'endY': endY,
+      },
+    );
+    return result ?? false;
+  }
+
+  Future<bool> performRemoteDragPath(List<List<double>> points) async {
+    final result = await _channel.invokeMethod<bool>(
+      'performRemoteDragPath',
+      <String, dynamic>{
+        'points': points,
       },
     );
     return result ?? false;

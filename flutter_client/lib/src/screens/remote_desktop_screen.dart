@@ -9,6 +9,8 @@ import 'package:provider/provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/platform_util.dart';
+import '../widgets/desktop_viewer_layout.dart';
 import '../widgets/remote_canvas.dart';
 import '../widgets/toolbar.dart';
 
@@ -22,6 +24,15 @@ class RemoteDesktopScreen extends StatefulWidget {
 }
 
 class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
+  static const _mobileOverlayStyle = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    statusBarBrightness: Brightness.dark,
+    systemNavigationBarColor: Colors.black,
+    systemNavigationBarIconBrightness: Brightness.light,
+    systemNavigationBarContrastEnforced: false,
+  );
+
   bool _showToolbar = true;
   bool _showHint = true;
   bool? _lastAutoClipboardSync;
@@ -45,20 +56,35 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
     );
     _syncAutoClipboardSetting(autoClipboardSync);
     _handleRemoteTermination(connectionStatusLabel);
+
+    // Desktop: use the UU远程-style layout with top bar + sidebar
+    if (PlatformUtil.isDesktop) {
+      return DesktopViewerLayout(sessionId: widget.sessionId);
+    }
+
+    // Mobile: existing stack-based layout
+    return _buildMobileLayout(context);
+  }
+
+  Widget _buildMobileLayout(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final topPadding = mediaQuery.padding.top;
     final bottomPadding = mediaQuery.padding.bottom;
     final screenWidth = mediaQuery.size.width;
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Remote canvas — full screen
-          Positioned.fill(
-            child: GestureDetector(
-              onDoubleTap: () => setState(() => _showToolbar = !_showToolbar),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: _mobileOverlayStyle,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          children: [
+            // Remote canvas — full screen, pinch-to-zoom enabled.
+            // No outer onDoubleTap wrapper — it delays single-tap recognition
+            // by 300ms. Use the floating toggle button below instead.
+            Positioned.fill(
               child: RemoteCanvas(
                 sessionId: widget.sessionId,
+                enableZoom: true,
                 onRemoteTap: (normalizedPosition) async {
                   HapticFeedback.lightImpact();
                   await context.read<SessionProvider>().sendNormalizedTap(
@@ -68,109 +94,136 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                 },
                 onRemoteLongPress: (normalizedPosition) async {
                   HapticFeedback.mediumImpact();
-                  await context
-                      .read<SessionProvider>()
-                      .sendNormalizedLongPress(
+                  await context.read<SessionProvider>().sendNormalizedLongPress(
                         widget.sessionId,
                         normalizedPosition,
                       );
                 },
                 onRemoteDrag: (start, end) async {
-                  HapticFeedback.lightImpact();
+                  HapticFeedback.selectionClick();
                   await context.read<SessionProvider>().sendNormalizedDrag(
                         widget.sessionId,
                         start,
                         end,
                       );
                 },
+                onRemoteDragPath: (points) async {
+                  HapticFeedback.selectionClick();
+                  await context.read<SessionProvider>().sendNormalizedDragPath(
+                        widget.sessionId,
+                        points,
+                      );
+                },
               ),
             ),
-          ),
 
-          // Connection quality indicator (top-left)
-          Positioned(
-            top: topPadding + 12,
-            left: 18,
-            child: IgnorePointer(
-              child: _ConnectionQualityBadge(sessionId: widget.sessionId),
-            ),
-          ),
-
-          // Toolbar
-          if (_showToolbar)
+            // Connection quality indicator (top-left)
             Positioned(
-              top: topPadding + 44,
-              left: 12,
-              right: 12,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints:
-                      BoxConstraints(maxWidth: screenWidth * 0.95),
-                  child: RemoteToolbar(
-                    sessionId: widget.sessionId,
-                    onRemoteTextInput: () => _showTextInputDialog(context),
-                    onPushClipboard: () => _pushClipboard(context),
-                    onPullClipboard: () => _pullClipboard(context),
-                    onRemoteAction: (action) async {
-                      HapticFeedback.selectionClick();
-                      await context.read<SessionProvider>().sendAction(
-                            widget.sessionId,
-                            action,
-                          );
-                    },
-                    onDisconnect: () {
-                      context
-                          .read<ConnectionProvider>()
-                          .disconnect(widget.sessionId);
-                      context.read<SessionProvider>().clearSession();
-                      context.go('/');
-                    },
-                    onFileManager: () =>
-                        context.go('/files/${widget.sessionId}'),
-                    onChat: () => context.go('/chat/${widget.sessionId}'),
-                    onToggleToolbar: () =>
-                        setState(() => _showToolbar = false),
+              top: topPadding + 12,
+              left: 18,
+              child: IgnorePointer(
+                child: _ConnectionQualityBadge(sessionId: widget.sessionId),
+              ),
+            ),
+
+            // Toolbar
+            if (_showToolbar)
+              Positioned(
+                top: topPadding + 44,
+                left: 12,
+                right: 12,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: screenWidth * 0.95),
+                    child: RemoteToolbar(
+                      sessionId: widget.sessionId,
+                      onRemoteTextInput: () => _showTextInputDialog(context),
+                      onPushClipboard: () => _pushClipboard(context),
+                      onPullClipboard: () => _pullClipboard(context),
+                      onRemoteAction: (action) async {
+                        HapticFeedback.selectionClick();
+                        await context.read<SessionProvider>().sendAction(
+                              widget.sessionId,
+                              action,
+                            );
+                      },
+                      onDisconnect: () {
+                        context
+                            .read<ConnectionProvider>()
+                            .disconnect(widget.sessionId);
+                        context.read<SessionProvider>().clearSession();
+                        context.go('/');
+                      },
+                      onFileManager: () =>
+                          context.go('/files/${widget.sessionId}'),
+                      onChat: () => context.go('/chat/${widget.sessionId}'),
+                      onToggleToolbar: () =>
+                          setState(() => _showToolbar = false),
+                    ),
                   ),
                 ),
               ),
-            ),
 
-          // First-use hint
-          if (_showHint)
-            Positioned(
-              left: 20,
-              right: 20,
-              bottom: 90,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: math.min(screenWidth - 40, 400),
-                  ),
+            // Toolbar toggle button — always visible, replaces the old
+            // onDoubleTap which delayed single-tap recognition by 300ms.
+            if (!_showToolbar)
+              Positioned(
+                top: topPadding + 12,
+                right: 12,
+                child: GestureDetector(
+                  onTap: () => setState(() => _showToolbar = true),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(18),
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(22),
                     ),
-                    child: const Text(
-                      '双击隐藏工具栏。单击发送点击，长按发送长按，拖动会回传拖拽手势到远程端。',
-                      style: TextStyle(color: Colors.white, fontSize: 13),
+                    child: const Icon(
+                      Icons.tune,
+                      color: Colors.white70,
+                      size: 22,
                     ),
                   ),
                 ),
               ),
-            ),
 
-          // Bottom-right latency indicator
-          Positioned(
-            bottom: bottomPadding + 24,
-            right: 12,
-            child: IgnorePointer(
-              child: _LatencyBadge(sessionId: widget.sessionId),
+            // First-use hint
+            if (_showHint)
+              Positioned(
+                left: 20,
+                right: 20,
+                bottom: 90,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: math.min(screenWidth - 40, 400),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Text(
+                        '单击发送点击，长按发送长按，双指捏合缩放画面。',
+                        style: TextStyle(color: Colors.white, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // Bottom-right latency indicator
+            Positioned(
+              bottom: bottomPadding + 24,
+              right: 12,
+              child: IgnorePointer(
+                child: _LatencyBadge(sessionId: widget.sessionId),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -266,17 +319,30 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
     });
   }
 
+  static const _terminalStates = {
+    '已被对端断开',
+    '已离线',
+    '设备离线',
+    '密码已变更',
+    '重连失败',
+  };
+
   void _handleRemoteTermination(String connectionStatusLabel) {
-    if (_handledRemoteTermination || connectionStatusLabel != '已被对端断开') {
-      return;
-    }
+    if (_handledRemoteTermination) return;
+    if (!_terminalStates.contains(connectionStatusLabel)) return;
+
+    final isImmediate =
+        connectionStatusLabel == '已被对端断开' || connectionStatusLabel == '密码已变更';
+
     _handledRemoteTermination = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    final delay = isImmediate ? Duration.zero : const Duration(seconds: 3);
+
+    Future<void>.delayed(delay, () {
       if (!mounted) return;
       context.read<SessionProvider>().clearSession();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('远程连接已被对端主动断开'),
+        SnackBar(
+          content: Text('远程连接已断开：$connectionStatusLabel'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -322,9 +388,7 @@ class _ConnectionQualityBadge extends StatelessWidget {
               Icon(Icons.graphic_eq, color: color, size: 16),
               const SizedBox(width: 8),
               Text(
-                state.online
-                    ? '连接质量 ${state.latency}ms'
-                    : state.label,
+                state.online ? '连接质量 ${state.latency}ms' : state.label,
                 style: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ],
@@ -365,8 +429,7 @@ class _LatencyBadge extends StatelessWidget {
             child: Text(
               state.label,
               style: TextStyle(
-                color:
-                    state.reconnecting ? Colors.amber : Colors.redAccent,
+                color: state.reconnecting ? Colors.amber : Colors.redAccent,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),

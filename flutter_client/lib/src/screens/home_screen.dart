@@ -3,10 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import 'dart:io';
+
 import '../models/connection_info.dart';
 import '../models/session.dart';
+import '../providers/android_host_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connection_provider.dart';
+import '../providers/desktop_host_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/theme.dart';
@@ -44,9 +48,52 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _connect() async {
-    final deviceId = _deviceIdController.text.trim();
-    await _connectToPeer(deviceId);
+  /// Returns true if [input] looks like an IP address (with optional port).
+  bool _looksLikeIpAddress(String input) {
+    // Match IPv4 with optional :port  e.g. "192.168.1.1" or "100.64.1.2:12345"
+    final ipPattern = RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$');
+    return ipPattern.hasMatch(input);
+  }
+
+  Future<void> _connect({String? password}) async {
+    final input = _deviceIdController.text.trim();
+    if (_looksLikeIpAddress(input)) {
+      await _connectDirectIp(input, password: password);
+    } else {
+      await _connectToPeer(input);
+    }
+  }
+
+  Future<void> _connectDirectIp(String address, {String? password}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final provider = context.read<ConnectionProvider>();
+    final sessionProvider = context.read<SessionProvider>();
+
+    final sessionId = await provider.connectDirectIp(address, password: password);
+    if (sessionId != null && mounted) {
+      sessionProvider.setSession(
+        SessionInfo(
+          sessionId: sessionId,
+          peerId: address,
+          peerHostname: '直连 $address',
+          peerOs: 'direct-lan',
+          state: SessionState.active,
+          connectedAt: DateTime.now(),
+          latencyMs: 0,
+        ),
+      );
+      context.go('/remote/$sessionId');
+    } else if (mounted) {
+      final errorMsg = provider.errorMessage ?? '连接失败';
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(errorMsg),
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   Future<void> _connectToPeer(String deviceId) async {
@@ -56,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (deviceId.isEmpty) {
       messenger.showSnackBar(
         SnackBar(
-          content: const Text('请输入设备ID'),
+          content: const Text('请输入设备ID或IP地址'),
           behavior: SnackBarBehavior.floating,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -110,9 +157,9 @@ class _HomeScreenState extends State<HomeScreen> {
           // ── Header ──
           Container(
             width: double.infinity,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               gradient: AppTheme.headerGradient,
-              borderRadius: const BorderRadius.only(
+              borderRadius: BorderRadius.only(
                 bottomLeft: Radius.circular(28),
                 bottomRight: Radius.circular(28),
               ),
@@ -187,16 +234,45 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       // Device ID card
                       Consumer<ConnectionProvider>(
-                        builder: (context, provider, _) {
+                        builder: (context, connProvider, _) {
+                          final bool isDesktop = Platform.isMacOS ||
+                              Platform.isWindows ||
+                              Platform.isLinux;
+                          final lanEndpoint = isDesktop
+                              ? context
+                                  .watch<DesktopHostProvider>()
+                                  .lanRelayEndpoint
+                              : Platform.isAndroid
+                                  ? context
+                                      .watch<AndroidHostProvider>()
+                                      .lanRelayEndpoint
+                                  : null;
                           return DeviceIdDisplay(
                             deviceId:
-                                provider.localDevice?.deviceId ?? '000000000',
-                            temporaryPassword: provider.temporaryPassword,
-                            onRefreshPassword: provider.refreshPassword,
+                                connProvider.localDevice?.deviceId ??
+                                    '000000000',
+                            temporaryPassword:
+                                connProvider.temporaryPassword,
+                            onRefreshPassword: connProvider.refreshPassword,
+                            lanEndpoint: lanEndpoint,
                           );
                         },
                       ),
                       const SizedBox(height: 20),
+
+                      // Desktop host status card (macOS / Windows / Linux)
+                      if (Platform.isMacOS ||
+                          Platform.isWindows ||
+                          Platform.isLinux)
+                        Consumer<DesktopHostProvider>(
+                          builder: (context, host, _) {
+                            return _DesktopHostStatusCard(host: host);
+                          },
+                        ),
+                      if (Platform.isMacOS ||
+                          Platform.isWindows ||
+                          Platform.isLinux)
+                        const SizedBox(height: 20),
 
                       Consumer2<ConnectionProvider, SettingsProvider>(
                         builder: (context, provider, settings, _) {
@@ -265,15 +341,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             TextField(
                               controller: _deviceIdController,
                               decoration: const InputDecoration(
-                                labelText: '设备ID',
-                                hintText: '输入对方9位设备ID',
+                                labelText: '设备ID / IP地址',
+                                hintText: '9位设备ID 或 IP:端口',
                                 prefixIcon:
                                     Icon(Icons.devices_rounded, size: 20),
                               ),
-                              keyboardType: TextInputType.number,
+                              keyboardType: TextInputType.text,
                               inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(9),
+                                // Allow digits, dots (IP), colons (port)
+                                FilteringTextInputFormatter.allow(
+                                    RegExp(r'[0-9.:]')),
+                                LengthLimitingTextInputFormatter(21),
                               ],
                             ),
                             const SizedBox(height: 12),
@@ -565,6 +643,9 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, auth, connection, _) {
         final session = auth.session;
         final localDeviceId = connection.localDevice?.deviceId;
+        final accountDevices = auth.devices
+            .where((item) => item.deviceId != localDeviceId)
+            .toList();
         return Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -705,7 +786,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: EdgeInsets.symmetric(vertical: 16),
                     child: Center(child: CircularProgressIndicator()),
                   )
-                else if (auth.devices.isEmpty)
+                else if (accountDevices.isEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -722,7 +803,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 else
                   Column(
-                    children: auth.devices.map((device) {
+                    children: accountDevices.map((device) {
                       final isCurrent = device.deviceId == localDeviceId;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10),
@@ -1091,6 +1172,212 @@ class _InfoPill extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Desktop host status card — shows hosting state + direct connect address.
+class _DesktopHostStatusCard extends StatelessWidget {
+  final DesktopHostProvider host;
+
+  const _DesktopHostStatusCard({required this.host});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isRunning = host.state.isRunning;
+    final endpoint = host.lanRelayEndpoint;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: isRunning
+              ? Colors.teal.withValues(alpha: 0.3)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.black.withValues(alpha: 0.04)),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isRunning
+                      ? Colors.teal.withValues(alpha: 0.1)
+                      : Colors.grey.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.desktop_windows_rounded,
+                  color: isRunning ? Colors.teal : Colors.grey,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '桌面被控端',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isRunning ? '正在运行 — 可被远程连接' : '未运行',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isRunning ? Colors.teal : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isRunning
+                      ? AppTheme.successGreen.withValues(alpha: 0.1)
+                      : Colors.grey.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.circle,
+                        color:
+                            isRunning ? AppTheme.successGreen : Colors.grey,
+                        size: 8),
+                    const SizedBox(width: 6),
+                    Text(
+                      isRunning ? '运行中' : '已停止',
+                      style: TextStyle(
+                        color:
+                            isRunning ? AppTheme.successGreen : Colors.grey,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (isRunning && endpoint != null && endpoint.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.teal.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Colors.teal.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lan_outlined,
+                      size: 18, color: Colors.teal),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '直连地址（局域网 / Tailscale）',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.teal,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        SelectableText(
+                          endpoint,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1,
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontFeatures: const [
+                              FontFeature.tabularFigures()
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '在 iPhone 连接输入框中直接输入此地址，即可局域网直连，延迟更低',
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.4,
+                            color: isDark
+                                ? Colors.white54
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: endpoint));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Text('直连地址已复制'),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    tooltip: '复制直连地址',
+                    style: IconButton.styleFrom(
+                      foregroundColor: Colors.teal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (!isRunning) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => host.startHosting(),
+                icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                label: const Text('开始被控'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

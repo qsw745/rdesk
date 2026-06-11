@@ -190,14 +190,14 @@ cargo build -p rdesk_server --release
 
 # 启动服务器（可自定义端口）
 ./target/release/rdesk-server \
-  --bind 0.0.0.0 \
+  --host 0.0.0.0 \
   --signaling-port 21116 \
   --relay-port 21117
-
-# 需要在防火墙/安全组中开放以下端口：
-#   UDP 21116 — 信令服务器
-#   UDP 21117 — 中继服务器
 ```
+
+当前 MVP 实际对外监听的是 `21116/tcp` 这一条 HTTP 服务，`21117` 只是保留参数，尚未单独启动 relay listener。
+
+更完整的 `systemd` 与 `nginx` 部署示例见 `deploy/README.md`。
 
 ## 连接流程
 

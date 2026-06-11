@@ -13,7 +13,6 @@ class ConnectionLogScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('连接历史'),
-        automaticallyImplyLeading: false,
       ),
       body: Consumer<ConnectionProvider>(
         builder: (context, provider, _) {

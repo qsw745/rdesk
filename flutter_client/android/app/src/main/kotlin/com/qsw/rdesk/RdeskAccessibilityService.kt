@@ -1,4 +1,4 @@
-package com.example.rdesk
+package com.qsw.rdesk
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -70,20 +70,87 @@ class RdeskAccessibilityService : AccessibilityService() {
         startY: Double,
         endX: Double,
         endY: Double,
+        durationMs: Long = 0,
     ): Boolean {
         val metrics = resources.displayMetrics
-        val path =
-            Path().apply {
-                moveTo(
-                    (metrics.widthPixels * startX.coerceIn(0.0, 1.0)).toFloat(),
-                    (metrics.heightPixels * startY.coerceIn(0.0, 1.0)).toFloat(),
-                )
+        val sx = (metrics.widthPixels * startX.coerceIn(0.0, 1.0)).toFloat()
+        val sy = (metrics.heightPixels * startY.coerceIn(0.0, 1.0)).toFloat()
+        val ex = (metrics.widthPixels * endX.coerceIn(0.0, 1.0)).toFloat()
+        val ey = (metrics.heightPixels * endY.coerceIn(0.0, 1.0)).toFloat()
+
+        // Use quadratic bezier through midpoint for smooth gesture curve.
+        val mx = (sx + ex) / 2f
+        val my = (sy + ey) / 2f
+        val path = Path().apply {
+            moveTo(sx, sy)
+            quadTo(mx, my, ex, ey)
+        }
+
+        // Dynamic duration: proportional to distance.
+        // Longer = smoother, more reliably recognized as scroll by Android.
+        val dist = Math.sqrt(((ex - sx) * (ex - sx) + (ey - sy) * (ey - sy)).toDouble())
+        val screenDiag = Math.sqrt((metrics.widthPixels * metrics.widthPixels + metrics.heightPixels * metrics.heightPixels).toDouble())
+        val normalizedDist = dist / screenDiag
+        // 250-600ms — smooth enough for Android scroll recognition
+        val dur = if (durationMs > 0) durationMs else (250 + (normalizedDist * 400).toLong()).coerceIn(200, 700)
+        return dispatchPathGesture(path = path, durationMs = dur)
+    }
+
+    fun performDragPath(
+        points: List<Pair<Double, Double>>,
+        durationMs: Long = 0,
+    ): Boolean {
+        if (points.size < 2) return false
+        val metrics = resources.displayMetrics
+        val w = metrics.widthPixels.toFloat()
+        val h = metrics.heightPixels.toFloat()
+
+        // Build smooth path using quadratic bezier curves between points.
+        val path = Path().apply {
+            val first = points[0]
+            moveTo(
+                (w * first.first.coerceIn(0.0, 1.0)).toFloat(),
+                (h * first.second.coerceIn(0.0, 1.0)).toFloat(),
+            )
+            if (points.size == 2) {
+                // Simple line for 2-point paths
+                val last = points[1]
                 lineTo(
-                    (metrics.widthPixels * endX.coerceIn(0.0, 1.0)).toFloat(),
-                    (metrics.heightPixels * endY.coerceIn(0.0, 1.0)).toFloat(),
+                    (w * last.first.coerceIn(0.0, 1.0)).toFloat(),
+                    (h * last.second.coerceIn(0.0, 1.0)).toFloat(),
+                )
+            } else {
+                // Smooth curve through consecutive points using quadratic bezier
+                for (i in 1 until points.size - 1) {
+                    val p = points[i]
+                    val pNext = points[i + 1]
+                    val cx = (w * p.first.coerceIn(0.0, 1.0)).toFloat()
+                    val cy = (h * p.second.coerceIn(0.0, 1.0)).toFloat()
+                    val nx = (w * pNext.first.coerceIn(0.0, 1.0)).toFloat()
+                    val ny = (h * pNext.second.coerceIn(0.0, 1.0)).toFloat()
+                    // Control point is current, end point is midpoint to next
+                    quadTo(cx, cy, (cx + nx) / 2f, (cy + ny) / 2f)
+                }
+                // Final segment to last point
+                val last = points.last()
+                lineTo(
+                    (w * last.first.coerceIn(0.0, 1.0)).toFloat(),
+                    (h * last.second.coerceIn(0.0, 1.0)).toFloat(),
                 )
             }
-        return dispatchPathGesture(path = path, durationMs = 420)
+        }
+        // Compute total path length for duration
+        var totalDist = 0.0
+        for (i in 1 until points.size) {
+            val dx = (points[i].first - points[i - 1].first) * w
+            val dy = (points[i].second - points[i - 1].second) * h
+            totalDist += Math.sqrt((dx * dx + dy * dy).toDouble())
+        }
+        val screenDiag = Math.sqrt((w * w + h * h).toDouble())
+        val normalizedDist = totalDist / screenDiag
+        // 250-800ms — longer for complex paths, smooth scrolling
+        val dur = if (durationMs > 0) durationMs else (250 + (normalizedDist * 500).toLong()).coerceIn(200, 800)
+        return dispatchPathGesture(path = path, durationMs = dur)
     }
 
     private fun performSwipe(

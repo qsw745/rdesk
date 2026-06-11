@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -11,6 +12,10 @@ class RemoteCanvas extends StatefulWidget {
   final Future<void> Function(Offset normalizedPosition)? onRemoteLongPress;
   final Future<void> Function(Offset normalizedStart, Offset normalizedEnd)?
       onRemoteDrag;
+  /// Called with a list of normalized drag path points for smoother swipes.
+  final Future<void> Function(List<Offset> normalizedPoints)? onRemoteDragPath;
+  /// Enable pinch-to-zoom (for mobile viewers).
+  final bool enableZoom;
 
   const RemoteCanvas({
     super.key,
@@ -18,6 +23,8 @@ class RemoteCanvas extends StatefulWidget {
     this.onRemoteTap,
     this.onRemoteLongPress,
     this.onRemoteDrag,
+    this.onRemoteDragPath,
+    this.enableZoom = false,
   });
 
   @override
@@ -27,6 +34,36 @@ class RemoteCanvas extends StatefulWidget {
 class _RemoteCanvasState extends State<RemoteCanvas> {
   Offset? _dragStart;
   Offset? _dragCurrent;
+  /// Collected raw drag path points (in local widget coordinates).
+  final List<Offset> _dragPathPoints = [];
+  final TransformationController _zoomController = TransformationController();
+  bool _isZoomed = false;
+  int _activePointers = 0;
+  DateTime? _panStartTime;
+  // Raw tap detection via Listener (bypasses gesture arena)
+  Offset? _pointerDownPos;
+  DateTime? _pointerDownTime;
+  bool _pointerMoved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _zoomController.addListener(_onZoomChanged);
+  }
+
+  @override
+  void dispose() {
+    _zoomController.removeListener(_onZoomChanged);
+    _zoomController.dispose();
+    super.dispose();
+  }
+
+  void _onZoomChanged() {
+    final zoomed = _zoomController.value.getMaxScaleOnAxis() > 1.05;
+    if (zoomed != _isZoomed) {
+      setState(() => _isZoomed = zoomed);
+    }
+  }
 
   /// Compute DPI-aware drag threshold so the gesture feels consistent across
   /// screens of different pixel densities.
@@ -107,6 +144,184 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
         final contentRect = _calculateContainRect(viewportSize, frameSize);
         final threshold = _dragThreshold(context);
 
+        /// Convert a screen-space position to content-rect-relative position,
+        /// accounting for the current zoom transform when zoom is enabled.
+        Offset? toNormalized(Offset screenPos) {
+          Offset localPos = screenPos;
+          if (widget.enableZoom) {
+            // Invert the zoom transform to get the untransformed position.
+            final inverse = Matrix4.inverted(_zoomController.value);
+            localPos = MatrixUtils.transformPoint(inverse, screenPos);
+          }
+          return _normalizeToContentRect(localPos, contentRect);
+        }
+
+        final frameLayer = Stack(
+          fit: StackFit.expand,
+          children: [
+            // Frame layer — isolated with RepaintBoundary for performance
+            ColoredBox(
+              color: Colors.black,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned.fromRect(
+                    rect: contentRect,
+                    child: RepaintBoundary(
+                      child: _FrameImage(sessionId: widget.sessionId),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Resolution overlay — uses Selector to avoid rebuilds on every frame
+            Positioned(
+              top: contentRect.top + 12,
+              right: 18,
+              child: IgnorePointer(
+                ignoring: true,
+                child: _ResolutionBadge(),
+              ),
+            ),
+            // Offline status overlay
+            _OfflineOverlay(),
+          ],
+        );
+
+        // When zoom is enabled, use InteractiveViewer for pinch-to-zoom.
+        // All single-finger gestures (tap, drag) are detected via
+        // InteractiveViewer's own onInteraction* callbacks to avoid
+        // gesture arena conflicts.
+        if (widget.enableZoom) {
+          return Listener(
+            onPointerDown: (event) {
+              _activePointers++;
+              // Track first finger for tap detection
+              if (_activePointers == 1) {
+                _pointerDownPos = event.localPosition;
+                _pointerDownTime = DateTime.now();
+                _pointerMoved = false;
+              }
+            },
+            onPointerMove: (event) {
+              // Track movement to distinguish tap from drag
+              if (_pointerDownPos != null && !_pointerMoved) {
+                final dist = (event.localPosition - _pointerDownPos!).distance;
+                if (dist > threshold) {
+                  _pointerMoved = true;
+                }
+              }
+            },
+            onPointerUp: (event) {
+              _activePointers = (_activePointers - 1).clamp(0, 10);
+
+              final downPos = _pointerDownPos;
+              final downTime = _pointerDownTime;
+              final moved = _pointerMoved;
+
+              if (_activePointers == 0) {
+                _pointerDownPos = null;
+                _pointerDownTime = null;
+                _pointerMoved = false;
+              }
+
+              // Single-finger tap: short duration, small movement.
+              // Works in both zoomed and non-zoomed states.
+              if (downPos != null && downTime != null && _activePointers == 0) {
+                final duration = DateTime.now().difference(downTime);
+                debugPrint('[RDesk] pointerUp: moved=$moved isZoomed=$_isZoomed '
+                    'duration=${duration.inMilliseconds}ms pos=$downPos');
+                if (!moved &&
+                    duration < const Duration(milliseconds: 400) &&
+                    widget.onRemoteTap != null) {
+                  final normalized = toNormalized(downPos);
+                  debugPrint('[RDesk] tap normalized=$normalized');
+                  if (normalized != null) {
+                    widget.onRemoteTap!(normalized);
+                  }
+                }
+              }
+            },
+            onPointerCancel: (_) {
+              _activePointers = (_activePointers - 1).clamp(0, 10);
+              if (_activePointers == 0) {
+                _pointerDownPos = null;
+                _pointerDownTime = null;
+                _pointerMoved = false;
+              }
+            },
+            child: InteractiveViewer(
+              transformationController: _zoomController,
+              minScale: 1.0,
+              maxScale: 5.0,
+              panEnabled: _isZoomed,
+              onInteractionStart: (details) {
+                if (details.pointerCount == 1 && !_isZoomed) {
+                  _dragStart = details.focalPoint;
+                  _dragCurrent = _dragStart;
+                  _dragPathPoints.clear();
+                  _dragPathPoints.add(details.focalPoint);
+                } else {
+                  _dragStart = null;
+                  _dragPathPoints.clear();
+                }
+              },
+              onInteractionUpdate: (details) {
+                if (_dragStart != null && details.pointerCount == 1) {
+                  _dragCurrent = details.focalPoint;
+                  // Sample points but avoid excessive density
+                  if (_dragPathPoints.isEmpty ||
+                      (details.focalPoint - _dragPathPoints.last).distance > 3) {
+                    _dragPathPoints.add(details.focalPoint);
+                  }
+                }
+                if (details.pointerCount > 1) {
+                  _dragStart = null;
+                  _dragPathPoints.clear();
+                }
+              },
+              onInteractionEnd: (details) {
+                final start = _dragStart;
+                final end = _dragCurrent;
+                final pathPoints = List<Offset>.from(_dragPathPoints);
+                _dragStart = null;
+                _dragCurrent = null;
+                _dragPathPoints.clear();
+
+                if (start == null || end == null || _isZoomed) return;
+
+                final distance = (end - start).distance;
+                if (distance < threshold) return;
+
+                // Prefer path-based drag for smoother swipes
+                if (widget.onRemoteDragPath != null && pathPoints.length >= 2) {
+                  // Subsample to max ~20 points
+                  final sampled = _subsamplePath(pathPoints, 20);
+                  final normalizedPath = sampled
+                      .map((p) => toNormalized(p))
+                      .where((p) => p != null)
+                      .cast<Offset>()
+                      .toList();
+                  if (normalizedPath.length >= 2) {
+                    widget.onRemoteDragPath!(normalizedPath);
+                    return;
+                  }
+                }
+                // Fallback to start/end
+                if (widget.onRemoteDrag != null) {
+                  final normalizedStart = toNormalized(start);
+                  final normalizedEnd = toNormalized(end);
+                  if (normalizedStart != null && normalizedEnd != null) {
+                    widget.onRemoteDrag!(normalizedStart, normalizedEnd);
+                  }
+                }
+              },
+              child: frameLayer,
+            ),
+          );
+        }
+
+        // Non-zoom mode: original gesture handling with tap + drag support.
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: widget.onRemoteTap == null
@@ -117,6 +332,8 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                     contentRect,
                   );
                   if (normalized == null) return;
+                  debugPrint('[RDesk] tap at ${normalized.dx.toStringAsFixed(3)}, '
+                      '${normalized.dy.toStringAsFixed(3)}');
                   widget.onRemoteTap!(normalized);
                 },
           onLongPressStart: widget.onRemoteLongPress == null
@@ -129,7 +346,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                   if (normalized == null) return;
                   widget.onRemoteLongPress!(normalized);
                 },
-          onPanStart: widget.onRemoteDrag == null
+          onPanStart: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
               ? null
               : (details) {
                   final normalized = _normalizeToContentRect(
@@ -139,6 +356,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                   if (normalized == null) {
                     _dragStart = null;
                     _dragCurrent = null;
+                    _dragPathPoints.clear();
                     return;
                   }
                   _dragStart = _positionInContentRect(
@@ -146,8 +364,10 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                     contentRect,
                   );
                   _dragCurrent = _dragStart;
+                  _dragPathPoints.clear();
+                  _dragPathPoints.add(details.localPosition);
                 },
-          onPanUpdate: widget.onRemoteDrag == null
+          onPanUpdate: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
               ? null
               : (details) {
                   if (_dragStart == null) return;
@@ -155,60 +375,54 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                     details.localPosition,
                     contentRect,
                   );
+                  // Sample densely for smooth remote swipes (1px min distance).
+                  if (_dragPathPoints.isEmpty ||
+                      (details.localPosition - _dragPathPoints.last).distance > 1) {
+                    _dragPathPoints.add(details.localPosition);
+                  }
                 },
-          onPanCancel: widget.onRemoteDrag == null
+          onPanCancel: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
               ? null
               : () {
                   _dragStart = null;
                   _dragCurrent = null;
+                  _dragPathPoints.clear();
                 },
-          onPanEnd: widget.onRemoteDrag == null
+          onPanEnd: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
               ? null
               : (_) {
                   final start = _dragStart;
                   final end = _dragCurrent;
+                  final pathPoints = List<Offset>.from(_dragPathPoints);
                   _dragStart = null;
                   _dragCurrent = null;
+                  _dragPathPoints.clear();
                   if (start == null || end == null) return;
                   if ((end - start).distance < threshold) return;
-                  final normalizedStart =
-                      _normalizeToContentRect(start, contentRect);
-                  final normalizedEnd =
-                      _normalizeToContentRect(end, contentRect);
-                  if (normalizedStart == null || normalizedEnd == null) return;
-                  widget.onRemoteDrag!(normalizedStart, normalizedEnd);
+
+                  // Prefer path-based drag
+                  if (widget.onRemoteDragPath != null && pathPoints.length >= 2) {
+                    final sampled = _subsamplePath(pathPoints, 40);
+                    final normalizedPath = sampled
+                        .map((p) => _normalizeToContentRect(p, contentRect))
+                        .where((p) => p != null)
+                        .cast<Offset>()
+                        .toList();
+                    if (normalizedPath.length >= 2) {
+                      widget.onRemoteDragPath!(normalizedPath);
+                      return;
+                    }
+                  }
+                  if (widget.onRemoteDrag != null) {
+                    final normalizedStart =
+                        _normalizeToContentRect(start, contentRect);
+                    final normalizedEnd =
+                        _normalizeToContentRect(end, contentRect);
+                    if (normalizedStart == null || normalizedEnd == null) return;
+                    widget.onRemoteDrag!(normalizedStart, normalizedEnd);
+                  }
                 },
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // Frame layer — isolated with RepaintBoundary for performance
-              ColoredBox(
-                color: Colors.black,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Positioned.fromRect(
-                      rect: contentRect,
-                      child: RepaintBoundary(
-                        child: _FrameImage(sessionId: widget.sessionId),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // Resolution overlay — uses Selector to avoid rebuilds on every frame
-              Positioned(
-                top: contentRect.top + 12,
-                right: 18,
-                child: IgnorePointer(
-                  ignoring: true,
-                  child: _ResolutionBadge(),
-                ),
-              ),
-              // Offline status overlay
-              _OfflineOverlay(),
-            ],
-          ),
+          child: frameLayer,
         );
       },
     );
@@ -258,6 +472,19 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
       position.dy.clamp(contentRect.top, contentRect.bottom),
     );
   }
+
+  /// Subsample a list of points to at most [maxPoints] evenly spaced entries,
+  /// always keeping the first and last point.
+  static List<Offset> _subsamplePath(List<Offset> points, int maxPoints) {
+    if (points.length <= maxPoints) return points;
+    final result = <Offset>[points.first];
+    final step = (points.length - 1) / (maxPoints - 1);
+    for (var i = 1; i < maxPoints - 1; i++) {
+      result.add(points[(i * step).round()]);
+    }
+    result.add(points.last);
+    return result;
+  }
 }
 
 /// Isolated frame display widget — only rebuilds when the actual frame bytes
@@ -281,6 +508,16 @@ class _FrameImage extends StatelessWidget {
             fit: BoxFit.fill,
             gaplessPlayback: true,
             filterQuality: FilterQuality.low,
+            errorBuilder: (context, _, __) {
+              return Container(
+                color: Colors.black,
+                alignment: Alignment.center,
+                child: const Text(
+                  '画面解码失败，正在等待下一帧',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              );
+            },
           ),
         );
       },

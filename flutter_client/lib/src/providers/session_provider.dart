@@ -24,10 +24,17 @@ class SessionProvider extends ChangeNotifier {
   DateTime? _lastFrameReceivedAt;
   DateTime? _lastReconnectAttemptAt;
   bool _reconnectInFlight = false;
-  int? _lastFrameIdentity;
   DateTime? _lastFrameNotifiedAt;
   Timer? _pendingFrameNotify;
-  static const _minFrameInterval = Duration(milliseconds: 33); // ~30fps cap
+  Duration _minFrameInterval = const Duration(milliseconds: 33); // ~30fps cap
+  String _qualityPreset = 'auto';
+  int _fpsLimit = 30;
+  int _jpegQuality = 85;
+  bool _isRecording = false;
+  bool _privacyScreenOn = false;
+  int _currentMonitor = 0;
+  List<String> _availableMonitors = ['主显示器'];
+  final List<Uint8List> _recordedFrames = [];
 
   SessionInfo? get currentSession => _currentSession;
   Uint8List? get currentFrame => _currentFrame;
@@ -37,6 +44,14 @@ class SessionProvider extends ChangeNotifier {
   bool get autoClipboardSyncEnabled => _autoClipboardSyncEnabled;
   bool get isRemoteOnline => _isRemoteOnline;
   String get connectionStatusLabel => _connectionStatusLabel;
+  String get qualityPreset => _qualityPreset;
+  int get fpsLimit => _fpsLimit;
+  int get jpegQuality => _jpegQuality;
+  bool get isRecording => _isRecording;
+  bool get privacyScreenOn => _privacyScreenOn;
+  int get currentMonitor => _currentMonitor;
+  List<String> get availableMonitors => List.unmodifiable(_availableMonitors);
+  int get recordedFrameCount => _recordedFrames.length;
   bool get isReconnecting =>
       _currentSession?.state == SessionState.reconnecting;
   DateTime? get lastFrameReceivedAt => _lastFrameReceivedAt;
@@ -54,6 +69,16 @@ class SessionProvider extends ChangeNotifier {
     _reconnectInFlight = false;
     notifyListeners();
     unawaited(_bindFrameStream(session));
+    unawaited(_fetchDisplayList(session.sessionId));
+  }
+
+  Future<void> _fetchDisplayList(String sessionId) async {
+    try {
+      final displays = await _bridge.fetchRemoteDisplays(sessionId);
+      if (displays.isNotEmpty) {
+        updateAvailableMonitors(displays);
+      }
+    } catch (_) {}
   }
 
   void updateFrame(Uint8List frameData, int width, int height) {
@@ -75,6 +100,65 @@ class SessionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void togglePrivacyScreen() {
+    _privacyScreenOn = !_privacyScreenOn;
+    if (_currentSession != null) {
+      final action = _privacyScreenOn ? 'privacy_on' : 'privacy_off';
+      _bridge.sendRemoteAction(_currentSession!.sessionId, action);
+    }
+    notifyListeners();
+  }
+
+  void toggleRecording() {
+    _isRecording = !_isRecording;
+    if (!_isRecording) {
+      _recordedFrames.clear();
+    }
+    notifyListeners();
+  }
+
+  void setMonitor(int index) {
+    if (index < 0 || index >= _availableMonitors.length) return;
+    _currentMonitor = index;
+    if (_currentSession != null) {
+      _bridge.sendRemoteAction(
+        _currentSession!.sessionId,
+        'switch_monitor_$index',
+      );
+    }
+    notifyListeners();
+  }
+
+  void updateAvailableMonitors(List<String> monitors) {
+    _availableMonitors = monitors.isEmpty ? ['主显示器'] : monitors;
+    if (_currentMonitor >= _availableMonitors.length) {
+      _currentMonitor = 0;
+    }
+    notifyListeners();
+  }
+
+  void setQualityPreset(String preset, int fps) {
+    _qualityPreset = preset;
+    _fpsLimit = fps;
+    switch (preset) {
+      case 'high':
+        _jpegQuality = 95;
+      case 'medium':
+        _jpegQuality = 70;
+      case 'low':
+        _jpegQuality = 40;
+      default:
+        _jpegQuality = 85;
+    }
+    _minFrameInterval = Duration(milliseconds: (1000 / fps).round());
+    // Send quality setting to the remote host
+    final session = _currentSession;
+    if (session != null) {
+      _bridge.sendRemoteQuality(session.sessionId, _jpegQuality / 100.0);
+    }
+    notifyListeners();
+  }
+
   void clearSession() {
     _currentSession = null;
     _sessionPassword = null;
@@ -86,7 +170,6 @@ class SessionProvider extends ChangeNotifier {
     _lastFrameReceivedAt = null;
     _lastReconnectAttemptAt = null;
     _reconnectInFlight = false;
-    _lastFrameIdentity = null;
     _lastFrameNotifiedAt = null;
     _pendingFrameNotify?.cancel();
     _pendingFrameNotify = null;
@@ -178,6 +261,16 @@ class SessionProvider extends ChangeNotifier {
     );
   }
 
+  Future<bool> sendNormalizedDragPath(
+    String sessionId,
+    List<Offset> normalizedPoints,
+  ) {
+    final points = normalizedPoints
+        .map((p) => [p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0)])
+        .toList();
+    return _bridge.sendRemoteDragPath(sessionId, points);
+  }
+
   Future<bool> sendTextInput(String sessionId, String text) {
     return _bridge.sendRemoteTextInput(sessionId, text);
   }
@@ -245,18 +338,11 @@ class SessionProvider extends ChangeNotifier {
         return;
       }
 
-      // --- Frame deduplication: skip notification if identical frame ---
-      final frameId = identityHashCode(frame.bytes);
-      final isDuplicate = frameId == _lastFrameIdentity &&
-          frame.width == _frameWidth &&
-          frame.height == _frameHeight;
-
       _currentFrame = frame.bytes;
       _frameWidth = frame.width;
       _frameHeight = frame.height;
       _lastFrameReceivedAt = DateTime.now();
       _reconnectInFlight = false;
-      _lastFrameIdentity = frameId;
 
       // Update session state (latency / online status) always
       final wasOffline = !_isRemoteOnline;
@@ -275,9 +361,6 @@ class SessionProvider extends ChangeNotifier {
         notifyListeners();
         return;
       }
-
-      // If duplicate frame, skip notification entirely
-      if (isDuplicate) return;
 
       // --- Frame rate limiting: cap at ~30fps ---
       final now = DateTime.now();
@@ -360,26 +443,31 @@ class SessionProvider extends ChangeNotifier {
           ? SessionState.disconnected
           : SessionState.reconnecting,
     );
+    if (isDisconnected) {
+      _currentFrame = null;
+      _frameWidth = 0;
+      _frameHeight = 0;
+    }
     notifyListeners();
   }
 
   Future<void> _attemptReconnect(SessionInfo session) async {
-    if (_reconnectInFlight) {
-      return;
-    }
+    // Always check termination first — even when another reconnect is
+    // in-flight — so the viewer exits promptly when the host disconnects.
     if (_bridge.isSessionTerminated(session.sessionId)) {
       _connectionStatusLabel = '已被对端断开';
       _currentSession = _currentSession?.copyWith(
         state: SessionState.disconnected,
       );
+      _reconnectInFlight = false;
       notifyListeners();
       return;
     }
-
-    final password = _sessionPassword;
-    if (password == null || password.isEmpty) {
+    if (_reconnectInFlight) {
       return;
     }
+
+    final password = _sessionPassword ?? '';
     final now = DateTime.now();
     if (_lastReconnectAttemptAt != null &&
         now.difference(_lastReconnectAttemptAt!) < const Duration(seconds: 2)) {
@@ -397,13 +485,22 @@ class SessionProvider extends ChangeNotifier {
       if (_currentSession?.sessionId != session.sessionId) {
         return;
       }
+      // Recheck — session may have been terminated while awaiting the server.
+      if (_bridge.isSessionTerminated(session.sessionId)) {
+        _connectionStatusLabel = '已被对端断开';
+        _currentSession = _currentSession?.copyWith(
+          state: SessionState.disconnected,
+        );
+        notifyListeners();
+        return;
+      }
       if (!resolved.found) {
         _connectionStatusLabel = '设备离线';
         _currentSession = _currentSession?.copyWith(
           state: SessionState.disconnected,
         );
       } else if (!resolved.authorized) {
-        _connectionStatusLabel = '密码已变更';
+        _connectionStatusLabel = password.isEmpty ? '等待对端授权' : '密码已变更';
         _currentSession = _currentSession?.copyWith(
           state: SessionState.error,
         );

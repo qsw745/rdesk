@@ -1,0 +1,22 @@
+[Unit]
+Description=RDesk Relay Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rdesk
+Group=rdesk
+WorkingDirectory=/var/lib/rdesk-server
+ExecStart=/usr/local/bin/rdesk-server --host 0.0.0.0 --signaling-port 21116 --relay-port 21117 --user-store-path /var/lib/rdesk-server/data/rdesk-users.json
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/rdesk-server
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

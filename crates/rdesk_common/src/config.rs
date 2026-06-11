@@ -40,11 +40,11 @@ pub struct AppConfig {
 }
 
 fn default_signaling_server() -> String {
-    "qisw.top".to_string()
+    "qisw.top:80".to_string()
 }
 
 fn default_relay_server() -> String {
-    "qisw.top".to_string()
+    "qisw.top:80".to_string()
 }
 
 impl Default for AppConfig {

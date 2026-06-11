@@ -6,12 +6,16 @@ class DeviceIdDisplay extends StatefulWidget {
   final String deviceId;
   final String temporaryPassword;
   final VoidCallback onRefreshPassword;
+  final bool compact;
+  final String? lanEndpoint;
 
   const DeviceIdDisplay({
     super.key,
     required this.deviceId,
     required this.temporaryPassword,
     required this.onRefreshPassword,
+    this.compact = false,
+    this.lanEndpoint,
   });
 
   @override
@@ -41,13 +45,15 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
   String get _formattedId {
     final id = widget.deviceId;
     if (id.length == 9) {
-      return '${id.substring(0, 3)} - ${id.substring(3, 6)} - ${id.substring(6, 9)}';
+      return '${id.substring(0, 3)} ${id.substring(3, 6)} ${id.substring(6, 9)}';
     }
     return id;
   }
 
   String get _maskedPassword {
-    return _showPassword ? widget.temporaryPassword : '\u2022' * widget.temporaryPassword.length;
+    return _showPassword
+        ? widget.temporaryPassword
+        : '\u2022' * widget.temporaryPassword.length;
   }
 
   void _copyId() {
@@ -57,7 +63,8 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
         SnackBar(
           content: const Text('设备ID已复制'),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -71,7 +78,8 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
         SnackBar(
           content: const Text('密码已复制'),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -85,6 +93,209 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
 
   @override
   Widget build(BuildContext context) {
+    return widget.compact ? _buildCompact(context) : _buildFull(context);
+  }
+
+  Widget _buildCompact(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasPassword = widget.temporaryPassword.isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E2E) : const Color(0xFFF5F8FF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.06)
+              : AppTheme.primaryBlue.withValues(alpha: 0.12),
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.computer_rounded,
+                    color: AppTheme.primaryBlue, size: 16),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '本机设备 ID',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white60 : AppTheme.textMuted,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppTheme.successGreen.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.circle, color: AppTheme.successGreen, size: 6),
+                    SizedBox(width: 4),
+                    Text('在线',
+                        style: TextStyle(
+                            color: AppTheme.successGreen, fontSize: 10)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _formattedId,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _CompactIconButton(
+                icon: Icons.copy_rounded,
+                onTap: _copyId,
+                tooltip: '复制ID',
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.vpn_key_rounded, size: 14, color: Colors.grey),
+              const SizedBox(width: 6),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () =>
+                      setState(() => _showPassword = !_showPassword),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      hasPassword ? _maskedPassword : '------',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: _showPassword ? 2 : 4,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              _CompactIconButton(
+                icon: _showPassword
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded,
+                onTap: () =>
+                    setState(() => _showPassword = !_showPassword),
+                tooltip: _showPassword ? '隐藏' : '显示',
+              ),
+              _CompactIconButton(
+                icon: Icons.copy_rounded,
+                onTap: hasPassword ? _copyPassword : null,
+                tooltip: '复制密码',
+              ),
+              RotationTransition(
+                turns: Tween(begin: 0.0, end: 1.0).animate(
+                  CurvedAnimation(
+                    parent: _refreshController,
+                    curve: Curves.easeInOut,
+                  ),
+                ),
+                child: _CompactIconButton(
+                  icon: Icons.refresh_rounded,
+                  onTap: _refreshPassword,
+                  tooltip: '刷新',
+                ),
+              ),
+            ],
+          ),
+          // LAN endpoint in compact mode
+          if (widget.lanEndpoint != null &&
+              widget.lanEndpoint!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.teal.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: Colors.teal.withValues(alpha: 0.15),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lan_outlined,
+                      size: 14, color: Colors.teal),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '直连: ${widget.lanEndpoint!}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.teal,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: IconButton(
+                      onPressed: () {
+                        Clipboard.setData(
+                            ClipboardData(text: widget.lanEndpoint!));
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: const Text('直连地址已复制'),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 14),
+                      padding: EdgeInsets.zero,
+                      tooltip: '复制',
+                      style: IconButton.styleFrom(
+                        foregroundColor: Colors.teal,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFull(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final hasPassword = widget.temporaryPassword.isNotEmpty;
 
@@ -116,7 +327,6 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(
               children: [
                 Container(
@@ -125,7 +335,8 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
                     gradient: AppTheme.brandGradient,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.computer, color: Colors.white, size: 20),
+                  child: const Icon(Icons.computer,
+                      color: Colors.white, size: 20),
                 ),
                 const SizedBox(width: 12),
                 Text(
@@ -136,7 +347,8 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
                 ),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
@@ -146,35 +358,38 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
                     children: [
                       Icon(Icons.circle, color: Colors.green, size: 8),
                       SizedBox(width: 6),
-                      Text('在线', style: TextStyle(color: Colors.green, fontSize: 12)),
+                      Text('在线',
+                          style:
+                              TextStyle(color: Colors.green, fontSize: 12)),
                     ],
                   ),
                 ),
               ],
             ),
-
             const SizedBox(height: 20),
-
-            // Device ID
             Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  color: colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Text(
-                  _formattedId,
-                  style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 4,
-                    fontFeatures: [FontFeature.tabularFigures()],
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _formattedId,
+                    style: const TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 4,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -189,10 +404,7 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
                 ),
               ],
             ),
-
             Divider(color: colorScheme.outlineVariant, height: 32),
-
-            // Password section
             Row(
               children: [
                 const Icon(Icons.vpn_key, size: 18, color: Colors.grey),
@@ -210,20 +422,25 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
               children: [
                 Expanded(
                   child: GestureDetector(
-                    onTap: () => setState(() => _showPassword = !_showPassword),
+                    onTap: () =>
+                        setState(() => _showPassword = !_showPassword),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                        color: colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                        child: Row(
-                          children: [
-                            Expanded(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
                               child: Text(
                                 hasPassword ? _maskedPassword : '------',
                                 maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.w700,
@@ -231,12 +448,15 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Icon(
-                              _showPassword ? Icons.visibility_off : Icons.visibility,
-                              size: 20,
-                              color: Colors.grey,
-                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            _showPassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            size: 20,
+                            color: Colors.grey,
+                          ),
                         ],
                       ),
                     ),
@@ -278,7 +498,8 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
               ),
               child: const Row(
                 children: [
-                  Icon(Icons.shield_outlined, size: 18, color: AppTheme.primaryBlue),
+                  Icon(Icons.shield_outlined,
+                      size: 18, color: AppTheme.primaryBlue),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -289,7 +510,102 @@ class _DeviceIdDisplayState extends State<DeviceIdDisplay>
                 ],
               ),
             ),
+            if (widget.lanEndpoint != null &&
+                widget.lanEndpoint!.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.teal.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.lan_outlined,
+                        size: 18, color: Colors.teal),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '直连地址（局域网 / Tailscale）',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.teal,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          SelectableText(
+                            widget.lanEndpoint!,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                              fontFeatures: [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        Clipboard.setData(
+                            ClipboardData(text: widget.lanEndpoint!));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('直连地址已复制'),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.copy_rounded, size: 18),
+                      tooltip: '复制',
+                      style: IconButton.styleFrom(
+                        foregroundColor: Colors.teal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final String tooltip;
+
+  const _CompactIconButton({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: IconButton(
+        onPressed: onTap,
+        icon: Icon(icon, size: 16),
+        tooltip: tooltip,
+        padding: EdgeInsets.zero,
+        style: IconButton.styleFrom(
+          foregroundColor: AppTheme.primaryBlue,
         ),
       ),
     );

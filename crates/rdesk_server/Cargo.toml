@@ -23,5 +23,6 @@ serde_json = { workspace = true }
 rand = { workspace = true }
 dashmap = "6"
 clap = { version = "4", features = ["derive"] }
-axum = "0.7"
+axum = { version = "0.7", features = ["ws"] }
+futures-util = "0.3"
 uuid = { workspace = true }

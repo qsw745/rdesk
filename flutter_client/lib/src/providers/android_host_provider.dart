@@ -1,12 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/device.dart';
 import '../services/rdesk_bridge_service.dart';
 import '../services/android_host_service.dart';
+import '../utils/router.dart';
+import '../widgets/incoming_connection_dialog.dart';
 
 class AndroidHostProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
@@ -40,6 +44,8 @@ class AndroidHostProvider extends ChangeNotifier {
   bool _relayCommandBusy = false;
   bool _relayUploadBusy = false;
   int? _lastUploadedFrameTimestampMs;
+  // LAN session tokens issued via /session/trust (password-authenticated).
+  final Set<String> _lanSessionTokens = {};
   String? _lastRemoteTap;
   String? _lastRemoteAction;
   String? _lastRemoteGesture;
@@ -134,11 +140,12 @@ class AndroidHostProvider extends ChangeNotifier {
         _registrationTimer = null;
         _relayCommandTimer?.cancel();
         _relayCommandTimer = null;
+        final oldToken = _relayHostToken;
         _relayHostToken = null;
         _lastUploadedFrameTimestampMs = null;
-        if (_localDevice != null) {
+        if (_localDevice != null && oldToken != null) {
           try {
-            await _bridge.unregisterPreviewHost(_localDevice!.deviceId);
+            await _bridge.unregisterPreviewHost(_localDevice!.deviceId, hostToken: oldToken);
           } catch (_) {
             // Ignore best-effort unregister failures.
           }
@@ -194,22 +201,30 @@ class AndroidHostProvider extends ChangeNotifier {
     }
 
     await _run(() async {
-      // 1) Try server-side disconnect (best-effort)
+      // 1) Unregister from relay to remove preview entry AND all viewer
+      //    sessions atomically.  This is the primary mechanism that forces
+      //    relay-connected viewers to get 401 on next frame fetch.
       if (hostToken != null && hostToken.isNotEmpty) {
         try {
-          await _bridge.disconnectHostedViewers(
-            deviceId: device.deviceId,
+          await _bridge.unregisterPreviewHost(
+            device.deviceId,
             hostToken: hostToken,
           );
         } catch (_) {
-          // Server unreachable is fine — we still do local cleanup below.
+          // Fallback: try disconnecting viewers individually.
+          try {
+            await _bridge.disconnectHostedViewers(
+              deviceId: device.deviceId,
+              hostToken: hostToken,
+            );
+          } catch (_) {}
         }
       }
 
-      // 2) Always do local cleanup: close LAN relay to cut direct connections
+      // 2) Close LAN relay to cut direct connections immediately
       await _closeLanRelay();
 
-      // 3) Invalidate old host token so stale viewer sessions can't reconnect
+      // 3) Clear host token so fresh registration gets a new one
       _relayHostToken = null;
       _lastUploadedFrameTimestampMs = null;
 
@@ -305,7 +320,13 @@ class AndroidHostProvider extends ChangeNotifier {
       return;
     }
 
-    final server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
+    const lanPort = 21116;
+    HttpServer server;
+    try {
+      server = await HttpServer.bind(InternetAddress.anyIPv4, lanPort);
+    } catch (_) {
+      server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
+    }
     _lanRelayServer = server;
     final localIp = await _resolveLocalIpv4();
     if (localIp != null) {
@@ -320,6 +341,87 @@ class AndroidHostProvider extends ChangeNotifier {
       server.forEach((request) async {
         final response = request.response;
         response.headers.set('Cache-Control', 'no-store');
+
+        // --- Unauthenticated endpoints ---
+
+        if (request.uri.path == '/health') {
+          response.headers.contentType = ContentType.json;
+          response.write(
+            jsonEncode(<String, Object?>{
+              'state': _state.state,
+              'running': _state.isRunning,
+              'hasPermission': _state.hasPermission,
+              'hasFrame': _previewFrame != null,
+              'endpoint': _lanRelayEndpoint,
+              'platform': Platform.operatingSystem,
+            }),
+          );
+          await response.close();
+          return;
+        }
+
+        // /session/trust: validate password and issue a session token.
+        if (request.uri.path == '/session/trust' && request.method == 'POST') {
+          final body = await utf8.decoder.bind(request).join();
+          final payload = jsonDecode(body) as Map<String, dynamic>;
+          final deviceId = payload['deviceId'] as String?;
+          final hostname = payload['hostname'] as String?;
+          final peerOs = payload['peerOs'] as String?;
+          final password = payload['password'] as String?;
+          if (deviceId == null || hostname == null || peerOs == null) {
+            response.statusCode = HttpStatus.badRequest;
+            response.write('missing viewer info');
+            await response.close();
+            return;
+          }
+          // Validate password if the host has one set.
+          final hostPassword = await _bridge.getActiveAccessPassword();
+          if (hostPassword.isNotEmpty) {
+            if (password == null || password != hostPassword) {
+              response.statusCode = HttpStatus.unauthorized;
+              response.headers.contentType = ContentType.json;
+              response.write(jsonEncode(<String, Object?>{'ok': false, 'error': 'invalid password'}));
+              await response.close();
+              return;
+            }
+          }
+
+          // Auto-wake screen when a remote viewer connects
+          try {
+            await _service.wakeScreen();
+          } catch (_) {}
+
+          await _bridge.trustIncomingViewer(
+            deviceId: deviceId,
+            hostname: hostname,
+            peerOs: peerOs,
+          );
+          await _registerPreviewHost();
+          // Issue a session token for subsequent requests.
+          final rng = Random.secure();
+          final sessionToken = List.generate(32, (_) => rng.nextInt(256))
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join();
+          _lanSessionTokens.add(sessionToken);
+          response.headers.contentType = ContentType.json;
+          response.write(jsonEncode(<String, Object?>{
+            'ok': true,
+            'session_token': sessionToken,
+          }));
+          await response.close();
+          return;
+        }
+
+        // --- All other endpoints require a valid session token ---
+        final token = request.uri.queryParameters['session_token'] ??
+            request.headers.value('x-session-token') ??
+            '';
+        if (!_lanSessionTokens.contains(token)) {
+          response.statusCode = HttpStatus.unauthorized;
+          response.write('unauthorized');
+          await response.close();
+          return;
+        }
 
         if (request.uri.path == '/frame.jpg') {
           final frame = _previewFrame;
@@ -336,51 +438,6 @@ class AndroidHostProvider extends ChangeNotifier {
           response.headers
               .set('X-RDesk-Timestamp', frame.timestampMs.toString());
           response.add(frame.bytes);
-          await response.close();
-          return;
-        }
-
-        if (request.uri.path == '/health') {
-          response.headers.contentType = ContentType.json;
-          response.write(
-            jsonEncode(<String, Object?>{
-              'state': _state.state,
-              'running': _state.isRunning,
-              'hasPermission': _state.hasPermission,
-              'hasFrame': _previewFrame != null,
-              'endpoint': _lanRelayEndpoint,
-            }),
-          );
-          await response.close();
-          return;
-        }
-
-        if (request.uri.path == '/session/trust' && request.method == 'POST') {
-          final body = await utf8.decoder.bind(request).join();
-          final payload = jsonDecode(body) as Map<String, dynamic>;
-          final deviceId = payload['deviceId'] as String?;
-          final hostname = payload['hostname'] as String?;
-          final peerOs = payload['peerOs'] as String?;
-          if (deviceId == null || hostname == null || peerOs == null) {
-            response.statusCode = HttpStatus.badRequest;
-            response.write('missing viewer info');
-            await response.close();
-            return;
-          }
-
-          // Auto-wake screen when a remote viewer connects
-          try {
-            await _service.wakeScreen();
-          } catch (_) {}
-
-          await _bridge.trustIncomingViewer(
-            deviceId: deviceId,
-            hostname: hostname,
-            peerOs: peerOs,
-          );
-          await _registerPreviewHost();
-          response.headers.contentType = ContentType.json;
-          response.write(jsonEncode(<String, Object?>{'ok': true}));
           await response.close();
           return;
         }
@@ -494,6 +551,28 @@ class AndroidHostProvider extends ChangeNotifier {
           return;
         }
 
+        if (request.uri.path == '/input/drag_path' && request.method == 'POST') {
+          final body = await utf8.decoder.bind(request).join();
+          final payload = jsonDecode(body) as Map<String, dynamic>;
+          final rawPoints = payload['points'] as List<dynamic>?;
+          if (rawPoints == null || rawPoints.length < 2) {
+            response.statusCode = HttpStatus.badRequest;
+            response.write('missing points');
+            await response.close();
+            return;
+          }
+          final points = rawPoints
+              .map((p) => [(p as List<dynamic>)[0] as double, p[1] as double])
+              .toList();
+          _lastRemoteGesture = 'drag_path ${points.length} points';
+          notifyListeners();
+          final ok = await _service.performRemoteDragPath(points);
+          response.headers.contentType = ContentType.json;
+          response.write(jsonEncode(<String, Object?>{'ok': ok}));
+          await response.close();
+          return;
+        }
+
         if (request.uri.path == '/input/text' && request.method == 'POST') {
           final body = await utf8.decoder.bind(request).join();
           final payload = jsonDecode(body) as Map<String, dynamic>;
@@ -552,10 +631,18 @@ class AndroidHostProvider extends ChangeNotifier {
   }
 
   Future<void> _closeLanRelay({bool notify = true}) async {
-    await _lanRelayServer?.close(force: true);
+    final server = _lanRelayServer;
     _lanRelayServer = null;
     _lanRelayEndpoint = null;
     _lastUploadedFrameTimestampMs = null;
+    // Revoke tokens first so in-flight requests get 401 (triggering viewer
+    // termination) before the TCP listener is torn down.
+    _lanSessionTokens.clear();
+    if (server != null) {
+      // Give in-flight requests a moment to receive 401 before closing.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await server.close(force: true);
+    }
     if (notify) {
       notifyListeners();
     }
@@ -612,13 +699,7 @@ class AndroidHostProvider extends ChangeNotifier {
       return;
     }
 
-    // If host token was cleared (e.g. after disconnect), unregister first
-    // so the server generates a fresh token on re-register.
-    if (_relayHostToken == null) {
-      try {
-        await _bridge.unregisterPreviewHost(device.deviceId);
-      } catch (_) {}
-    }
+    // Cannot unregister without a valid host_token; skip when null.
 
     final password = await _bridge.getActiveAccessPassword();
     final settings = await _bridge.loadSettings();
@@ -634,6 +715,7 @@ class AndroidHostProvider extends ChangeNotifier {
       autoAccept: settings.autoAccept,
       trustedViewerIds: trustedViewerIds,
       authToken: authToken,
+      hostToken: _relayHostToken,
     );
     if (hostToken != null && hostToken.isNotEmpty) {
       _relayHostToken = hostToken;
@@ -700,6 +782,27 @@ class AndroidHostProvider extends ChangeNotifier {
       var ok = false;
       String? text;
       switch (command.kind) {
+        case 'incoming_request':
+          final deviceId = command.payload['deviceId'] as String?;
+          final hostname = command.payload['hostname'] as String? ?? '未知设备';
+          final peerOs = command.payload['peerOs'] as String? ?? '未知';
+          if (deviceId != null) {
+            final ctx = rootNavigatorKey.currentContext;
+            if (ctx != null && ctx.mounted) {
+              // ignore: use_build_context_synchronously
+              final action = await showIncomingConnectionDialog(
+                ctx,
+                IncomingConnectionRequest(
+                  peerId: deviceId,
+                  peerHostname: hostname,
+                  peerPlatform: peerOs,
+                  requestedAt: DateTime.now(),
+                ),
+              );
+              ok = action == IncomingConnectionAction.accept;
+            }
+          }
+          break;
         case 'trust':
           final deviceId = command.payload['deviceId'] as String?;
           final hostname = command.payload['hostname'] as String?;
@@ -773,6 +876,17 @@ class AndroidHostProvider extends ChangeNotifier {
               endX: endX,
               endY: endY,
             );
+          }
+          break;
+        case 'drag_path':
+          final rawPoints = command.payload['points'] as List<dynamic>?;
+          if (rawPoints != null && rawPoints.length >= 2) {
+            final points = rawPoints
+                .map((p) => [(p as List<dynamic>)[0] as double, p[1] as double])
+                .toList();
+            _lastRemoteGesture = 'drag_path ${points.length} points';
+            notifyListeners();
+            ok = await _service.performRemoteDragPath(points);
           }
           break;
         case 'text':

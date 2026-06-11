@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../models/file_entry.dart';
 import '../providers/file_transfer_provider.dart';
+import '../providers/session_provider.dart';
+import '../utils/theme.dart';
 import '../widgets/file_list_tile.dart';
 import '../widgets/transfer_progress.dart';
 
@@ -17,6 +20,10 @@ class FileManagerScreen extends StatefulWidget {
 class _FileManagerScreenState extends State<FileManagerScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  bool _disconnectHandled = false;
+  static const _terminalStates = {
+    '已被对端断开', '已离线', '设备离线', '密码已变更', '重连失败',
+  };
 
   @override
   void initState() {
@@ -33,8 +40,23 @@ class _FileManagerScreenState extends State<FileManagerScreen>
     super.dispose();
   }
 
+  void _checkDisconnect(String label) {
+    if (_disconnectHandled || !_terminalStates.contains(label)) return;
+    _disconnectHandled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<SessionProvider>().clearSession();
+      context.go('/');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final statusLabel = context.select<SessionProvider, String>(
+      (p) => p.connectionStatusLabel,
+    );
+    _checkDisconnect(statusLabel);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('文件管理'),
@@ -42,34 +64,137 @@ class _FileManagerScreenState extends State<FileManagerScreen>
           icon: const Icon(Icons.arrow_back),
           onPressed: () => context.go('/remote/${widget.sessionId}'),
         ),
+        actions: [
+          Consumer<FileTransferProvider>(
+            builder: (context, provider, _) {
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (provider.transfers.any(
+                      (t) => t.state == TransferState.completed || t.state == TransferState.cancelled))
+                    IconButton(
+                      icon: const Icon(Icons.cleaning_services_outlined, size: 20),
+                      tooltip: '清除已完成',
+                      onPressed: provider.clearCompletedTransfers,
+                    ),
+                  IconButton(
+                    icon: Icon(
+                      provider.isSelectionMode
+                          ? Icons.check_circle
+                          : Icons.checklist_rounded,
+                      size: 22,
+                      color: provider.isSelectionMode
+                          ? AppTheme.primaryBlue
+                          : null,
+                    ),
+                    tooltip: provider.isSelectionMode ? '退出多选' : '多选模式',
+                    onPressed: provider.toggleSelectionMode,
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
           // Transfer progress bar
           Consumer<FileTransferProvider>(
             builder: (context, provider, _) {
-              if (provider.transfers.isEmpty) {
+              final active = provider.transfers
+                  .where((t) => t.state == TransferState.transferring)
+                  .toList();
+              if (active.isEmpty && provider.transfers.isEmpty) {
                 return const SizedBox.shrink();
               }
-              return SizedBox(
-                height: 80,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  itemCount: provider.transfers.length,
-                  itemBuilder: (context, index) {
-                    return TransferProgressWidget(
-                      transfer: provider.transfers[index],
-                      onCancel: () =>
-                          provider.cancelTransfer(provider.transfers[index].id),
-                    );
-                  },
+              return Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Theme.of(context).dividerColor,
+                    ),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      height: 80,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        itemCount: provider.transfers.length,
+                        itemBuilder: (context, index) {
+                          return TransferProgressWidget(
+                            transfer: provider.transfers[index],
+                            onCancel: () => provider
+                                .cancelTransfer(provider.transfers[index].id),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
           ),
 
-          // Responsive file browser — Tab on narrow, dual-pane on wide
+          // Batch action bar
+          Consumer<FileTransferProvider>(
+            builder: (context, provider, _) {
+              if (!provider.isSelectionMode || !provider.hasSelection) {
+                return const SizedBox.shrink();
+              }
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: AppTheme.primaryBlue.withValues(alpha: 0.08),
+                child: Row(
+                  children: [
+                    Icon(Icons.check_circle_outline,
+                        size: 18, color: AppTheme.primaryBlue),
+                    const SizedBox(width: 8),
+                    Text(
+                      '已选择 ${provider.selectedLocalFiles.length + provider.selectedRemoteFiles.length} 项',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const Spacer(),
+                    if (provider.selectedLocalFiles.isNotEmpty)
+                      FilledButton.icon(
+                        onPressed: () =>
+                            provider.uploadSelectedFiles(widget.sessionId),
+                        icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                        label: const Text('上传'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          textStyle: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    if (provider.selectedRemoteFiles.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: () =>
+                            provider.downloadSelectedFiles(widget.sessionId),
+                        icon:
+                            const Icon(Icons.cloud_download_outlined, size: 18),
+                        label: const Text('下载'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppTheme.successGreen,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 8),
+                          textStyle: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+
+          // Responsive file browser
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -86,7 +211,6 @@ class _FileManagerScreenState extends State<FileManagerScreen>
     );
   }
 
-  /// Tab layout for narrow screens (phones in portrait).
   Widget _buildTabLayout() {
     return Column(
       children: [
@@ -121,7 +245,6 @@ class _FileManagerScreenState extends State<FileManagerScreen>
     );
   }
 
-  /// Dual-pane side-by-side layout for wide screens (tablets, landscape, desktop).
   Widget _buildDualPaneLayout() {
     return Row(
       children: [
@@ -160,7 +283,6 @@ class _FileBrowser extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Path bar with horizontally scrollable breadcrumbs
         Consumer<FileTransferProvider>(
           builder: (context, provider, _) {
             final path = isLocal ? provider.localPath : provider.remotePath;
@@ -170,15 +292,41 @@ class _FileBrowser extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        isLocal ? Icons.phone_android : Icons.cloud_outlined,
+                        size: 16,
+                        color: isLocal
+                            ? AppTheme.primaryBlue
+                            : AppTheme.accentPurple,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(title,
+                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 18),
+                        onPressed: () {
+                          if (isLocal) {
+                            provider.loadLocalDir(provider.localPath);
+                          } else {
+                            provider.loadRemoteDir(sessionId, provider.remotePath);
+                          }
+                        },
+                        visualDensity: VisualDensity.compact,
+                        tooltip: '刷新',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
                   SizedBox(
                     height: 36,
                     child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
-                        children: _buildBreadcrumbChips(context, path, provider),
+                        children:
+                            _buildBreadcrumbChips(context, path, provider),
                       ),
                     ),
                   ),
@@ -193,17 +341,41 @@ class _FileBrowser extends StatelessWidget {
             builder: (context, provider, _) {
               final files = isLocal ? provider.localFiles : provider.remoteFiles;
               if (files.isEmpty) {
-                return const Center(child: Text('目录为空'));
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.folder_open, size: 48, color: Colors.grey.shade400),
+                      const SizedBox(height: 12),
+                      Text('目录为空',
+                          style: TextStyle(color: Colors.grey.shade500)),
+                    ],
+                  ),
+                );
               }
-              return ListView.builder(
+              final selected =
+                  isLocal ? provider.selectedLocalFiles : provider.selectedRemoteFiles;
+              return ListView.separated(
                 itemCount: files.length,
+                separatorBuilder: (_, __) => const Divider(height: 1, indent: 66),
                 itemBuilder: (context, index) {
+                  final entry = files[index];
                   return FileListTileWidget(
-                    entry: files[index],
+                    entry: entry,
+                    selectionMode: provider.isSelectionMode,
+                    selected: selected.contains(entry.name),
+                    onToggleSelect: () {
+                      if (isLocal) {
+                        provider.toggleLocalSelection(entry.name);
+                      } else {
+                        provider.toggleRemoteSelection(entry.name);
+                      }
+                    },
                     onTap: () {
-                      if (files[index].isDir) {
-                        final newPath =
-                            '${isLocal ? provider.localPath : provider.remotePath}/${files[index].name}';
+                      if (entry.isDir) {
+                        final currentPath =
+                            isLocal ? provider.localPath : provider.remotePath;
+                        final newPath = '$currentPath/${entry.name}';
                         if (isLocal) {
                           provider.loadLocalDir(newPath);
                         } else {
@@ -211,6 +383,24 @@ class _FileBrowser extends StatelessWidget {
                         }
                       }
                     },
+                    onUpload: isLocal && !entry.isDir
+                        ? () {
+                            provider.uploadFile(
+                              sessionId,
+                              '${provider.localPath}/${entry.name}',
+                              '${provider.remotePath}/${entry.name}',
+                            );
+                          }
+                        : null,
+                    onDownload: !isLocal && !entry.isDir
+                        ? () {
+                            provider.downloadFile(
+                              sessionId,
+                              '${provider.remotePath}/${entry.name}',
+                              '${provider.localPath}/${entry.name}',
+                            );
+                          }
+                        : null,
                   );
                 },
               );
@@ -232,7 +422,6 @@ class _FileBrowser extends StatelessWidget {
 
     final chips = <Widget>[];
 
-    // Root chip
     chips.add(
       Padding(
         padding: const EdgeInsets.only(right: 4),
@@ -250,7 +439,6 @@ class _FileBrowser extends StatelessWidget {
       ),
     );
 
-    // Path segment chips
     for (var i = 0; i < parts.length; i++) {
       final segmentPath = '/${parts.sublist(0, i + 1).join('/')}';
       chips.add(

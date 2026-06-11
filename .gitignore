@@ -12,6 +12,7 @@ flutter_client/build/
 flutter_client/.flutter-plugins
 flutter_client/.flutter-plugins-dependencies
 flutter_client/android/local.properties
+flutter_client/ios/build/
 flutter_client/ios/Flutter/ephemeral/
 flutter_client/ios/Flutter/flutter_export_environment.sh
 flutter_client/linux/flutter/ephemeral/

@@ -60,15 +60,12 @@ impl RemoteServer {
         // let quic_server = QuicServer::bind("0.0.0.0:0").await?;
         // let relay = RelayClient::connect(&config.relay_server).await?;
 
-        let listening = Arc::new(std::sync::atomic::AtomicBool::new(true));
-
-        info!(device_id = %config.device_id, "server is listening (stub)");
-
-        Ok(Self {
-            config: config.clone(),
-            listening,
-            sessions: Arc::new(Mutex::new(Vec::new())),
-        })
+        // The rendezvous registration and QUIC listener are not yet implemented.
+        // Return an explicit error so callers do not get a false "listening" state.
+        anyhow::bail!(
+            "RemoteServer::start() is not yet implemented — \
+             rendezvous registration and QUIC listener stubs have not been wired up"
+        )
     }
 
     /// Accept the next incoming connection and return a fully-initialised [`Session`].
