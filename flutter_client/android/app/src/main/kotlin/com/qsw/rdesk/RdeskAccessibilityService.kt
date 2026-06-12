@@ -2,11 +2,14 @@ package com.qsw.rdesk
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityEvent
 
@@ -28,11 +31,11 @@ class RdeskAccessibilityService : AccessibilityService() {
     }
 
     fun performTap(normalizedX: Double, normalizedY: Double): Boolean {
-        val metrics = resources.displayMetrics
-        val x = (metrics.widthPixels * normalizedX.coerceIn(0.0, 1.0)).toFloat()
-        val y = (metrics.heightPixels * normalizedY.coerceIn(0.0, 1.0)).toFloat()
+        val screen = screenBounds()
+        val x = screen.width * normalizedX.coerceIn(0.0, 1.0).toFloat()
+        val y = screen.height * normalizedY.coerceIn(0.0, 1.0).toFloat()
         return dispatchPathGesture(
-            path = Path().apply { moveTo(x, y) },
+            path = tapPath(x, y),
             durationMs = 60,
         )
     }
@@ -56,11 +59,11 @@ class RdeskAccessibilityService : AccessibilityService() {
     }
 
     fun performLongPress(normalizedX: Double, normalizedY: Double): Boolean {
-        val metrics = resources.displayMetrics
-        val x = (metrics.widthPixels * normalizedX.coerceIn(0.0, 1.0)).toFloat()
-        val y = (metrics.heightPixels * normalizedY.coerceIn(0.0, 1.0)).toFloat()
+        val screen = screenBounds()
+        val x = screen.width * normalizedX.coerceIn(0.0, 1.0).toFloat()
+        val y = screen.height * normalizedY.coerceIn(0.0, 1.0).toFloat()
         return dispatchPathGesture(
-            path = Path().apply { moveTo(x, y) },
+            path = tapPath(x, y),
             durationMs = 650,
         )
     }
@@ -72,11 +75,11 @@ class RdeskAccessibilityService : AccessibilityService() {
         endY: Double,
         durationMs: Long = 0,
     ): Boolean {
-        val metrics = resources.displayMetrics
-        val sx = (metrics.widthPixels * startX.coerceIn(0.0, 1.0)).toFloat()
-        val sy = (metrics.heightPixels * startY.coerceIn(0.0, 1.0)).toFloat()
-        val ex = (metrics.widthPixels * endX.coerceIn(0.0, 1.0)).toFloat()
-        val ey = (metrics.heightPixels * endY.coerceIn(0.0, 1.0)).toFloat()
+        val screen = screenBounds()
+        val sx = screen.width * startX.coerceIn(0.0, 1.0).toFloat()
+        val sy = screen.height * startY.coerceIn(0.0, 1.0).toFloat()
+        val ex = screen.width * endX.coerceIn(0.0, 1.0).toFloat()
+        val ey = screen.height * endY.coerceIn(0.0, 1.0).toFloat()
 
         // Use quadratic bezier through midpoint for smooth gesture curve.
         val mx = (sx + ex) / 2f
@@ -89,7 +92,7 @@ class RdeskAccessibilityService : AccessibilityService() {
         // Dynamic duration: proportional to distance.
         // Longer = smoother, more reliably recognized as scroll by Android.
         val dist = Math.sqrt(((ex - sx) * (ex - sx) + (ey - sy) * (ey - sy)).toDouble())
-        val screenDiag = Math.sqrt((metrics.widthPixels * metrics.widthPixels + metrics.heightPixels * metrics.heightPixels).toDouble())
+        val screenDiag = Math.sqrt((screen.width * screen.width + screen.height * screen.height).toDouble())
         val normalizedDist = dist / screenDiag
         // 250-600ms — smooth enough for Android scroll recognition
         val dur = if (durationMs > 0) durationMs else (250 + (normalizedDist * 400).toLong()).coerceIn(200, 700)
@@ -101,9 +104,9 @@ class RdeskAccessibilityService : AccessibilityService() {
         durationMs: Long = 0,
     ): Boolean {
         if (points.size < 2) return false
-        val metrics = resources.displayMetrics
-        val w = metrics.widthPixels.toFloat()
-        val h = metrics.heightPixels.toFloat()
+        val screen = screenBounds()
+        val w = screen.width
+        val h = screen.height
 
         // Build smooth path using quadratic bezier curves between points.
         val path = Path().apply {
@@ -159,20 +162,45 @@ class RdeskAccessibilityService : AccessibilityService() {
         endX: Double,
         endY: Double,
     ): Boolean {
-        val metrics = resources.displayMetrics
+        val screen = screenBounds()
         val path =
             Path().apply {
                 moveTo(
-                    (metrics.widthPixels * startX.coerceIn(0.0, 1.0)).toFloat(),
-                    (metrics.heightPixels * startY.coerceIn(0.0, 1.0)).toFloat(),
+                    screen.width * startX.coerceIn(0.0, 1.0).toFloat(),
+                    screen.height * startY.coerceIn(0.0, 1.0).toFloat(),
                 )
                 lineTo(
-                    (metrics.widthPixels * endX.coerceIn(0.0, 1.0)).toFloat(),
-                    (metrics.heightPixels * endY.coerceIn(0.0, 1.0)).toFloat(),
+                    screen.width * endX.coerceIn(0.0, 1.0).toFloat(),
+                    screen.height * endY.coerceIn(0.0, 1.0).toFloat(),
                 )
             }
         return dispatchPathGesture(path = path, durationMs = 220)
     }
+
+    private fun screenBounds(): ScreenBounds {
+        val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.maximumWindowMetrics.bounds
+            return ScreenBounds(
+                width = bounds.width().coerceAtLeast(1).toFloat(),
+                height = bounds.height().coerceAtLeast(1).toFloat(),
+            )
+        }
+
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(metrics)
+        return ScreenBounds(
+            width = metrics.widthPixels.coerceAtLeast(1).toFloat(),
+            height = metrics.heightPixels.coerceAtLeast(1).toFloat(),
+        )
+    }
+
+    private fun tapPath(x: Float, y: Float): Path =
+        Path().apply {
+            moveTo(x, y)
+            lineTo(x + 0.1f, y + 0.1f)
+        }
 
     private fun dispatchPathGesture(path: Path, durationMs: Long): Boolean {
         val gesture =
@@ -249,3 +277,8 @@ class RdeskAccessibilityService : AccessibilityService() {
         @Volatile var instance: RdeskAccessibilityService? = null
     }
 }
+
+private data class ScreenBounds(
+    val width: Float,
+    val height: Float,
+)
