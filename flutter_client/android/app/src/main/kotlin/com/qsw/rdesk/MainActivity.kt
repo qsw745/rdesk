@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.KeyguardManager
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
@@ -34,10 +35,10 @@ class MainActivity : FlutterActivity() {
                 "getScreenCaptureState" -> result.success(ScreenCaptureStore.toMap())
                 "getLatestCapturedFrame" -> result.success(ScreenCaptureStore.frameToMap())
                 "requestScreenCapturePermission" -> requestScreenCapturePermission(result)
-	                "startScreenCaptureService" -> startScreenCaptureService(result)
-	                "stopScreenCaptureService" -> stopScreenCaptureService(result)
-	                "setCaptureQuality" -> setCaptureQuality(call, result)
-	                "showRemoteTapIndicator" -> showRemoteTapIndicator(call, result)
+                "startScreenCaptureService" -> startScreenCaptureService(result)
+                "stopScreenCaptureService" -> stopScreenCaptureService(result)
+                "setCaptureQuality" -> setCaptureQuality(call, result)
+                "showRemoteTapIndicator" -> showRemoteTapIndicator(call, result)
                 "performRemoteLongPress" -> performRemoteLongPress(call, result)
                 "performRemoteDrag" -> performRemoteDrag(call, result)
                 "performRemoteDragPath" -> performRemoteDragPath(call, result)
@@ -89,7 +90,7 @@ class MainActivity : FlutterActivity() {
         result.success(ScreenCaptureStore.toMap("前台录屏服务已启动"))
     }
 
-	    private fun stopScreenCaptureService(result: MethodChannel.Result) {
+    private fun stopScreenCaptureService(result: MethodChannel.Result) {
         val intent = Intent(this, ScreenCaptureService::class.java).apply {
             action = ScreenCaptureService.ACTION_STOP
         }
@@ -298,6 +299,19 @@ class MainActivity : FlutterActivity() {
     }
 }
 
+private fun isRdeskAccessibilityEnabled(context: Context): Boolean {
+    val enabledServices = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+    ) ?: return false
+    val expected = ComponentName(context, RdeskAccessibilityService::class.java)
+    return enabledServices.split(':').any { raw ->
+        val component = ComponentName.unflattenFromString(raw.trim())
+        component?.packageName == expected.packageName &&
+            component.className == expected.className
+    }
+}
+
 enum class ScreenCaptureState {
     IDLE,
     REQUESTING,
@@ -314,7 +328,7 @@ object ScreenCaptureStore {
     var permissionResultCode: Int? = null
     var permissionData: Intent? = null
     var state: ScreenCaptureState = ScreenCaptureState.IDLE
-	    @Volatile var latestFrame: ByteArray? = null
+    @Volatile var latestFrame: ByteArray? = null
     @Volatile var latestFrameWidth: Int = 0
     @Volatile var latestFrameHeight: Int = 0
     @Volatile var latestFrameTimestampMs: Long = 0L
@@ -355,7 +369,11 @@ object ScreenCaptureStore {
             "state" to state.name.lowercase(),
             "hasPermission" to hasPermission(),
             "isRunning" to (state == ScreenCaptureState.RUNNING),
-            "accessibilityEnabled" to (RdeskAccessibilityService.instance != null),
+            "accessibilityEnabled" to (
+                RdeskAccessibilityService.instance != null ||
+                    isRdeskAccessibilityEnabled(context)
+                ),
+            "accessibilityServiceReady" to (RdeskAccessibilityService.instance != null),
             "overlayEnabled" to Settings.canDrawOverlays(context),
             "notificationsEnabled" to NotificationManagerCompat.from(context).areNotificationsEnabled(),
             "batteryOptimizationIgnored" to (

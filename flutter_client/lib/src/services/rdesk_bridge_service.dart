@@ -429,12 +429,16 @@ class RdeskBridgeService {
       final controller = StreamController<RemoteFrameData?>();
       IOWebSocketChannel? channel;
       Timer? frameWatchdog;
+      Timer? transportLatencyTimer;
+      int? transportLatencyMs;
       var lastFrameAt = DateTime.now();
       const wsFrameTimeout = Duration(seconds: 6);
 
       void closeStream() {
         frameWatchdog?.cancel();
         frameWatchdog = null;
+        transportLatencyTimer?.cancel();
+        transportLatencyTimer = null;
         channel?.sink.close();
         if (!controller.isClosed) {
           controller.add(null);
@@ -473,6 +477,7 @@ class RdeskBridgeService {
                 final frame = _decodeRemoteFramePacket(
                   bytes,
                   receivedAtMs: receivedAtMs,
+                  fallbackNetworkLatencyMs: transportLatencyMs,
                 );
                 if (frame == null) {
                   return;
@@ -484,6 +489,15 @@ class RdeskBridgeService {
             onError: (_) => closeStream(),
             onDone: () => closeStream(),
           );
+          unawaited(_refreshTransportLatency(httpEndpoint, (latency) {
+            transportLatencyMs = latency;
+          }));
+          transportLatencyTimer = Timer.periodic(
+            const Duration(seconds: 2),
+            (_) => unawaited(_refreshTransportLatency(httpEndpoint, (latency) {
+              transportLatencyMs = latency;
+            })),
+          );
         } catch (_) {
           closeStream();
         }
@@ -491,6 +505,7 @@ class RdeskBridgeService {
 
       controller.onCancel = () {
         frameWatchdog?.cancel();
+        transportLatencyTimer?.cancel();
         channel?.sink.close();
       };
       controller.onPause = () => frameWatchdog?.cancel();
@@ -510,6 +525,8 @@ class RdeskBridgeService {
       controller.done.whenComplete(() {
         frameWatchdog?.cancel();
         frameWatchdog = null;
+        transportLatencyTimer?.cancel();
+        transportLatencyTimer = null;
       });
 
       connect();
@@ -1730,6 +1747,7 @@ class RdeskBridgeService {
   RemoteFrameData? _decodeRemoteFramePacket(
     Uint8List packet, {
     int? receivedAtMs,
+    int? fallbackNetworkLatencyMs,
   }) {
     if (packet.isEmpty) return null;
     final nowMs = receivedAtMs ?? DateTime.now().millisecondsSinceEpoch;
@@ -1758,7 +1776,8 @@ class RdeskBridgeService {
         );
         final frameAgeMs = _boundedElapsedMs(nowMs, capturedAtMs.toInt());
         final networkLatencyMs =
-            _boundedElapsedMs(nowMs, relayReceivedAtMs.toInt());
+            _boundedElapsedMs(nowMs, relayReceivedAtMs.toInt()) ??
+                fallbackNetworkLatencyMs;
         final latencyMs = frameAgeMs ?? networkLatencyMs;
         return RemoteFrameData(
           bytes: payload,
@@ -1792,13 +1811,14 @@ class RdeskBridgeService {
           fallback: dims?.$2 ?? 0,
         );
         final latencyMs = _boundedElapsedMs(nowMs, timestampMs.toInt());
+        final displayLatencyMs = latencyMs ?? fallbackNetworkLatencyMs;
         return RemoteFrameData(
           bytes: payload,
           width: safeWidth,
           height: safeHeight,
-          latencyMs: latencyMs,
-          networkLatencyMs: latencyMs,
-          latencyAvailable: latencyMs != null,
+          latencyMs: displayLatencyMs,
+          networkLatencyMs: displayLatencyMs,
+          latencyAvailable: displayLatencyMs != null,
         );
       }
     }
@@ -1810,11 +1830,39 @@ class RdeskBridgeService {
         bytes: packet,
         width: dims?.$1 ?? 0,
         height: dims?.$2 ?? 0,
-        latencyMs: null,
-        latencyAvailable: false,
+        latencyMs: fallbackNetworkLatencyMs,
+        networkLatencyMs: fallbackNetworkLatencyMs,
+        latencyAvailable: fallbackNetworkLatencyMs != null,
       );
     }
     return null;
+  }
+
+  Future<void> _refreshTransportLatency(
+    Uri endpoint,
+    void Function(int latencyMs) onMeasured,
+  ) async {
+    final origin = Uri(
+      scheme: endpoint.scheme,
+      host: endpoint.host,
+      port: endpoint.hasPort ? endpoint.port : null,
+      path: '/health',
+    );
+    final stopwatch = Stopwatch()..start();
+    try {
+      final request = await _getControlClient
+          .getUrl(origin)
+          .timeout(const Duration(seconds: 2));
+      final response =
+          await request.close().timeout(const Duration(seconds: 2));
+      await response.drain<void>();
+      stopwatch.stop();
+      if (response.statusCode == HttpStatus.ok) {
+        onMeasured(stopwatch.elapsedMilliseconds.clamp(1, 9999).toInt());
+      }
+    } catch (_) {
+      // Transport latency is only a display fallback; ignore probe failures.
+    }
   }
 
   bool _hasRdf1Header(Uint8List packet) {

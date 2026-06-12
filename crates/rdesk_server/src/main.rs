@@ -1017,6 +1017,7 @@ async fn fetch_frame(
         "x-rdesk-relay-received-at",
         &frame.relay_received_at_ms.to_string(),
     );
+    insert_header(&mut headers, "x-rdesk-relay-sent-at", &now_ms().to_string());
     (StatusCode::OK, headers, frame.bytes.clone()).into_response()
 }
 
@@ -1055,7 +1056,7 @@ async fn input_tap(
     )
     .await
     {
-        Ok(_) => (StatusCode::OK, Json(GenericOkResponse { ok: true })).into_response(),
+        Ok(result) => (StatusCode::OK, Json(GenericOkResponse { ok: result.ok })).into_response(),
         Err(status) => status.into_response(),
     }
 }
