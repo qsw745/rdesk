@@ -34,9 +34,10 @@ class MainActivity : FlutterActivity() {
                 "getScreenCaptureState" -> result.success(ScreenCaptureStore.toMap())
                 "getLatestCapturedFrame" -> result.success(ScreenCaptureStore.frameToMap())
                 "requestScreenCapturePermission" -> requestScreenCapturePermission(result)
-                "startScreenCaptureService" -> startScreenCaptureService(result)
-                "stopScreenCaptureService" -> stopScreenCaptureService(result)
-                "showRemoteTapIndicator" -> showRemoteTapIndicator(call, result)
+	                "startScreenCaptureService" -> startScreenCaptureService(result)
+	                "stopScreenCaptureService" -> stopScreenCaptureService(result)
+	                "setCaptureQuality" -> setCaptureQuality(call, result)
+	                "showRemoteTapIndicator" -> showRemoteTapIndicator(call, result)
                 "performRemoteLongPress" -> performRemoteLongPress(call, result)
                 "performRemoteDrag" -> performRemoteDrag(call, result)
                 "performRemoteDragPath" -> performRemoteDragPath(call, result)
@@ -88,7 +89,7 @@ class MainActivity : FlutterActivity() {
         result.success(ScreenCaptureStore.toMap("前台录屏服务已启动"))
     }
 
-    private fun stopScreenCaptureService(result: MethodChannel.Result) {
+	    private fun stopScreenCaptureService(result: MethodChannel.Result) {
         val intent = Intent(this, ScreenCaptureService::class.java).apply {
             action = ScreenCaptureService.ACTION_STOP
         }
@@ -96,6 +97,13 @@ class MainActivity : FlutterActivity() {
         ScreenCaptureStore.state =
             if (ScreenCaptureStore.hasPermission()) ScreenCaptureState.READY else ScreenCaptureState.IDLE
         result.success(ScreenCaptureStore.toMap("前台录屏服务已停止"))
+    }
+
+    private fun setCaptureQuality(call: MethodCall, result: MethodChannel.Result) {
+        val quality = call.argument<Double>("quality") ?: 0.75
+        val fps = call.argument<Int>("fps")
+        ScreenCaptureStore.setCaptureQuality(quality, fps)
+        result.success(true)
     }
 
     private fun showRemoteTapIndicator(call: MethodCall, result: MethodChannel.Result) {
@@ -306,12 +314,39 @@ object ScreenCaptureStore {
     var permissionResultCode: Int? = null
     var permissionData: Intent? = null
     var state: ScreenCaptureState = ScreenCaptureState.IDLE
-    @Volatile var latestFrame: ByteArray? = null
+	    @Volatile var latestFrame: ByteArray? = null
     @Volatile var latestFrameWidth: Int = 0
     @Volatile var latestFrameHeight: Int = 0
     @Volatile var latestFrameTimestampMs: Long = 0L
+    @Volatile var maxFrameLongEdgePx: Int = 1440
+    @Volatile var minFrameIntervalMs: Long = 83L
+    @Volatile var jpegQuality: Int = 75
 
     fun hasPermission(): Boolean = permissionResultCode != null && permissionData != null
+
+    fun setCaptureQuality(quality: Double, fps: Int?) {
+        val clampedQuality = quality.coerceIn(0.1, 1.0)
+        val maxFps: Int
+        when {
+            clampedQuality >= 0.85 -> {
+                maxFrameLongEdgePx = 1920
+                jpegQuality = 85
+                maxFps = 15
+            }
+            clampedQuality <= 0.55 -> {
+                maxFrameLongEdgePx = 960
+                jpegQuality = 55
+                maxFps = 10
+            }
+            else -> {
+                maxFrameLongEdgePx = 1440
+                jpegQuality = 75
+                maxFps = 12
+            }
+        }
+        val targetFps = (fps ?: maxFps).coerceIn(5, maxFps)
+        minFrameIntervalMs = (1000L / targetFps).coerceAtLeast(1L)
+    }
 
     fun toMap(message: String? = null): Map<String, Any?> {
         val context = RdeskApplicationHolder.applicationContext

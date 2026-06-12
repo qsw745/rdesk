@@ -92,6 +92,20 @@ class AndroidHostService {
     return AndroidHostState.fromMap(result ?? const <String, dynamic>{});
   }
 
+  Future<bool> setCaptureQuality({
+    required double quality,
+    int? fps,
+  }) async {
+    final result = await _channel.invokeMethod<bool>(
+      'setCaptureQuality',
+      <String, dynamic>{
+        'quality': quality,
+        if (fps != null) 'fps': fps,
+      },
+    );
+    return result ?? false;
+  }
+
   Future<AndroidHostFrame?> getLatestFrame() async {
     final result = await _channel
         .invokeMethod<Map<dynamic, dynamic>>('getLatestCapturedFrame');

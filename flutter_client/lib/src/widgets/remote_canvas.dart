@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -12,8 +10,10 @@ class RemoteCanvas extends StatefulWidget {
   final Future<void> Function(Offset normalizedPosition)? onRemoteLongPress;
   final Future<void> Function(Offset normalizedStart, Offset normalizedEnd)?
       onRemoteDrag;
+
   /// Called with a list of normalized drag path points for smoother swipes.
   final Future<void> Function(List<Offset> normalizedPoints)? onRemoteDragPath;
+
   /// Enable pinch-to-zoom (for mobile viewers).
   final bool enableZoom;
 
@@ -34,12 +34,12 @@ class RemoteCanvas extends StatefulWidget {
 class _RemoteCanvasState extends State<RemoteCanvas> {
   Offset? _dragStart;
   Offset? _dragCurrent;
+
   /// Collected raw drag path points (in local widget coordinates).
   final List<Offset> _dragPathPoints = [];
   final TransformationController _zoomController = TransformationController();
   bool _isZoomed = false;
   int _activePointers = 0;
-  DateTime? _panStartTime;
   // Raw tap detection via Listener (bypasses gesture arena)
   Offset? _pointerDownPos;
   DateTime? _pointerDownTime;
@@ -229,7 +229,8 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
               // Works in both zoomed and non-zoomed states.
               if (downPos != null && downTime != null && _activePointers == 0) {
                 final duration = DateTime.now().difference(downTime);
-                debugPrint('[RDesk] pointerUp: moved=$moved isZoomed=$_isZoomed '
+                debugPrint(
+                    '[RDesk] pointerUp: moved=$moved isZoomed=$_isZoomed '
                     'duration=${duration.inMilliseconds}ms pos=$downPos');
                 if (!moved &&
                     duration < const Duration(milliseconds: 400) &&
@@ -271,7 +272,8 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                   _dragCurrent = details.focalPoint;
                   // Sample points but avoid excessive density
                   if (_dragPathPoints.isEmpty ||
-                      (details.focalPoint - _dragPathPoints.last).distance > 3) {
+                      (details.focalPoint - _dragPathPoints.last).distance >
+                          3) {
                     _dragPathPoints.add(details.focalPoint);
                   }
                 }
@@ -332,7 +334,8 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                     contentRect,
                   );
                   if (normalized == null) return;
-                  debugPrint('[RDesk] tap at ${normalized.dx.toStringAsFixed(3)}, '
+                  debugPrint(
+                      '[RDesk] tap at ${normalized.dx.toStringAsFixed(3)}, '
                       '${normalized.dy.toStringAsFixed(3)}');
                   widget.onRemoteTap!(normalized);
                 },
@@ -346,28 +349,30 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                   if (normalized == null) return;
                   widget.onRemoteLongPress!(normalized);
                 },
-          onPanStart: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
-              ? null
-              : (details) {
-                  final normalized = _normalizeToContentRect(
-                    details.localPosition,
-                    contentRect,
-                  );
-                  if (normalized == null) {
-                    _dragStart = null;
-                    _dragCurrent = null;
-                    _dragPathPoints.clear();
-                    return;
-                  }
-                  _dragStart = _positionInContentRect(
-                    normalized,
-                    contentRect,
-                  );
-                  _dragCurrent = _dragStart;
-                  _dragPathPoints.clear();
-                  _dragPathPoints.add(details.localPosition);
-                },
-          onPanUpdate: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
+          onPanStart:
+              (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
+                  ? null
+                  : (details) {
+                      final normalized = _normalizeToContentRect(
+                        details.localPosition,
+                        contentRect,
+                      );
+                      if (normalized == null) {
+                        _dragStart = null;
+                        _dragCurrent = null;
+                        _dragPathPoints.clear();
+                        return;
+                      }
+                      _dragStart = _positionInContentRect(
+                        normalized,
+                        contentRect,
+                      );
+                      _dragCurrent = _dragStart;
+                      _dragPathPoints.clear();
+                      _dragPathPoints.add(details.localPosition);
+                    },
+          onPanUpdate: (widget.onRemoteDrag == null &&
+                  widget.onRemoteDragPath == null)
               ? null
               : (details) {
                   if (_dragStart == null) return;
@@ -377,51 +382,57 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                   );
                   // Sample densely for smooth remote swipes (1px min distance).
                   if (_dragPathPoints.isEmpty ||
-                      (details.localPosition - _dragPathPoints.last).distance > 1) {
+                      (details.localPosition - _dragPathPoints.last).distance >
+                          1) {
                     _dragPathPoints.add(details.localPosition);
                   }
                 },
-          onPanCancel: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
-              ? null
-              : () {
-                  _dragStart = null;
-                  _dragCurrent = null;
-                  _dragPathPoints.clear();
-                },
-          onPanEnd: (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
-              ? null
-              : (_) {
-                  final start = _dragStart;
-                  final end = _dragCurrent;
-                  final pathPoints = List<Offset>.from(_dragPathPoints);
-                  _dragStart = null;
-                  _dragCurrent = null;
-                  _dragPathPoints.clear();
-                  if (start == null || end == null) return;
-                  if ((end - start).distance < threshold) return;
+          onPanCancel:
+              (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
+                  ? null
+                  : () {
+                      _dragStart = null;
+                      _dragCurrent = null;
+                      _dragPathPoints.clear();
+                    },
+          onPanEnd:
+              (widget.onRemoteDrag == null && widget.onRemoteDragPath == null)
+                  ? null
+                  : (_) {
+                      final start = _dragStart;
+                      final end = _dragCurrent;
+                      final pathPoints = List<Offset>.from(_dragPathPoints);
+                      _dragStart = null;
+                      _dragCurrent = null;
+                      _dragPathPoints.clear();
+                      if (start == null || end == null) return;
+                      if ((end - start).distance < threshold) return;
 
-                  // Prefer path-based drag
-                  if (widget.onRemoteDragPath != null && pathPoints.length >= 2) {
-                    final sampled = _subsamplePath(pathPoints, 40);
-                    final normalizedPath = sampled
-                        .map((p) => _normalizeToContentRect(p, contentRect))
-                        .where((p) => p != null)
-                        .cast<Offset>()
-                        .toList();
-                    if (normalizedPath.length >= 2) {
-                      widget.onRemoteDragPath!(normalizedPath);
-                      return;
-                    }
-                  }
-                  if (widget.onRemoteDrag != null) {
-                    final normalizedStart =
-                        _normalizeToContentRect(start, contentRect);
-                    final normalizedEnd =
-                        _normalizeToContentRect(end, contentRect);
-                    if (normalizedStart == null || normalizedEnd == null) return;
-                    widget.onRemoteDrag!(normalizedStart, normalizedEnd);
-                  }
-                },
+                      // Prefer path-based drag
+                      if (widget.onRemoteDragPath != null &&
+                          pathPoints.length >= 2) {
+                        final sampled = _subsamplePath(pathPoints, 40);
+                        final normalizedPath = sampled
+                            .map((p) => _normalizeToContentRect(p, contentRect))
+                            .where((p) => p != null)
+                            .cast<Offset>()
+                            .toList();
+                        if (normalizedPath.length >= 2) {
+                          widget.onRemoteDragPath!(normalizedPath);
+                          return;
+                        }
+                      }
+                      if (widget.onRemoteDrag != null) {
+                        final normalizedStart =
+                            _normalizeToContentRect(start, contentRect);
+                        final normalizedEnd =
+                            _normalizeToContentRect(end, contentRect);
+                        if (normalizedStart == null || normalizedEnd == null) {
+                          return;
+                        }
+                        widget.onRemoteDrag!(normalizedStart, normalizedEnd);
+                      }
+                    },
           child: frameLayer,
         );
       },
@@ -507,7 +518,7 @@ class _FrameImage extends StatelessWidget {
             frame,
             fit: BoxFit.fill,
             gaplessPlayback: true,
-            filterQuality: FilterQuality.low,
+            filterQuality: FilterQuality.medium,
             errorBuilder: (context, _, __) {
               return Container(
                 color: Colors.black,

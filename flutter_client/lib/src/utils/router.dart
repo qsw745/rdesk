@@ -15,7 +15,10 @@ import '../screens/profile_screen.dart';
 import '../screens/address_book_screen.dart';
 import '../screens/unattended_setup_screen.dart';
 import '../screens/device_detail_screen.dart';
+import '../screens/account_auth_screen.dart';
+import '../screens/mobile_host_screen.dart';
 import '../widgets/main_shell.dart';
+import '../widgets/account_auth_dialog.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -105,9 +108,30 @@ final appRouter = GoRouter(
       builder: (context, state) => const SettingsScreen(),
     ),
     GoRoute(
+      path: '/login',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (context, state) => AccountAuthScreen(
+        mode: AccountAuthMode.login,
+        redirect: state.uri.queryParameters['redirect'],
+      ),
+    ),
+    GoRoute(
+      path: '/register',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (context, state) => AccountAuthScreen(
+        mode: AccountAuthMode.register,
+        redirect: state.uri.queryParameters['redirect'],
+      ),
+    ),
+    GoRoute(
       path: '/connection-settings',
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const ConnectionSettingsScreen(),
+    ),
+    GoRoute(
+      path: '/mobile-host',
+      parentNavigatorKey: rootNavigatorKey,
+      builder: (context, state) => const MobileHostScreen(),
     ),
     GoRoute(
       path: '/gesture-guide',

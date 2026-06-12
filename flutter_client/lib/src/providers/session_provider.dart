@@ -29,7 +29,7 @@ class SessionProvider extends ChangeNotifier {
   Duration _minFrameInterval = const Duration(milliseconds: 33); // ~30fps cap
   String _qualityPreset = 'auto';
   int _fpsLimit = 30;
-  int _jpegQuality = 85;
+  int _jpegQuality = 75;
   bool _isRecording = false;
   bool _privacyScreenOn = false;
   int _currentMonitor = 0;
@@ -142,19 +142,23 @@ class SessionProvider extends ChangeNotifier {
     _fpsLimit = fps;
     switch (preset) {
       case 'high':
-        _jpegQuality = 95;
-      case 'medium':
-        _jpegQuality = 70;
-      case 'low':
-        _jpegQuality = 40;
-      default:
         _jpegQuality = 85;
+      case 'medium':
+        _jpegQuality = 75;
+      case 'low':
+        _jpegQuality = 55;
+      default:
+        _jpegQuality = 75;
     }
     _minFrameInterval = Duration(milliseconds: (1000 / fps).round());
     // Send quality setting to the remote host
     final session = _currentSession;
     if (session != null) {
-      _bridge.sendRemoteQuality(session.sessionId, _jpegQuality / 100.0);
+      _bridge.sendRemoteQuality(
+        session.sessionId,
+        _jpegQuality / 100.0,
+        fps: _fpsLimit,
+      );
     }
     notifyListeners();
   }
@@ -350,6 +354,7 @@ class SessionProvider extends ChangeNotifier {
       _connectionStatusLabel = '在线';
       _currentSession = _currentSession?.copyWith(
         latencyMs: frame.latencyMs,
+        clearLatency: !frame.latencyAvailable,
         state: SessionState.active,
       );
 

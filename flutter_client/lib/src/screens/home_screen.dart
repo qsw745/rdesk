@@ -69,7 +69,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final provider = context.read<ConnectionProvider>();
     final sessionProvider = context.read<SessionProvider>();
 
-    final sessionId = await provider.connectDirectIp(address, password: password);
+    final sessionId =
+        await provider.connectDirectIp(address, password: password);
     if (sessionId != null && mounted) {
       sessionProvider.setSession(
         SessionInfo(
@@ -79,7 +80,6 @@ class _HomeScreenState extends State<HomeScreen> {
           peerOs: 'direct-lan',
           state: SessionState.active,
           connectedAt: DateTime.now(),
-          latencyMs: 0,
         ),
       );
       context.go('/remote/$sessionId');
@@ -127,7 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
           peerOs: '未知系统',
           state: SessionState.active,
           connectedAt: DateTime.now(),
-          latencyMs: 42,
         ),
         accessPassword: password,
       );
@@ -248,11 +247,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                       .lanRelayEndpoint
                                   : null;
                           return DeviceIdDisplay(
-                            deviceId:
-                                connProvider.localDevice?.deviceId ??
-                                    '000000000',
-                            temporaryPassword:
-                                connProvider.temporaryPassword,
+                            deviceId: connProvider.localDevice?.deviceId ??
+                                '000000000',
+                            temporaryPassword: connProvider.temporaryPassword,
                             onRefreshPassword: connProvider.refreshPassword,
                             lanEndpoint: lanEndpoint,
                           );
@@ -1264,15 +1261,13 @@ class _DesktopHostStatusCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.circle,
-                        color:
-                            isRunning ? AppTheme.successGreen : Colors.grey,
+                        color: isRunning ? AppTheme.successGreen : Colors.grey,
                         size: 8),
                     const SizedBox(width: 6),
                     Text(
                       isRunning ? '运行中' : '已停止',
                       style: TextStyle(
-                        color:
-                            isRunning ? AppTheme.successGreen : Colors.grey,
+                        color: isRunning ? AppTheme.successGreen : Colors.grey,
                         fontSize: 12,
                       ),
                     ),
@@ -1294,8 +1289,7 @@ class _DesktopHostStatusCard extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.lan_outlined,
-                      size: 18, color: Colors.teal),
+                  const Icon(Icons.lan_outlined, size: 18, color: Colors.teal),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -1317,9 +1311,7 @@ class _DesktopHostStatusCard extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                             letterSpacing: 1,
                             color: isDark ? Colors.white : Colors.black87,
-                            fontFeatures: const [
-                              FontFeature.tabularFigures()
-                            ],
+                            fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -1328,9 +1320,8 @@ class _DesktopHostStatusCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 11,
                             height: 1.4,
-                            color: isDark
-                                ? Colors.white54
-                                : Colors.grey.shade600,
+                            color:
+                                isDark ? Colors.white54 : Colors.grey.shade600,
                           ),
                         ),
                       ],

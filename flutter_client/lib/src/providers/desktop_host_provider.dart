@@ -87,7 +87,8 @@ class DesktopHostProvider extends ChangeNotifier {
       _ensureRegistrationTimer();
       try {
         await _ensureLanRelay();
-        debugPrint('[RDesk] DesktopHost: LAN relay started at $_lanRelayEndpoint');
+        debugPrint(
+            '[RDesk] DesktopHost: LAN relay started at $_lanRelayEndpoint');
       } catch (e) {
         debugPrint('[RDesk] DesktopHost: LAN relay failed: $e');
         // Desktop sandbox/network environments can block local HTTP bind.
@@ -115,7 +116,8 @@ class DesktopHostProvider extends ChangeNotifier {
         _lastUploadedFrameTimestampMs = null;
         if (_localDevice != null && oldToken != null) {
           try {
-            await _bridge.unregisterPreviewHost(_localDevice!.deviceId, hostToken: oldToken);
+            await _bridge.unregisterPreviewHost(_localDevice!.deviceId,
+                hostToken: oldToken);
           } catch (_) {}
         }
         await _closeLanRelay();
@@ -362,7 +364,8 @@ class DesktopHostProvider extends ChangeNotifier {
       server = await HttpServer.bind(InternetAddress.anyIPv4, lanPort);
     } catch (_) {
       // Port occupied, fall back to random port
-      debugPrint('[RDesk] LAN relay: port $lanPort occupied, using random port');
+      debugPrint(
+          '[RDesk] LAN relay: port $lanPort occupied, using random port');
       server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
     }
     _lanRelayServer = server;
@@ -416,7 +419,8 @@ class DesktopHostProvider extends ChangeNotifier {
             if (password == null || password != hostPassword) {
               response.statusCode = HttpStatus.unauthorized;
               response.headers.contentType = ContentType.json;
-              response.write(jsonEncode(<String, Object?>{'ok': false, 'error': 'invalid password'}));
+              response.write(jsonEncode(
+                  <String, Object?>{'ok': false, 'error': 'invalid password'}));
               await response.close();
               return;
             }
@@ -749,15 +753,17 @@ class DesktopHostProvider extends ChangeNotifier {
       final message = _formatError(error);
       final formatted = '共享服务注册失败：$message';
       _lastHostRegistrationError = formatted;
-      debugPrint('[RDesk] register failed: $message (oldToken=${oldToken?.substring(0, 8.clamp(0, oldToken?.length ?? 0))})');
+      debugPrint(
+          '[RDesk] register failed: $message (oldToken=${_tokenPreview(oldToken)})');
       if (_error != formatted) {
         _error = formatted;
         notifyListeners();
       }
       return;
     }
-    debugPrint('[RDesk] register response: hostToken=${hostToken?.substring(0, 8.clamp(0, hostToken?.length ?? 0))} '
-        'oldToken=${oldToken?.substring(0, 8.clamp(0, oldToken?.length ?? 0))}');
+    debugPrint(
+        '[RDesk] register response: hostToken=${_tokenPreview(hostToken)} '
+        'oldToken=${_tokenPreview(oldToken)}');
     if (hostToken != null && hostToken.isNotEmpty) {
       _relayHostToken = hostToken;
       _lastHostRegistrationAt = DateTime.now();
@@ -936,7 +942,8 @@ class DesktopHostProvider extends ChangeNotifier {
           break;
       }
 
-      debugPrint('[RDesk] _pollRelayCommand: executing kind=${command.kind} result=$ok');
+      debugPrint(
+          '[RDesk] _pollRelayCommand: executing kind=${command.kind} result=$ok');
       await _bridge.submitHostedCommandResult(
         deviceId: device.deviceId,
         hostToken: hostToken,
@@ -987,6 +994,12 @@ class DesktopHostProvider extends ChangeNotifier {
       return error.message;
     }
     return error.toString().replaceFirst('Exception: ', '');
+  }
+
+  String _tokenPreview(String? token) {
+    if (token == null || token.isEmpty) return '-';
+    final end = token.length < 8 ? token.length : 8;
+    return token.substring(0, end);
   }
 
   Future<DeviceInfo?> _ensureLocalDeviceInfo() async {

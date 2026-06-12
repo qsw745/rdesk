@@ -15,6 +15,15 @@ enum FrameShared {
 
     /// Darwin notification name posted by the extension when a new frame is written.
     static let newFrameNotification = "com.qsw.rdesk.newFrame" as CFString
+    private static let maxDimensionKey = "capture.maxDimension"
+    private static let jpegQualityKey = "capture.jpegQuality"
+    private static let frameSkipKey = "capture.frameSkip"
+
+    struct CaptureSettings {
+        let maxDimension: CGFloat
+        let jpegQuality: CGFloat
+        let frameSkip: Int
+    }
 
     // MARK: - Paths
 
@@ -28,6 +37,44 @@ enum FrameShared {
 
     static var metaFileURL: URL? {
         sharedContainerURL?.appendingPathComponent(metaFileName)
+    }
+
+    static func writeCaptureSettings(quality: Double, fps: Int?) {
+        let clampedQuality = min(max(quality, 0.1), 1.0)
+        let maxDimension: Double
+        let jpegQuality: Double
+        let maxFps: Int
+        if clampedQuality >= 0.85 {
+            maxDimension = 1920
+            jpegQuality = 0.85
+            maxFps = 15
+        } else if clampedQuality <= 0.55 {
+            maxDimension = 960
+            jpegQuality = 0.55
+            maxFps = 10
+        } else {
+            maxDimension = 1440
+            jpegQuality = 0.75
+            maxFps = 12
+        }
+        let targetFps = min(max(fps ?? maxFps, 5), maxFps)
+        let frameSkip = max(1, Int((30.0 / Double(targetFps)).rounded()))
+        let defaults = UserDefaults(suiteName: appGroupID)
+        defaults?.set(maxDimension, forKey: maxDimensionKey)
+        defaults?.set(jpegQuality, forKey: jpegQualityKey)
+        defaults?.set(frameSkip, forKey: frameSkipKey)
+    }
+
+    static func readCaptureSettings() -> CaptureSettings {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        let maxDimension = defaults?.double(forKey: maxDimensionKey) ?? 1440
+        let jpegQuality = defaults?.double(forKey: jpegQualityKey) ?? 0.75
+        let frameSkip = defaults?.integer(forKey: frameSkipKey) ?? 3
+        return CaptureSettings(
+            maxDimension: CGFloat(maxDimension > 0 ? maxDimension : 1440),
+            jpegQuality: CGFloat(jpegQuality > 0 ? jpegQuality : 0.75),
+            frameSkip: max(1, frameSkip)
+        )
     }
 
     // MARK: - Write (Extension side)

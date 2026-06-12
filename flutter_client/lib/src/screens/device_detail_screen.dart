@@ -48,7 +48,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             peerOs: widget.platform,
             state: SessionState.active,
             connectedAt: DateTime.now(),
-            latencyMs: 42,
           ),
           accessPassword: '',
         );
@@ -81,7 +80,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             peerOs: widget.platform,
             state: SessionState.active,
             connectedAt: DateTime.now(),
-            latencyMs: 42,
           ),
           accessPassword: '',
         );

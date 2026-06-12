@@ -8,7 +8,9 @@ import '../models/account.dart';
 import '../models/connection_info.dart';
 import '../providers/auth_provider.dart';
 import '../providers/connection_provider.dart';
+import '../screens/account_auth_screen.dart';
 import '../utils/theme.dart';
+import '../widgets/account_auth_dialog.dart';
 
 class MyDevicesScreen extends StatefulWidget {
   const MyDevicesScreen({super.key});
@@ -203,10 +205,30 @@ class _MyDevicesTab extends StatelessWidget {
               }).toList();
 
         if (!auth.isLoggedIn) {
-          return const _EmptyState(
+          return _EmptyState(
             icon: Icons.cloud_off_rounded,
             title: '登录后可同步设备',
             subtitle: '登录同一个账号后，这里会自动出现你当前在线的其他设备。',
+            action: Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: () => context.push(
+                    accountAuthRoute(AccountAuthMode.login, redirect: '/'),
+                  ),
+                  icon: const Icon(Icons.login_rounded),
+                  label: const Text('登录账号'),
+                ),
+                OutlinedButton(
+                  onPressed: () => context.push(
+                    accountAuthRoute(AccountAuthMode.register, redirect: '/'),
+                  ),
+                  child: const Text('注册'),
+                ),
+              ],
+            ),
           );
         }
 
@@ -649,11 +671,13 @@ class _EmptyState extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final Widget? action;
 
   const _EmptyState({
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.action,
   });
 
   @override
@@ -681,6 +705,10 @@ class _EmptyState extends StatelessWidget {
                     : AppTheme.textMuted,
               ),
             ),
+            if (action != null) ...[
+              const SizedBox(height: 20),
+              action!,
+            ],
           ],
         ),
       ),

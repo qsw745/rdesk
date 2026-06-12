@@ -30,6 +30,7 @@ class SessionInfo {
   SessionInfo copyWith({
     SessionState? state,
     int? latencyMs,
+    bool clearLatency = false,
   }) {
     return SessionInfo(
       sessionId: sessionId,
@@ -38,7 +39,7 @@ class SessionInfo {
       peerOs: peerOs,
       state: state ?? this.state,
       connectedAt: connectedAt,
-      latencyMs: latencyMs ?? this.latencyMs,
+      latencyMs: clearLatency ? null : latencyMs ?? this.latencyMs,
     );
   }
 }

@@ -44,13 +44,19 @@ class RemoteFrameData {
   final Uint8List bytes;
   final int width;
   final int height;
-  final int latencyMs;
+  final int? latencyMs;
+  final int? networkLatencyMs;
+  final int? frameAgeMs;
+  final bool latencyAvailable;
 
   const RemoteFrameData({
     required this.bytes,
     required this.width,
     required this.height,
     required this.latencyMs,
+    this.networkLatencyMs,
+    this.frameAgeMs,
+    this.latencyAvailable = true,
   });
 }
 
@@ -424,22 +430,7 @@ class RdeskBridgeService {
       IOWebSocketChannel? channel;
       Timer? frameWatchdog;
       var lastFrameAt = DateTime.now();
-      int? wsLatencyBaselineMs;
       const wsFrameTimeout = Duration(seconds: 6);
-
-      int normalizeWebSocketLatency(int rawLatencyMs) {
-        if (rawLatencyMs < 0) {
-          return 0;
-        }
-        wsLatencyBaselineMs = wsLatencyBaselineMs == null
-            ? rawLatencyMs
-            : min(wsLatencyBaselineMs!, rawLatencyMs);
-        final baselineMs = wsLatencyBaselineMs!;
-        if (baselineMs >= 1500) {
-          return (rawLatencyMs - baselineMs).clamp(0, 9999).toInt();
-        }
-        return rawLatencyMs.clamp(0, 9999).toInt();
-      }
 
       void closeStream() {
         frameWatchdog?.cancel();
@@ -482,13 +473,11 @@ class RdeskBridgeService {
                 final frame = _decodeRemoteFramePacket(
                   bytes,
                   receivedAtMs: receivedAtMs,
-                  normalizeLatency: normalizeWebSocketLatency,
                 );
                 if (frame == null) {
                   return;
                 }
-                lastFrameAt =
-                    DateTime.fromMillisecondsSinceEpoch(receivedAtMs);
+                lastFrameAt = DateTime.fromMillisecondsSinceEpoch(receivedAtMs);
                 controller.add(frame);
               }
             },
@@ -717,7 +706,7 @@ class RdeskBridgeService {
 
   Future<String?> getTrustedPeerPassword(String deviceId) async {
     // Read from secure storage (keyed per device).
-    return _secureStorage.read(key: '${_trustedPeersKey}.pw.$deviceId');
+    return _secureStorage.read(key: '$_trustedPeersKey.pw.$deviceId');
   }
 
   Future<void> rememberTrustedPeer({
@@ -728,7 +717,7 @@ class RdeskBridgeService {
   }) async {
     // Store password in secure storage (keyed per device).
     await _secureStorage.write(
-      key: '${_trustedPeersKey}.pw.$deviceId',
+      key: '$_trustedPeersKey.pw.$deviceId',
       value: password,
     );
     // Store metadata (without password) in SharedPreferences.
@@ -770,7 +759,7 @@ class RdeskBridgeService {
 
   Future<void> removeTrustedPeer(String deviceId) async {
     // Remove password from secure storage.
-    await _secureStorage.delete(key: '${_trustedPeersKey}.pw.$deviceId');
+    await _secureStorage.delete(key: '$_trustedPeersKey.pw.$deviceId');
     final prefs = await _prefs;
     final raw = prefs.getString(_trustedPeersKey);
     if (raw == null || raw.isEmpty) {
@@ -1525,10 +1514,17 @@ class RdeskBridgeService {
     return _postControl(controlUri, <String, String>{'text': text});
   }
 
-  Future<bool> sendRemoteQuality(String sessionId, double quality) async {
+  Future<bool> sendRemoteQuality(
+    String sessionId,
+    double quality, {
+    int? fps,
+  }) async {
     final controlUri = _resolveControlUri(sessionId, '/settings/quality');
     if (controlUri == null) return false;
-    return _postControl(controlUri, <String, dynamic>{'quality': quality});
+    return _postControl(controlUri, <String, dynamic>{
+      'quality': quality,
+      if (fps != null) 'fps': fps,
+    });
   }
 
   Future<bool> sendRemoteClipboard(String sessionId, String text) async {
@@ -1697,12 +1693,28 @@ class RdeskBridgeService {
       final detectedDims = _detectImageDimensions(bytes);
       final safeWidth = width > 0 ? width : (detectedDims?.$1 ?? 0);
       final safeHeight = height > 0 ? height : (detectedDims?.$2 ?? 0);
+      final receivedAtMs = DateTime.now().millisecondsSinceEpoch;
+      final capturedAtMs =
+          _parseFrameTimestampHeader(response, 'x-rdesk-captured-at') ??
+              _parseFrameTimestampHeader(response, 'x-rdesk-timestamp');
+      final relayReceivedAtMs =
+          _parseFrameTimestampHeader(response, 'x-rdesk-relay-received-at');
+      final frameAgeMs = _boundedElapsedMs(receivedAtMs, capturedAtMs);
+      final requestLatencyMs =
+          stopwatch.elapsedMilliseconds.clamp(0, 9999).toInt();
+      final networkLatencyMs =
+          _boundedElapsedMs(receivedAtMs, relayReceivedAtMs) ??
+              requestLatencyMs;
+      final latencyMs = frameAgeMs ?? networkLatencyMs;
 
       return RemoteFrameData(
         bytes: bytes,
         width: safeWidth,
         height: safeHeight,
-        latencyMs: stopwatch.elapsedMilliseconds,
+        latencyMs: latencyMs,
+        networkLatencyMs: networkLatencyMs,
+        frameAgeMs: frameAgeMs,
+        latencyAvailable: true,
       );
     } on SocketException {
       // Connection refused / reset — the host has closed the LAN relay.
@@ -1718,12 +1730,49 @@ class RdeskBridgeService {
   RemoteFrameData? _decodeRemoteFramePacket(
     Uint8List packet, {
     int? receivedAtMs,
-    int Function(int rawLatencyMs)? normalizeLatency,
   }) {
     if (packet.isEmpty) return null;
     final nowMs = receivedAtMs ?? DateTime.now().millisecondsSinceEpoch;
 
-    // Preferred format: 16-byte header + encoded image bytes.
+    // Preferred format: RDF1 + width + height + host capture timestamp +
+    // relay receive timestamp + encoded image bytes.
+    if (_hasRdf1Header(packet)) {
+      final width =
+          ByteData.sublistView(packet, 4, 8).getUint32(0, Endian.little);
+      final height =
+          ByteData.sublistView(packet, 8, 12).getUint32(0, Endian.little);
+      final capturedAtMs =
+          ByteData.sublistView(packet, 12, 20).getUint64(0, Endian.little);
+      final relayReceivedAtMs =
+          ByteData.sublistView(packet, 20, 28).getUint64(0, Endian.little);
+      final payload = packet.sublist(28);
+      if (_looksLikeSupportedImage(payload)) {
+        final dims = _detectImageDimensions(payload);
+        final safeWidth = _sanitizeFrameDimension(
+          width.toInt(),
+          fallback: dims?.$1 ?? 0,
+        );
+        final safeHeight = _sanitizeFrameDimension(
+          height.toInt(),
+          fallback: dims?.$2 ?? 0,
+        );
+        final frameAgeMs = _boundedElapsedMs(nowMs, capturedAtMs.toInt());
+        final networkLatencyMs =
+            _boundedElapsedMs(nowMs, relayReceivedAtMs.toInt());
+        final latencyMs = frameAgeMs ?? networkLatencyMs;
+        return RemoteFrameData(
+          bytes: payload,
+          width: safeWidth,
+          height: safeHeight,
+          latencyMs: latencyMs,
+          networkLatencyMs: networkLatencyMs,
+          frameAgeMs: frameAgeMs,
+          latencyAvailable: latencyMs != null,
+        );
+      }
+    }
+
+    // Compatibility format: 16-byte header + encoded image bytes.
     if (packet.length >= 16) {
       final width =
           ByteData.sublistView(packet, 0, 4).getUint32(0, Endian.little);
@@ -1742,13 +1791,14 @@ class RdeskBridgeService {
           height.toInt(),
           fallback: dims?.$2 ?? 0,
         );
-        final rawLatency = nowMs - timestampMs.toInt();
-        final latency = normalizeLatency?.call(rawLatency) ?? rawLatency;
+        final latencyMs = _boundedElapsedMs(nowMs, timestampMs.toInt());
         return RemoteFrameData(
           bytes: payload,
           width: safeWidth,
           height: safeHeight,
-          latencyMs: latency.clamp(0, 9999),
+          latencyMs: latencyMs,
+          networkLatencyMs: latencyMs,
+          latencyAvailable: latencyMs != null,
         );
       }
     }
@@ -1760,10 +1810,33 @@ class RdeskBridgeService {
         bytes: packet,
         width: dims?.$1 ?? 0,
         height: dims?.$2 ?? 0,
-        latencyMs: 0,
+        latencyMs: null,
+        latencyAvailable: false,
       );
     }
     return null;
+  }
+
+  bool _hasRdf1Header(Uint8List packet) {
+    return packet.length >= 28 &&
+        packet[0] == 0x52 &&
+        packet[1] == 0x44 &&
+        packet[2] == 0x46 &&
+        packet[3] == 0x31;
+  }
+
+  int? _parseFrameTimestampHeader(HttpClientResponse response, String name) {
+    final raw = response.headers.value(name);
+    if (raw == null || raw.isEmpty) return null;
+    final parsed = int.tryParse(raw);
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  int? _boundedElapsedMs(int nowMs, int? timestampMs) {
+    if (timestampMs == null || timestampMs <= 0) return null;
+    final elapsed = nowMs - timestampMs;
+    if (elapsed < 0 || elapsed > 60000) return null;
+    return elapsed.clamp(0, 9999).toInt();
   }
 
   int _sanitizeFrameDimension(int value, {required int fallback}) {
@@ -2127,7 +2200,6 @@ class RdeskBridgeService {
     final canvas = ui.Canvas(recorder);
     final rect = ui.Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble());
     final progress = (tick % 180) / 180;
-    final latency = 36 + ((sin(tick / 4) + 1) * 12).round();
 
     canvas.drawRect(
       rect,
@@ -2211,7 +2283,7 @@ class RdeskBridgeService {
       const ui.Offset(252, 216),
       '会话 ${sessionId.substring(0, min(18, sessionId.length))}',
     );
-    _drawBadge(canvas, const ui.Offset(552, 216), '延迟 ${latency}ms');
+    _drawBadge(canvas, const ui.Offset(552, 216), '延迟 -- ms');
 
     _drawParagraph(
       canvas,
@@ -2258,7 +2330,8 @@ class RdeskBridgeService {
         bytes: Uint8List(0),
         width: width,
         height: height,
-        latencyMs: 42,
+        latencyMs: null,
+        latencyAvailable: false,
       );
     }
 
@@ -2266,7 +2339,8 @@ class RdeskBridgeService {
       bytes: byteData.buffer.asUint8List(),
       width: width,
       height: height,
-      latencyMs: latency,
+      latencyMs: null,
+      latencyAvailable: false,
     );
   }
 

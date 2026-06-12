@@ -23,9 +23,6 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
 
 class ScreenCaptureService : Service() {
-    private val maxFrameLongEdgePx = 960
-    private val minFrameIntervalMs = 100L
-    private val jpegQuality = 55
     private var mediaProjection: MediaProjection? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -108,7 +105,7 @@ class ScreenCaptureService : Service() {
                 val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
                 try {
                     val elapsedNow = SystemClock.elapsedRealtime()
-                    if (elapsedNow - lastEncodedFrameAtMs < minFrameIntervalMs) {
+                    if (elapsedNow - lastEncodedFrameAtMs < ScreenCaptureStore.minFrameIntervalMs) {
                         return@setOnImageAvailableListener
                     }
                     lastEncodedFrameAtMs = elapsedNow
@@ -128,7 +125,7 @@ class ScreenCaptureService : Service() {
 
                     val maxDimension = maxOf(width, height).toDouble()
                     val scale =
-                        minOf(1.0, maxFrameLongEdgePx.toDouble() / maxDimension)
+                        minOf(1.0, ScreenCaptureStore.maxFrameLongEdgePx.toDouble() / maxDimension)
                     val outputWidth = (width * scale).roundToInt().coerceAtLeast(1)
                     val outputHeight = (height * scale).roundToInt().coerceAtLeast(1)
                     val encoded =
@@ -142,7 +139,7 @@ class ScreenCaptureService : Service() {
                     }
 
                     val stream = ByteArrayOutputStream()
-                    encoded.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)
+                    encoded.compress(Bitmap.CompressFormat.JPEG, ScreenCaptureStore.jpegQuality, stream)
                     encoded.recycle()
 
                     ScreenCaptureStore.latestFrame = stream.toByteArray()

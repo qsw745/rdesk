@@ -73,8 +73,8 @@ struct WsFrame {
     bytes: Bytes,
     width: u32,
     height: u32,
-    timestamp_ms: u64,
-    quality: u8,
+    captured_at_ms: u64,
+    relay_received_at_ms: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -142,7 +142,8 @@ struct FrameSnapshot {
     bytes: Bytes,
     width: u32,
     height: u32,
-    timestamp_ms: u64,
+    captured_at_ms: u64,
+    relay_received_at_ms: u64,
     updated_at_ms: u64,
 }
 
@@ -297,7 +298,7 @@ struct FrameUploadQuery {
     width: u32,
     height: u32,
     #[serde(rename = "timestamp_ms")]
-    _timestamp_ms: Option<u64>,
+    timestamp_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -380,6 +381,7 @@ async fn main() -> Result<()> {
         .route("/clipboard/set", post(clipboard_set))
         .route("/clipboard/get", get(clipboard_get))
         .route("/displays", get(list_displays))
+        .route("/settings/quality", post(settings_quality))
         .route("/api/preview/register", post(register_preview))
         .route("/api/preview/unregister", post(unregister_preview))
         .route("/api/preview/disconnect_viewers", post(disconnect_viewers))
@@ -549,7 +551,9 @@ async fn register_account(
         created_at_ms: now_ms(),
     };
     state.users.insert(user.user_id.clone(), user.clone());
-    state.username_index.insert(username.clone(), user.user_id.clone());
+    state
+        .username_index
+        .insert(username.clone(), user.user_id.clone());
 
     if let Err(err) = persist_users(&state).await {
         state.users.remove(&user.user_id);
@@ -569,7 +573,11 @@ async fn login_account(
 ) -> Response {
     let username = normalize_username(&request.username);
     let password = request.password.trim().to_string();
-    let Some(user_id) = state.username_index.get(&username).map(|entry| entry.value().clone()) else {
+    let Some(user_id) = state
+        .username_index
+        .get(&username)
+        .map(|entry| entry.value().clone())
+    else {
         return error_response(StatusCode::UNAUTHORIZED, "账号或密码错误");
     };
     let Some(user) = state.users.get(&user_id).map(|entry| entry.clone()) else {
@@ -702,9 +710,8 @@ async fn register_preview(
                 .auth_token
                 .as_deref()
                 .and_then(|token| validate_auth_session(&state, token));
-            let same_owner = caller_uid.is_some()
-                && entry.user_id.is_some()
-                && caller_uid == entry.user_id;
+            let same_owner =
+                caller_uid.is_some() && entry.user_id.is_some() && caller_uid == entry.user_id;
             if same_owner {
                 // Same account owner — return existing token so client
                 // can recover the correct host_token.
@@ -825,11 +832,17 @@ async fn resolve_preview(
     if !authorized {
         // When viewer tries passwordless (empty password) and not authorized,
         // push "incoming_request" to host and wait for acceptance.
-        let passwordless = request.password_hash.as_ref().map_or(true, |h| h.is_empty());
+        let passwordless = request
+            .password_hash
+            .as_ref()
+            .map_or(true, |h| h.is_empty());
         if passwordless {
             if let (Some(requester_id), Some(host_token)) = (
                 request.requester_id.as_ref(),
-                state.previews.get(&device_id).and_then(|e| Some(e.value().host_token.clone())),
+                state
+                    .previews
+                    .get(&device_id)
+                    .and_then(|e| Some(e.value().host_token.clone())),
             ) {
                 if validate_host(&state, &device_id, &host_token) {
                     let command_id = Uuid::new_v4().to_string();
@@ -904,8 +917,7 @@ async fn resolve_preview(
         },
     );
     let public_origin = request_public_origin(&headers);
-    let endpoint =
-        format!("{public_origin}/frame.jpg?device_id={device_id}&token={viewer_token}");
+    let endpoint = format!("{public_origin}/frame.jpg?device_id={device_id}&token={viewer_token}");
 
     Json(ResolvePreviewResponse {
         found: true,
@@ -928,6 +940,10 @@ async fn upload_frame(
     }
 
     let received_at_ms = now_ms();
+    let captured_at_ms = query
+        .timestamp_ms
+        .filter(|value| *value > 0)
+        .unwrap_or(received_at_ms);
 
     debug!(
         device_id = %query.device_id,
@@ -943,8 +959,8 @@ async fn upload_frame(
             bytes: body.clone(),
             width: query.width,
             height: query.height,
-            timestamp_ms: received_at_ms,
-            quality: 85,
+            captured_at_ms,
+            relay_received_at_ms: received_at_ms,
         };
         let _ = broadcaster.send(frame);
     }
@@ -955,7 +971,8 @@ async fn upload_frame(
             bytes: body,
             width: query.width,
             height: query.height,
-            timestamp_ms: received_at_ms,
+            captured_at_ms,
+            relay_received_at_ms: received_at_ms,
             updated_at_ms: received_at_ms,
         },
     );
@@ -988,7 +1005,17 @@ async fn fetch_frame(
     insert_header(
         &mut headers,
         "x-rdesk-timestamp",
-        &frame.timestamp_ms.to_string(),
+        &frame.captured_at_ms.to_string(),
+    );
+    insert_header(
+        &mut headers,
+        "x-rdesk-captured-at",
+        &frame.captured_at_ms.to_string(),
+    );
+    insert_header(
+        &mut headers,
+        "x-rdesk-relay-received-at",
+        &frame.relay_received_at_ms.to_string(),
     );
     (StatusCode::OK, headers, frame.bytes.clone()).into_response()
 }
@@ -1085,13 +1112,15 @@ async fn input_drag_path(
     Query(query): Query<RelayViewerQuery>,
     Json(request): Json<Value>,
 ) -> Response {
-    relay_bool_command(
-        &state,
-        &query,
-        "drag_path",
-        request,
-    )
-    .await
+    relay_bool_command(&state, &query, "drag_path", request).await
+}
+
+async fn settings_quality(
+    State(state): State<AppState>,
+    Query(query): Query<RelayViewerQuery>,
+    Json(request): Json<Value>,
+) -> Response {
+    relay_bool_command(&state, &query, "quality", request).await
 }
 
 async fn input_text(
@@ -1138,7 +1167,12 @@ async fn list_displays(
         Ok(result) => {
             // The host returns display list as JSON text in result.text
             let text = result.text.unwrap_or_else(|| "[]".to_string());
-            (StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "application/json")], text).into_response()
+            (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                text,
+            )
+                .into_response()
         }
         Err(status) => status.into_response(),
     }
@@ -1282,19 +1316,24 @@ async fn handle_ws_host(socket: WebSocket, state: AppState, device_id: String) {
                 }
                 let width = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
                 let height = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-                let _host_timestamp_ms = u64::from_le_bytes([
-                    bytes[8], bytes[9], bytes[10], bytes[11],
-                    bytes[12], bytes[13], bytes[14], bytes[15],
+                let host_timestamp_ms = u64::from_le_bytes([
+                    bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                    bytes[15],
                 ]);
                 let jpeg_data = bytes.slice(16..);
 
                 let received_at_ms = now_ms();
+                let captured_at_ms = if host_timestamp_ms > 0 {
+                    host_timestamp_ms
+                } else {
+                    received_at_ms
+                };
                 let frame = WsFrame {
                     bytes: jpeg_data.clone(),
                     width,
                     height,
-                    timestamp_ms: received_at_ms,
-                    quality: 85,
+                    captured_at_ms,
+                    relay_received_at_ms: received_at_ms,
                 };
 
                 let _ = broadcaster.send(frame);
@@ -1305,7 +1344,8 @@ async fn handle_ws_host(socket: WebSocket, state: AppState, device_id: String) {
                         bytes: jpeg_data,
                         width,
                         height,
-                        timestamp_ms: received_at_ms,
+                        captured_at_ms,
+                        relay_received_at_ms: received_at_ms,
                         updated_at_ms: received_at_ms,
                     },
                 );
@@ -1369,15 +1409,17 @@ async fn handle_ws_viewer(socket: WebSocket, state: AppState, device_id: String,
         loop {
             tokio::select! {
                 frame = frame_rx.recv() => {
-                    match frame {
-                        Ok(frame) => {
-                            // Build binary message: 16-byte header + JPEG
-                            let mut buf = Vec::with_capacity(16 + frame.bytes.len());
-                            buf.extend_from_slice(&frame.width.to_le_bytes());
-                            buf.extend_from_slice(&frame.height.to_le_bytes());
-                            buf.extend_from_slice(&frame.timestamp_ms.to_le_bytes());
-                            buf.extend_from_slice(&frame.bytes);
-                            if ws_tx.send(Message::Binary(buf.into())).await.is_err() {
+                        match frame {
+                            Ok(frame) => {
+                                // Build binary message: RDF1 header + JPEG.
+                                let mut buf = Vec::with_capacity(28 + frame.bytes.len());
+                                buf.extend_from_slice(b"RDF1");
+                                buf.extend_from_slice(&frame.width.to_le_bytes());
+                                buf.extend_from_slice(&frame.height.to_le_bytes());
+                                buf.extend_from_slice(&frame.captured_at_ms.to_le_bytes());
+                                buf.extend_from_slice(&frame.relay_received_at_ms.to_le_bytes());
+                                buf.extend_from_slice(&frame.bytes);
+                                if ws_tx.send(Message::Binary(buf.into())).await.is_err() {
                                 break;
                             }
                         }
@@ -1456,17 +1498,14 @@ async fn file_list_request(
         token: request.token,
     };
 
-    match forward_command(
-        &state,
-        &query,
-        "file_list",
-        json!({ "path": request.path }),
-    )
-    .await
-    {
+    match forward_command(&state, &query, "file_list", json!({ "path": request.path })).await {
         Ok(result) => {
             let listing = result.text.unwrap_or_else(|| "[]".to_string());
-            (StatusCode::OK, Json(json!({ "ok": true, "files": listing, "command_id": command_id }))).into_response()
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "files": listing, "command_id": command_id })),
+            )
+                .into_response()
         }
         Err(status) => status.into_response(),
     }
@@ -1522,7 +1561,11 @@ async fn file_upload(
     )
     .await;
 
-    (StatusCode::OK, Json(json!({ "ok": true, "file_id": file_id }))).into_response()
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "file_id": file_id })),
+    )
+        .into_response()
 }
 
 async fn file_download(
@@ -1541,7 +1584,10 @@ async fn file_download(
     }
 
     let mut headers = HeaderMap::new();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
     insert_header(&mut headers, "x-rdesk-filename", &blob.filename);
 
     let data = blob.data.clone();
@@ -1606,7 +1652,9 @@ async fn load_users(state: &AppState) -> Result<()> {
     }
     let users: Vec<UserRecord> = serde_json::from_str(&raw)?;
     for user in users {
-        state.username_index.insert(user.username.clone(), user.user_id.clone());
+        state
+            .username_index
+            .insert(user.username.clone(), user.user_id.clone());
         state.users.insert(user.user_id.clone(), user);
     }
     Ok(())
@@ -1639,8 +1687,7 @@ async fn load_auth_sessions(state: &AppState) -> Result<()> {
     if raw.trim().is_empty() {
         return Ok(());
     }
-    let sessions: std::collections::HashMap<String, AuthSession> =
-        serde_json::from_str(&raw)?;
+    let sessions: std::collections::HashMap<String, AuthSession> = serde_json::from_str(&raw)?;
     let now = now_ms();
     for (token, session) in sessions {
         if now.saturating_sub(session.last_seen_ms) <= AUTH_SESSION_TTL_MS {
@@ -1675,7 +1722,13 @@ fn normalize_username(raw: &str) -> String {
 }
 
 fn error_response(status: StatusCode, message: &str) -> Response {
-    (status, Json(ErrorResponse { message: message.to_string() })).into_response()
+    (
+        status,
+        Json(ErrorResponse {
+            message: message.to_string(),
+        }),
+    )
+        .into_response()
 }
 
 fn validate_viewer(state: &AppState, device_id: &str, token: &str) -> bool {

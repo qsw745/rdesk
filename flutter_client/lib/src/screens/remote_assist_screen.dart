@@ -55,8 +55,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
 
   /// Returns true if [input] looks like an IP address (with optional :port).
   bool _looksLikeIpAddress(String input) {
-    final ipPattern =
-        RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$');
+    final ipPattern = RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$');
     return ipPattern.hasMatch(input);
   }
 
@@ -81,7 +80,8 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
     final provider = context.read<ConnectionProvider>();
     final sessionProvider = context.read<SessionProvider>();
 
-    final sessionId = await provider.connectDirectIp(address, password: password);
+    final sessionId =
+        await provider.connectDirectIp(address, password: password);
     if (!mounted || sessionId == null) {
       if (mounted) {
         final errorMsg = provider.errorMessage ?? '连接失败';
@@ -105,7 +105,6 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
         peerOs: 'direct-lan',
         state: SessionState.active,
         connectedAt: DateTime.now(),
-        latencyMs: 0,
       ),
     );
 
@@ -133,7 +132,6 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
         peerOs: '未知系统',
         state: SessionState.active,
         connectedAt: DateTime.now(),
-        latencyMs: 42,
       ),
       accessPassword: password,
     );
@@ -271,8 +269,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                 constraints:
                                     const BoxConstraints(maxHeight: 220),
                                 child: SizedBox(
-                                  width:
-                                      MediaQuery.of(context).size.width - 80,
+                                  width: MediaQuery.of(context).size.width - 80,
                                   child: ListView.separated(
                                     padding:
                                         const EdgeInsets.symmetric(vertical: 6),
@@ -289,11 +286,11 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                             size: 18,
                                             color: AppTheme.primaryBlue),
                                         title: Text(item.peerId,
-                                            style: const TextStyle(
-                                                fontSize: 14)),
+                                            style:
+                                                const TextStyle(fontSize: 14)),
                                         subtitle: Text(item.peerHostname,
-                                            style: const TextStyle(
-                                                fontSize: 12)),
+                                            style:
+                                                const TextStyle(fontSize: 12)),
                                         onTap: () => onSelected(item),
                                       );
                                     },
@@ -321,8 +318,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                         setState(() {});
                                       },
                                     )
-                                  : const Icon(
-                                      Icons.arrow_drop_down_rounded),
+                                  : const Icon(Icons.arrow_drop_down_rounded),
                               filled: true,
                               fillColor: isDark
                                   ? Colors.white.withValues(alpha: 0.05)
@@ -366,12 +362,12 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                         controller: _passwordController,
                         obscureText: !_showPassword,
                         decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.lock_outline_rounded,
-                              size: 20),
+                          prefixIcon:
+                              const Icon(Icons.lock_outline_rounded, size: 20),
                           hintText: '请输入验证码',
                           suffixIcon: IconButton(
-                            onPressed: () => setState(
-                                () => _showPassword = !_showPassword),
+                            onPressed: () =>
+                                setState(() => _showPassword = !_showPassword),
                             icon: Icon(
                               _showPassword
                                   ? Icons.visibility_off_outlined
@@ -419,8 +415,8 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                             _ModeTab(
                               label: '远程控制',
                               icon: Icons.desktop_windows_rounded,
-                              selected: _connectMode ==
-                                  _ConnectMode.remoteControl,
+                              selected:
+                                  _connectMode == _ConnectMode.remoteControl,
                               isDark: isDark,
                               onTap: () => setState(() =>
                                   _connectMode = _ConnectMode.remoteControl),
@@ -428,8 +424,8 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                             _ModeTab(
                               label: '文件传输',
                               icon: Icons.folder_open_rounded,
-                              selected: _connectMode ==
-                                  _ConnectMode.fileTransfer,
+                              selected:
+                                  _connectMode == _ConnectMode.fileTransfer,
                               isDark: isDark,
                               onTap: () => setState(() =>
                                   _connectMode = _ConnectMode.fileTransfer),
@@ -458,8 +454,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                       side: const BorderSide(
                                           color: AppTheme.primaryBlue),
                                       shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(14),
+                                        borderRadius: BorderRadius.circular(14),
                                       ),
                                     ),
                                     child: const Text('免密连接',
@@ -477,8 +472,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                       gradient: isConnecting
                                           ? null
                                           : AppTheme.brandGradient,
-                                      borderRadius:
-                                          BorderRadius.circular(14),
+                                      borderRadius: BorderRadius.circular(14),
                                       boxShadow: isConnecting
                                           ? null
                                           : [
@@ -486,17 +480,14 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                                 color: AppTheme.primaryBlue
                                                     .withValues(alpha: 0.2),
                                                 blurRadius: 8,
-                                                offset:
-                                                    const Offset(0, 3),
+                                                offset: const Offset(0, 3),
                                               ),
                                             ],
                                     ),
                                     child: ElevatedButton(
-                                      onPressed:
-                                          isConnecting ? null : _connect,
+                                      onPressed: isConnecting ? null : _connect,
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor:
-                                            Colors.transparent,
+                                        backgroundColor: Colors.transparent,
                                         shadowColor: Colors.transparent,
                                         disabledBackgroundColor: isDark
                                             ? Colors.grey.shade800
@@ -510,8 +501,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                           ? const SizedBox(
                                               width: 20,
                                               height: 20,
-                                              child:
-                                                  CircularProgressIndicator(
+                                              child: CircularProgressIndicator(
                                                 strokeWidth: 2.5,
                                                 color: Colors.white,
                                               ),
@@ -575,8 +565,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
           // --- Recent connections (circular avatar row) ---
           Consumer<ConnectionProvider>(
             builder: (context, provider, _) {
-              final recentRecords =
-                  provider.recentConnections.take(8).toList();
+              final recentRecords = provider.recentConnections.take(8).toList();
               if (recentRecords.isEmpty) return const SizedBox.shrink();
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -602,8 +591,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                         return _RecentAvatarItem(
                           record: record,
                           isDark: isDark,
-                          onTap: () =>
-                              _applyQuickConnectPeer(record.peerId),
+                          onTap: () => _applyQuickConnectPeer(record.peerId),
                         );
                       },
                     ),
@@ -704,9 +692,8 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
           Consumer<ConnectionProvider>(
             builder: (context, connection, _) {
               final localDevice = connection.localDevice;
-              final bool isDesktop = Platform.isMacOS ||
-                  Platform.isWindows ||
-                  Platform.isLinux;
+              final bool isDesktop =
+                  Platform.isMacOS || Platform.isWindows || Platform.isLinux;
               final lanEndpoint = isDesktop
                   ? context.watch<DesktopHostProvider>().lanRelayEndpoint
                   : Platform.isAndroid

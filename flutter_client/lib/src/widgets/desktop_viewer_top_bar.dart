@@ -25,7 +25,7 @@ class DesktopViewerTopBar extends StatelessWidget {
     final session = context.watch<SessionProvider>();
     final monitors = session.availableMonitors;
     final currentMonitor = session.currentMonitor;
-    final latency = session.currentSession?.latencyMs ?? 0;
+    final latency = session.currentSession?.latencyMs;
     final isOnline = session.isRemoteOnline;
     final connectedAt = session.currentSession?.connectedAt;
 
@@ -127,8 +127,9 @@ class DesktopViewerTopBar extends StatelessWidget {
     );
   }
 
-  Color _signalColor(int latency, bool online) {
+  Color _signalColor(int? latency, bool online) {
     if (!online) return Colors.redAccent;
+    if (latency == null) return Colors.white38;
     if (latency < 50) return Colors.greenAccent;
     if (latency < 150) return Colors.amberAccent;
     return Colors.redAccent;

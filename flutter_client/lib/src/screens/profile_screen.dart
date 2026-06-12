@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
+import '../screens/account_auth_screen.dart';
 import '../utils/constants.dart';
 import '../utils/theme.dart';
 import '../widgets/account_auth_dialog.dart';
@@ -33,8 +34,9 @@ class ProfileScreen extends StatelessWidget {
                 session: session,
                 deviceCount: auth.devices.length,
                 isDark: isDark,
-                onLogin: () =>
-                    showAccountAuthDialog(context, registerMode: false),
+                onLogin: () => context.push(
+                  accountAuthRoute(AccountAuthMode.login, redirect: '/me'),
+                ),
               ),
 
               if (session == null) ...[
@@ -45,8 +47,12 @@ class ProfileScreen extends StatelessWidget {
                       child: SizedBox(
                         height: 48,
                         child: OutlinedButton.icon(
-                          onPressed: () => showAccountAuthDialog(context,
-                              registerMode: false),
+                          onPressed: () => context.push(
+                            accountAuthRoute(
+                              AccountAuthMode.login,
+                              redirect: '/me',
+                            ),
+                          ),
                           icon: const Icon(Icons.login_rounded, size: 18),
                           label: const Text('登录账号'),
                         ),
@@ -57,8 +63,12 @@ class ProfileScreen extends StatelessWidget {
                       child: SizedBox(
                         height: 48,
                         child: FilledButton.icon(
-                          onPressed: () => showAccountAuthDialog(context,
-                              registerMode: true),
+                          onPressed: () => context.push(
+                            accountAuthRoute(
+                              AccountAuthMode.register,
+                              redirect: '/me',
+                            ),
+                          ),
                           icon: const Icon(Icons.person_add_rounded, size: 18),
                           label: const Text('注册账号'),
                         ),
@@ -376,6 +386,10 @@ class _QuickFunctionGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = [
+      if (!kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.android || Platform.isIOS))
+        _QuickItem(Icons.cast_connected_rounded, '移动被控',
+            const Color(0xFF2BBFA0), () => context.push('/mobile-host')),
       _QuickItem(Icons.tune_rounded, '连接设置', const Color(0xFF4A90D9),
           () => context.push('/connection-settings')),
       _QuickItem(Icons.touch_app_rounded, '操作手势', const Color(0xFFE8823A),

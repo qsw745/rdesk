@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/connection_provider.dart';
+import '../screens/account_auth_screen.dart';
 import '../utils/theme.dart';
 import '../widgets/account_auth_dialog.dart';
 
@@ -87,9 +88,8 @@ class _CloudDevicesScreenState extends State<CloudDevicesScreen> {
           }
 
           final currentId = connection.localDevice?.deviceId;
-          final devices = auth.devices
-              .where((item) => item.deviceId != currentId)
-              .toList();
+          final devices =
+              auth.devices.where((item) => item.deviceId != currentId).toList();
 
           final filtered = _searchQuery.isEmpty
               ? devices
@@ -277,8 +277,10 @@ class _CloudDevicesScreenState extends State<CloudDevicesScreen> {
                   width: 130,
                   height: 44,
                   child: OutlinedButton(
-                    onPressed: () =>
-                        showAccountAuthDialog(context, registerMode: false),
+                    onPressed: () => context.push(
+                      accountAuthRoute(AccountAuthMode.login,
+                          redirect: '/cloud'),
+                    ),
                     child: const Text('登录'),
                   ),
                 ),
@@ -287,8 +289,12 @@ class _CloudDevicesScreenState extends State<CloudDevicesScreen> {
                   width: 130,
                   height: 44,
                   child: FilledButton(
-                    onPressed: () =>
-                        showAccountAuthDialog(context, registerMode: true),
+                    onPressed: () => context.push(
+                      accountAuthRoute(
+                        AccountAuthMode.register,
+                        redirect: '/cloud',
+                      ),
+                    ),
                     child: const Text('注册'),
                   ),
                 ),

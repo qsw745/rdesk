@@ -52,10 +52,12 @@ class SceneDelegate: FlutterSceneDelegate {
         result(self.getScreenCaptureState())
       case "startScreenCaptureService":
         self.startBroadcast(result: result)
-      case "stopScreenCaptureService":
-        self.stopBroadcast(result: result)
-      case "getLatestCapturedFrame":
-        result(self.getLatestFrame())
+	      case "stopScreenCaptureService":
+	        self.stopBroadcast(result: result)
+	      case "setCaptureQuality":
+	        self.setCaptureQuality(call: call, result: result)
+	      case "getLatestCapturedFrame":
+	        result(self.getLatestFrame())
       case "showRemoteTapIndicator":
         // No accessibility overlay on iOS
         result(true)
@@ -124,12 +126,23 @@ class SceneDelegate: FlutterSceneDelegate {
     }
   }
 
-  private func stopBroadcast(result: @escaping FlutterResult) {
-    isBroadcasting = false
-    lastReadTimestampMs = 0
-    FrameShared.writeInactive()
-    result(getScreenCaptureState())
-  }
+	  private func stopBroadcast(result: @escaping FlutterResult) {
+	    isBroadcasting = false
+	    lastReadTimestampMs = 0
+	    FrameShared.writeInactive()
+	    result(getScreenCaptureState())
+	  }
+
+	  private func setCaptureQuality(call: FlutterMethodCall, result: FlutterResult) {
+	    guard let args = call.arguments as? [String: Any] else {
+	      result(false)
+	      return
+	    }
+	    let quality = args["quality"] as? Double ?? 0.75
+	    let fps = args["fps"] as? Int
+	    FrameShared.writeCaptureSettings(quality: quality, fps: fps)
+	    result(true)
+	  }
 
   /// Shows the system broadcast picker sheet.
   private func showBroadcastPicker() {

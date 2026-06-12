@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/android_host_provider.dart';
 import '../providers/desktop_host_provider.dart';
@@ -10,6 +11,10 @@ import '../utils/theme.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  bool get _supportsMobileHostPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android || Platform.isIOS);
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +33,28 @@ class SettingsScreen extends StatelessWidget {
                 trustedPeerCount: settings.trustedPeers.length,
                 trustedViewerCount: settings.trustedIncomingViewers.length,
               ),
+              if (_supportsMobileHostPlatform) ...[
+                const SizedBox(height: 14),
+                _CardContainer(
+                  isDark: isDark,
+                  child: ListTile(
+                    leading: _SettingIcon(
+                      icon: Icons.cast_connected_rounded,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    title: Text(Platform.isIOS ? 'iOS 被控' : '移动被控'),
+                    subtitle: Text(
+                      '管理录屏授权、守护模式、实时预览和远控断开',
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                    onTap: () => context.push('/mobile-host'),
+                  ),
+                ),
+              ],
               const SizedBox(height: 24),
               // ── 安全 ──
               _SectionHeader(icon: Icons.shield_outlined, label: '安全'),
@@ -348,27 +375,6 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ),
 
-              // Mobile host section (Android & iOS)
-              if (!kIsWeb &&
-                  (defaultTargetPlatform == TargetPlatform.android ||
-                      (!kIsWeb && Platform.isIOS))) ...[
-                const SizedBox(height: 24),
-                _SectionHeader(
-                    icon: Icons.cast_connected_rounded,
-                    label: Platform.isIOS ? 'iOS 被控端' : '安卓被控端'),
-                const SizedBox(height: 10),
-                Consumer<AndroidHostProvider>(
-                  builder: (context, host, _) {
-                    return _AndroidHostCard(
-                      host: host,
-                      isDark: isDark,
-                      onDisconnect: () =>
-                          _confirmDisconnectViewers(context, host),
-                    );
-                  },
-                ),
-              ],
-
               // Desktop host section (macOS / Windows / Linux)
               if (!kIsWeb &&
                   (Platform.isMacOS ||
@@ -423,40 +429,6 @@ class SettingsScreen extends StatelessWidget {
             ],
           );
         },
-      ),
-    );
-  }
-
-  void _confirmDisconnectViewers(
-      BuildContext context, AndroidHostProvider host) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('断开远控连接'),
-        content: const Text('确定要断开当前所有远程查看端的连接吗？\n断开后对方需要重新输入密码才能连接。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              final ok = await host.disconnectCurrentViewer();
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(ok ? '已断开所有远控连接并刷新密钥' : '断开操作部分完成，请检查连接状态'),
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-              );
-            },
-            child: const Text('确认断开'),
-          ),
-        ],
       ),
     );
   }
@@ -818,12 +790,13 @@ class _ThemeOption extends StatelessWidget {
   }
 }
 
-class _AndroidHostCard extends StatelessWidget {
+class AndroidHostCard extends StatelessWidget {
   final AndroidHostProvider host;
   final bool isDark;
   final VoidCallback onDisconnect;
 
-  const _AndroidHostCard({
+  const AndroidHostCard({
+    super.key,
     required this.host,
     required this.isDark,
     required this.onDisconnect,

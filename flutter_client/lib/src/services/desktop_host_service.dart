@@ -85,11 +85,10 @@ class DesktopHostService {
 
   Future<List<Map<String, dynamic>>> listDisplays() async {
     try {
-      final result = await _desktopChannel.invokeListMethod<Map>('listDisplays');
+      final result =
+          await _desktopChannel.invokeListMethod<Map>('listDisplays');
       if (result == null) return [];
-      return result
-          .map((m) => Map<String, dynamic>.from(m as Map))
-          .toList();
+      return result.map((m) => Map<String, dynamic>.from(m)).toList();
     } catch (_) {
       return [];
     }
@@ -204,13 +203,15 @@ class DesktopHostService {
       );
     } on TimeoutException {
       // MethodChannel timed out — fall back to screencapture CLI.
-      debugPrint('[RDesk] Native capture timed out, falling back to screencapture CLI');
+      debugPrint(
+          '[RDesk] Native capture timed out, falling back to screencapture CLI');
       return _captureMacOSFallback();
     } catch (e) {
       // MethodChannel unavailable — fall back to screencapture CLI as last resort.
       // But NOT for permission errors — those should propagate up.
       if (e is DesktopPermissionException) rethrow;
-      debugPrint('[RDesk] Native capture unavailable, falling back to screencapture CLI: $e');
+      debugPrint(
+          '[RDesk] Native capture unavailable, falling back to screencapture CLI: $e');
       return _captureMacOSFallback();
     }
   }
@@ -458,7 +459,8 @@ class DesktopHostService {
   // ---------- macOS CGEvent helpers via Python+Quartz ----------
 
   Future<(int, int)> _getScreenSize() async {
-    final result = await Process.run('/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', [
+    final result = await Process.run(
+        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', [
       '-c',
       'import Quartz; d=Quartz.CGDisplayBounds(Quartz.CGMainDisplayID()); print(int(d.size.width), int(d.size.height))',
     ]);
@@ -478,7 +480,8 @@ class DesktopHostService {
 
   Future<bool> _macMouseClick(double nx, double ny) async {
     final (x, y) = await _normalizedToAbsolute(nx, ny);
-    debugPrint('[RDesk] _macMouseClick: normalized=($nx, $ny) → absolute=($x, $y)');
+    debugPrint(
+        '[RDesk] _macMouseClick: normalized=($nx, $ny) → absolute=($x, $y)');
     final script = '''
 import Quartz, time, sys
 p = ($x, $y)
@@ -494,7 +497,9 @@ time.sleep(0.05)
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, p, 0))
 print(f"OK: clicked at {p}")
 ''';
-    final result = await Process.run('/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', ['-c', script]);
+    final result = await Process.run(
+        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
+        ['-c', script]);
     if (result.exitCode != 0) {
       debugPrint('[RDesk] _macMouseClick FAILED: exit=${result.exitCode} '
           'stderr=${result.stderr}');
@@ -515,7 +520,9 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Q
 time.sleep(0.05)
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventRightMouseUp, p, Quartz.kCGMouseButtonRight))
 ''';
-    final result = await Process.run('/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', ['-c', script]);
+    final result = await Process.run(
+        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
+        ['-c', script]);
     return result.exitCode == 0;
   }
 
@@ -538,7 +545,9 @@ for i in range(1, steps + 1):
     time.sleep(0.02)
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, ep, 0))
 ''';
-    final result = await Process.run('/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', ['-c', script]);
+    final result = await Process.run(
+        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
+        ['-c', script]);
     return result.exitCode == 0;
   }
 
@@ -562,7 +571,9 @@ e2 = Quartz.CGEventCreateKeyboardEvent(None, $keyCode, False)
 ${modifier == 'command' ? 'Quartz.CGEventSetFlags(e2, Quartz.kCGEventFlagMaskCommand)' : modifier == 'control' ? 'Quartz.CGEventSetFlags(e2, Quartz.kCGEventFlagMaskControl)' : ''}
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, e2)
 ''';
-    final result = await Process.run('/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', ['-c', script]);
+    final result = await Process.run(
+        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
+        ['-c', script]);
     return result.exitCode == 0;
   }
 
@@ -572,7 +583,9 @@ import Quartz
 e = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitLine, 1, $amount)
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 ''';
-    final result = await Process.run('/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', ['-c', script]);
+    final result = await Process.run(
+        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
+        ['-c', script]);
     return result.exitCode == 0;
   }
 }

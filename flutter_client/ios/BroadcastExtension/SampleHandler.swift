@@ -7,8 +7,6 @@ import UIKit
 /// and writes them to the shared App Group container for the main app.
 class SampleHandler: RPBroadcastSampleHandler {
     private var frameCount: Int = 0
-    /// Only process every Nth frame to save CPU/memory (target ~5-8 fps).
-    private let frameSkip: Int = 6
     /// Reuse CIContext across frames to avoid expensive re-creation.
     private lazy var ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -43,7 +41,8 @@ class SampleHandler: RPBroadcastSampleHandler {
         guard sampleBufferType == .video else { return }
 
         frameCount += 1
-        guard frameCount % frameSkip == 0 else { return }
+        let settings = FrameShared.readCaptureSettings()
+        guard frameCount % settings.frameSkip == 0 else { return }
 
         autoreleasepool {
             guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
@@ -54,13 +53,11 @@ class SampleHandler: RPBroadcastSampleHandler {
             let width = CVPixelBufferGetWidth(imageBuffer)
             let height = CVPixelBufferGetHeight(imageBuffer)
 
-            // Scale down for bandwidth: max 960px on longest side
-            let maxDimension: CGFloat = 960
-            let scale = min(maxDimension / CGFloat(width), maxDimension / CGFloat(height), 1.0)
+            let scale = min(settings.maxDimension / CGFloat(width), settings.maxDimension / CGFloat(height), 1.0)
             let scaledWidth = Int(CGFloat(width) * scale)
             let scaledHeight = Int(CGFloat(height) * scale)
 
-            guard let jpegData = pixelBufferToJPEG(imageBuffer, quality: 0.5,
+            guard let jpegData = pixelBufferToJPEG(imageBuffer, quality: settings.jpegQuality,
                                                     targetWidth: scaledWidth,
                                                     targetHeight: scaledHeight)
             else { return }

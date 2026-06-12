@@ -361,9 +361,9 @@ class _ConnectionQualityBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Selector<SessionProvider,
-        ({int latency, bool online, bool reconnecting, String label})>(
+        ({int? latency, bool online, bool reconnecting, String label})>(
       selector: (_, p) => (
-        latency: p.currentSession?.latencyMs ?? 42,
+        latency: p.currentSession?.latencyMs,
         online: p.isRemoteOnline,
         reconnecting: p.isReconnecting,
         label: p.connectionStatusLabel,
@@ -371,11 +371,13 @@ class _ConnectionQualityBadge extends StatelessWidget {
       builder: (context, state, _) {
         final color = !state.online
             ? (state.reconnecting ? Colors.amberAccent : Colors.redAccent)
-            : state.latency < 50
-                ? Colors.greenAccent
-                : state.latency < 150
-                    ? Colors.amberAccent
-                    : Colors.redAccent;
+            : state.latency == null
+                ? Colors.white70
+                : state.latency! < 50
+                    ? Colors.greenAccent
+                    : state.latency! < 150
+                        ? Colors.amberAccent
+                        : Colors.redAccent;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -388,7 +390,7 @@ class _ConnectionQualityBadge extends StatelessWidget {
               Icon(Icons.graphic_eq, color: color, size: 16),
               const SizedBox(width: 8),
               Text(
-                state.online ? '连接质量 ${state.latency}ms' : state.label,
+                state.online ? '连接质量 ${state.latency ?? "--"}ms' : state.label,
                 style: const TextStyle(color: Colors.white, fontSize: 13),
               ),
             ],
@@ -417,8 +419,6 @@ class _LatencyBadge extends StatelessWidget {
         label: p.connectionStatusLabel,
       ),
       builder: (context, state, _) {
-        if (state.latency == null) return const SizedBox.shrink();
-
         if (!state.online) {
           return Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -433,6 +433,20 @@ class _LatencyBadge extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
+            ),
+          );
+        }
+
+        if (state.latency == null) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Text(
+              '延迟 -- ms',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
             ),
           );
         }

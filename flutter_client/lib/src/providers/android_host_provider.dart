@@ -145,7 +145,8 @@ class AndroidHostProvider extends ChangeNotifier {
         _lastUploadedFrameTimestampMs = null;
         if (_localDevice != null && oldToken != null) {
           try {
-            await _bridge.unregisterPreviewHost(_localDevice!.deviceId, hostToken: oldToken);
+            await _bridge.unregisterPreviewHost(_localDevice!.deviceId,
+                hostToken: oldToken);
           } catch (_) {
             // Ignore best-effort unregister failures.
           }
@@ -380,7 +381,8 @@ class AndroidHostProvider extends ChangeNotifier {
             if (password == null || password != hostPassword) {
               response.statusCode = HttpStatus.unauthorized;
               response.headers.contentType = ContentType.json;
-              response.write(jsonEncode(<String, Object?>{'ok': false, 'error': 'invalid password'}));
+              response.write(jsonEncode(
+                  <String, Object?>{'ok': false, 'error': 'invalid password'}));
               await response.close();
               return;
             }
@@ -437,6 +439,8 @@ class AndroidHostProvider extends ChangeNotifier {
           response.headers.set('X-RDesk-Height', frame.height.toString());
           response.headers
               .set('X-RDesk-Timestamp', frame.timestampMs.toString());
+          response.headers
+              .set('X-RDesk-Captured-At', frame.timestampMs.toString());
           response.add(frame.bytes);
           await response.close();
           return;
@@ -551,7 +555,8 @@ class AndroidHostProvider extends ChangeNotifier {
           return;
         }
 
-        if (request.uri.path == '/input/drag_path' && request.method == 'POST') {
+        if (request.uri.path == '/input/drag_path' &&
+            request.method == 'POST') {
           final body = await utf8.decoder.bind(request).join();
           final payload = jsonDecode(body) as Map<String, dynamic>;
           final rawPoints = payload['points'] as List<dynamic>?;
@@ -619,6 +624,17 @@ class AndroidHostProvider extends ChangeNotifier {
           notifyListeners();
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{'text': text}));
+          await response.close();
+          return;
+        }
+
+        if (request.uri.path == '/settings/quality' &&
+            request.method == 'POST') {
+          final body = await utf8.decoder.bind(request).join();
+          final payload = jsonDecode(body) as Map<String, dynamic>;
+          final ok = await _applyCaptureQualityPayload(payload);
+          response.headers.contentType = ContentType.json;
+          response.write(jsonEncode(<String, Object?>{'ok': ok}));
           await response.close();
           return;
         }
@@ -757,6 +773,23 @@ class AndroidHostProvider extends ChangeNotifier {
     } finally {
       _relayUploadBusy = false;
     }
+  }
+
+  Future<bool> _applyCaptureQualityPayload(Map<String, dynamic> payload) async {
+    final quality = (payload['quality'] as num?)?.toDouble();
+    if (quality == null) {
+      return false;
+    }
+    final fps = (payload['fps'] as num?)?.toInt();
+    final ok = await _service.setCaptureQuality(
+      quality: quality,
+      fps: fps,
+    );
+    if (ok) {
+      _lastRemoteAction = 'quality ${(quality * 100).round()}%';
+      notifyListeners();
+    }
+    return ok;
   }
 
   Future<void> _pollRelayCommand() async {
@@ -910,6 +943,9 @@ class AndroidHostProvider extends ChangeNotifier {
           _lastRemoteClipboard = text;
           notifyListeners();
           ok = true;
+          break;
+        case 'quality':
+          ok = await _applyCaptureQualityPayload(command.payload);
           break;
       }
 
