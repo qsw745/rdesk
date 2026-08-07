@@ -122,6 +122,20 @@ else
   hint "被控端密码已被改动：把它改回审核备注里的密码，或同步更新 ASC 审核备注"
 fi
 
+# 审核员会在会话页标题看到这个 hostname。2026-08-07 因 Guideline 5.6 被拒的
+# 直接原因就是：备注写「Android 手机」，实际上报的是 sdk_gphone64_arm64（模拟器）。
+# 这里显式打印出来，便于与审核备注逐字核对。
+HOSTNAME_VAL="$(sed -n 's/.*"hostname":"\([^"]*\)".*/\1/p' <<<"$RESOLVE")"
+PLATFORM_VAL="$(sed -n 's/.*"platform":"\([^"]*\)".*/\1/p' <<<"$RESOLVE")"
+printf "  \033[36mi\033[0m 审核员看到的身份：hostname=%s  platform=%s\n" \
+  "${HOSTNAME_VAL:-?}" "${PLATFORM_VAL:-?}"
+case "$HOSTNAME_VAL" in
+  sdk_gphone*|*emulator*|generic_*)
+    fail "这是模拟器标识 —— 不要用它做审核演示机（Guideline 4.2.7 禁止虚拟机）"
+    hint "换成真实设备，并确保审核备注里的描述与上面的 hostname 一致"
+    ;;
+esac
+
 # 注册记录的时效：服务端有 TTL，太旧会被判为陈旧并清理
 UPDATED_MS="$(sed -n 's/.*"updated_at_ms":\([0-9]*\).*/\1/p' <<<"$RESOLVE")"
 if [[ -n "$UPDATED_MS" ]]; then
