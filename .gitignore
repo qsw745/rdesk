@@ -27,7 +27,10 @@ flutter_client/linux/flutter/ephemeral/
 .DS_Store
 
 # Generated
-crates/rdesk_common/src/protos/*.rs
+# Note: crates/rdesk_common/src/protos/mod.rs is hand-written and MUST be
+# tracked. prost-build writes the generated protobuf code to OUT_DIR, which
+# lives under /target/; that module only include!()s it. Ignoring it here broke
+# every fresh clone with "file not found for module `protos`".
 flutter_client/lib/src/bridge/native.dart
 
 # Environment
