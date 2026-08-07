@@ -11,5 +11,5 @@ pub mod server;
 pub mod stream;
 
 pub use client::{QuicClient, ServerVerification};
-pub use server::QuicServer;
+pub use server::{QuicServer, ServerCertificate};
 pub use stream::QuicConnection;
