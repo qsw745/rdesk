@@ -10,30 +10,58 @@
 
 ## 一、发送前必须完成（顺序不能反）
 
-- [ ] Windows 被控端已就绪并长期开机联网
-- [ ] 设置**永久密码**（审核可能跨多天、多次尝试）
-- [ ] 开启无人值守 / 自动接受连接
-- [ ] 从 iOS 端**实测连接成功**，能看到画面并能操作
-- [ ] 记录真实的设备 ID、密码、Windows 版本、屏幕分辨率、
-      以及客户端里显示的 **hostname**（务必与下方回复中的表述一致）
-- [ ] 关闭那台 Android 模拟器（`RDeskDemo` AVD），审核期间不要再让它在线
-- [ ] 用真实值替换下方所有 `<...>` 占位符
+- [x] 关闭 Android 模拟器（`RDeskDemo` AVD）——已关闭，服务端返回 `found:false`，
+      旧密码 `Review2026` 作废
+- [x] 改用**真实物理设备**：一加手机（型号 `PLU110`，Android 16，OxygenOS 16.0.8.300）
+- [x] 在该手机上新建独立用户（id 10），**只在该用户下安装 RDesk**，
+      主用户（机主）已移除该 App，审核员接触不到机主的任何数据
+- [x] 设置永久密码、开启无人值守 / 自动接受连接
+- [x] 授权录屏（`ScreenCaptureService` 前台运行，`types=0x00000020`）与无障碍
+      （`accessibility_enabled=1`）
+- [x] 加入电池优化白名单（`cmd deviceidle whitelist +com.qsw.rdesk`）
+- [x] `./scripts/check_review_host.sh` 全绿，退出码 0
+- [ ] 从**真机 iPhone** 实测连接一次（这一条还没做，发回复前必须补）
+- [x] 用真实值替换下方所有 `<...>` 占位符
+
+**实测得到的真实值（下方文案已按此填写）：**
+
+| 项 | 值 |
+|---|---|
+| hostname（审核员看到的） | `PLU110` |
+| platform | `android` |
+| 设备 ID | `660725198` |
+| 密码 | `<见 ASC 审核备注>` |
+
+> ⚠️ **本仓库是公开的，演示机密码一律不得写入文档。**
+> 该被控端为真实手机且开启了无人值守 + 无障碍服务，拿到设备 ID 与密码
+> 即可完整操控它。真实密码只存在于 App Store Connect 的审核备注中。
+> 本地验证时用环境变量传入，不要落盘：
+>
+> ```bash
+> RDESK_REVIEW_DEVICE_ID=660725198 RDESK_REVIEW_PASSWORD='<密码>' \
+>   ./scripts/check_review_host.sh
+> ```
+>
+> 审核通过后请立即删除该 Android 用户或更换密码。
+| 分辨率 | 661×1440 |
 
 > **hostname 一致性是本次被拒的直接原因**，务必核对。
 > 客户端会把服务端返回的 hostname 显示在会话页标题
 > （[router.dart:163](../flutter_client/lib/src/utils/router.dart:163)），
-> 审核员看到的名字必须和你在备注里描述的设备对得上。
+> 审核员看到的名字必须和备注里描述的设备对得上。
 >
-> 核对命令（密码换成新的永久密码）：
+> 随时可重新核对：
 >
 > ```bash
-> H=$(printf '<新密码>' | shasum -a 256 | awk '{print $1}')
-> curl -s -X POST "https://qisw.top/api/preview/resolve/<新设备ID>" \
->   -H 'Content-Type: application/json' \
->   -d "{\"password_hash\":\"$H\",\"requester_id\":\"precheck\"}"
+> RDESK_REVIEW_DEVICE_ID=660725198 RDESK_REVIEW_PASSWORD='<密码>' \
+>   ./scripts/check_review_host.sh
 > ```
 >
-> 返回里的 `hostname` 和 `platform` 就是审核员会看到的值。
+> 脚本会打印 `hostname` 与 `platform`，并在检出模拟器标识时直接判失败。
+
+> ⚠️ **审核期间这台手机必须一直停在用户 10（qsw）**。安卓的机制是切回主用户
+> 就会把该用户的应用停掉，被控端一停审核员就连不上，又是 Guideline 2.1。
+> 重启后手机默认进主用户，需要手动切回去。
 
 ---
 
@@ -94,14 +122,24 @@ software distribution on the host side.
 
 NEW DEMO ENVIRONMENT
 
-We have replaced the test environment with a physical Windows computer that we
-own, which will remain powered on and online for the duration of the review:
+We have replaced the emulator with a physical Android phone that we own, and it
+will remain powered on, charging, and online for the duration of the review:
 
-  Host type:    Physical Windows PC (<Windows 版本，例如 Windows 11 Pro 23H2>)
-  Host name shown in the app: <客户端显示的 hostname>
-  Screen resolution: <分辨率>
-  Device ID:    <设备 ID>
-  Password:     <永久密码>
+  Host type:    Physical Android phone, OnePlus, model PLU110, Android 16
+  Host name shown in the app: PLU110
+  Screen resolution: 661 x 1440
+  Device ID:    660725198
+  Password:     <填入真实密码后再发送>
+
+The host name the app displays for this device is "PLU110," which is the actual
+model identifier reported by the hardware. It matches the device described here.
+
+So that the reviewer sees no personal data, we created a separate Android user
+profile on that phone and installed RDesk only in that profile. The phone's
+primary profile does not have the app installed and is not reachable from it.
+We are stating this explicitly so that the empty home screen is not mistaken for
+anything being concealed: the profile is genuinely new, not a hidden or altered
+view of a device in use.
 
 Steps to connect (verified by us on a physical iPhone before this reply):
 1. Open the app and tap "远程连接" (Remote Connection) in the bottom tab bar.
@@ -109,8 +147,11 @@ Steps to connect (verified by us on a physical iPhone before this reply):
 3. Enter the Password above in the "验证码" (Access Code) field.
 4. Leave the mode set to "远程控制" (Remote Control), which is the default.
 5. Tap the blue "密码连接" (Connect with Password) button.
-6. The remote Windows desktop appears. You can move the cursor, click, type,
-   and use the toolbar controls at the top of the screen.
+6. The remote Android screen appears. A single tap sends a tap, a long press
+   sends a long press, and a two-finger pinch zooms the view. The toolbar at the
+   top provides Back, Home, and Recents, which operate the host's system UI.
+
+Unattended access is enabled, so no manual approval is needed on the host side.
 
 The Android emulator referenced in our previous notes has been shut down and is
 no longer reachable.
@@ -136,14 +177,21 @@ Thank you for your time.
 TEST ENVIRONMENT
 
 RDesk is a remote desktop client. Demonstrating it requires a second device to
-connect to. We keep a physical Windows computer that we own powered on and
-online for the duration of the review:
+connect to. We keep a physical Android phone that we own powered on, charging,
+and online for the duration of the review:
 
-  Host type:    Physical Windows PC (<Windows 版本>)
-  Host name:    <客户端显示的 hostname>
-  Resolution:   <分辨率>
-  Device ID:    <设备 ID>
-  Password:     <永久密码>
+  Host type:    Physical Android phone, OnePlus, model PLU110, Android 16
+  Host name:    PLU110
+  Resolution:   661 x 1440
+  Device ID:    660725198
+  Password:     <填入真实密码后再发送>
+
+The host name shown in the app for this device is "PLU110," the model
+identifier reported by the hardware, matching the device described above.
+
+To keep personal data out of the review environment, RDesk is installed in a
+separate Android user profile on that phone, which contains no personal
+accounts or data. The empty home screen reflects a genuinely new profile.
 
 Unattended access is enabled, so no manual approval is needed on the host side.
 
@@ -153,8 +201,9 @@ To connect:
 3. Enter the Password in "验证码" (Access Code).
 4. Keep the mode as "远程控制" (Remote Control) — this is the default.
 5. Tap the blue "密码连接" (Connect with Password) button.
-6. The remote desktop appears. Click, type, and use the top toolbar to control
-   the host.
+6. The remote Android screen appears. Tap to tap, long-press to long-press, and
+   pinch with two fingers to zoom. The top toolbar provides Back, Home, and
+   Recents, which operate the host's system UI.
 
 If the app reports that no online device was found, the host is temporarily
 offline. Please contact us at 641742030@qq.com and we will restore it
