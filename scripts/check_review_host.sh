@@ -72,8 +72,11 @@ fi
 
 # types 位掩码 0x20 = FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION，
 # 它存在才说明用户确认过系统录屏弹窗、投屏真的在跑。
+# types 位掩码 0x20 = FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION。
+# 各 ROM 的打印格式不一致：模拟器输出 types=00000020，
+# 一加(ColorOS/OxygenOS)输出 types=0x00000020，故 0x 前缀需可选。
 if "$ADB" shell "dumpsys activity services $PACKAGE" 2>/dev/null \
-    | grep -q "isForeground=true.*types=00000020"; then
+    | grep -qE "isForeground=true.*types=(0x)?0*20\b"; then
   pass "录屏服务前台运行（已获 MediaProjection 授权）"
 else
   fail "录屏未授权或服务未运行"
@@ -140,6 +143,8 @@ esac
 UPDATED_MS="$(sed -n 's/.*"updated_at_ms":\([0-9]*\).*/\1/p' <<<"$RESOLVE")"
 if [[ -n "$UPDATED_MS" ]]; then
   AGE=$(( $(date +%s) - UPDATED_MS / 1000 ))
+  # 本机与服务器存在时钟偏差时 AGE 可能为负，钳到 0 避免显示成 "-1s 前"
+  (( AGE < 0 )) && AGE=0
   if (( AGE < 120 )); then
     pass "心跳新鲜（${AGE}s 前）"
   else
@@ -157,13 +162,60 @@ if (( AUTHORIZED == 0 )); then
 elif [[ -z "$ENDPOINT" ]]; then
   fail "响应中没有画面地址"
 else
+  # 被控端空闲时不持续推流，有观看者接入才开始推；服务端只保留 30s 内的帧
+  # (PREVIEW_TTL_MS)，超时返回 503。因此冷探第一次常是 503，需轮询等它启动，
+  # 这也正是审核员点「连接」后的真实过程。
   FRAME="$(mktemp -t rdesk-review-frame.XXXXXX)"
-  CODE="$(curl -s --max-time 15 -o "$FRAME" -w '%{http_code}' "$ENDPOINT" 2>/dev/null)"
-  SIZE="$(wc -c <"$FRAME" | tr -d ' ')"
+  CODE=""; SIZE=0
+  for _ in 1 2 3 4 5 6 7 8; do
+    CODE="$(curl -s --max-time 12 -o "$FRAME" -w '%{http_code}' "$ENDPOINT" 2>/dev/null)"
+    SIZE="$(wc -c <"$FRAME" | tr -d ' ')"
+    [[ "$CODE" == "200" && "$SIZE" -gt 1000 ]] && break
+    perl -e 'select(undef,undef,undef,2)' 2>/dev/null || true
+  done
   if [[ "$CODE" == "200" && "$SIZE" -gt 1000 ]]; then
     DIMS="$(sips -g pixelWidth -g pixelHeight "$FRAME" 2>/dev/null \
       | awk -F': ' '/pixelWidth/{w=$2} /pixelHeight/{h=$2} END{if(w) printf "%sx%s", w, h}')"
-    pass "画面正常推送 ${DIMS:+($DIMS, }${SIZE} 字节${DIMS:+)}"
+    pass "画面可拉取 ${DIMS:+($DIMS, }${SIZE} 字节${DIMS:+)}"
+
+    # 仅凭「拉到一帧」不能判定画面是活的：投屏被系统回收后，被控端会把最后
+    # 一张缓存帧反复重传，服务端看到的帧始终「新鲜」、状态码始终 200，
+    # 而观看端看到的是一张定格的死图。
+    #
+    # 内容哈希不变并不能直接判死——静止的屏幕本来就不产生新画面。
+    # 因此以 dumpsys media_projection 是否存在活动会话作为权威判据，
+    # 哈希变化仅作为「确实在更新」的正向佐证。
+    # 输出形如：
+    #   MEDIA PROJECTION MANAGER (dumpsys media_projection)
+    #   Media Projection:
+    #   null                       ← 会话为空时值单独占一行
+    # 去掉首行标题并压掉空白后得到 "MediaProjection:<值>"，取冒号后的值判断。
+    PROJECTION="$("$ADB" shell dumpsys media_projection 2>/dev/null \
+      | tr -d '\r' | sed -n '2,$p' | tr -d '[:space:]')"
+    PROJECTION_VALUE="${PROJECTION#*MediaProjection:}"
+    if [[ -z "$PROJECTION_VALUE" || "$PROJECTION_VALUE" == "null" ]]; then
+      fail "投屏会话已被系统回收 —— 画面已冻结，审核员只会看到定格的旧图"
+      hint "进 App「我的 → 移动被控」关闭共享再重新开启，并重新确认录屏弹窗"
+      hint "服务端此时仍返回 200，只看状态码会被误导"
+    else
+      pass "投屏会话存活（dumpsys media_projection 有活动会话）"
+      HASH1="$(shasum -a 256 "$FRAME" | cut -d' ' -f1)"
+      CHANGED=0
+      for _ in 1 2 3; do
+        perl -e 'select(undef,undef,undef,2)' 2>/dev/null || true
+        curl -s --max-time 12 -o "$FRAME" "$ENDPOINT" 2>/dev/null || true
+        HASH2="$(shasum -a 256 "$FRAME" 2>/dev/null | cut -d' ' -f1)"
+        if [[ -n "$HASH2" && "$HASH2" != "$HASH1" ]]; then
+          CHANGED=1
+          break
+        fi
+      done
+      if (( CHANGED == 1 )); then
+        pass "画面内容在更新"
+      else
+        warn "6 秒内画面内容无变化 —— 屏幕静止时属正常，投屏会话已确认存活"
+      fi
+    fi
   else
     fail "拉取画面失败 http=$CODE size=$SIZE"
     hint "录屏授权可能已被回收，重新进「我的 → 移动被控」授权"

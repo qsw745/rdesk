@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import java.io.ByteArrayOutputStream
@@ -30,6 +31,27 @@ class ScreenCaptureService : Service() {
     private var captureHandler: Handler? = null
     private var cpuWakeLock: PowerManager.WakeLock? = null
     private var lastEncodedFrameAtMs = 0L
+
+    /// 投屏存活看门狗。
+    ///
+    /// 系统（尤其 Android 14+ 的后台投屏回收）可能在不触发 onStop 的情况下拆掉
+    /// MediaProjection：此时前台服务仍在、types 仍声明 mediaProjection，
+    /// 但 ImageReader 再也收不到图像，`latestFrame` 会永远停在最后一张。
+    /// 上层若继续把这张死图当作有效画面推送，观看端看到的就是定格的屏幕——
+    /// 比直接断开更难排查。
+    ///
+    /// 静止画面同样不产生新图像，所以「多久没收到图」不能作为判据；
+    /// 这里改用 VirtualDisplay 是否仍然有效来判断，与屏幕是否变化无关。
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+    private val watchdogRunnable = object : Runnable {
+        override fun run() {
+            if (!isProjectionAlive()) {
+                onProjectionLost()
+                return
+            }
+            watchdogHandler.postDelayed(this, WATCHDOG_INTERVAL_MS)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -160,7 +182,8 @@ class ScreenCaptureService : Service() {
                 registerCallback(
                     object : MediaProjection.Callback() {
                         override fun onStop() {
-                            stopCapture()
+                            // 用户或系统主动停止投屏，与看门狗走同一条清理路径。
+                            watchdogHandler.post { onProjectionLost() }
                         }
                     },
                     captureHandler,
@@ -180,9 +203,34 @@ class ScreenCaptureService : Service() {
             )
 
         ScreenCaptureStore.state = ScreenCaptureState.RUNNING
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
+    }
+
+    /// VirtualDisplay 被系统释放后 display 会失效，这与屏幕是否静止无关，
+    /// 因此可以作为投屏存活的可靠判据。
+    private fun isProjectionAlive(): Boolean =
+        mediaProjection != null && virtualDisplay?.display?.isValid == true
+
+    /// 投屏丢失：必须清掉缓存帧，否则上层会把这张死图当作有效画面持续推送。
+    private fun onProjectionLost() {
+        ScreenCaptureStore.latestFrame = null
+        ScreenCaptureStore.latestFrameWidth = 0
+        ScreenCaptureStore.latestFrameHeight = 0
+        ScreenCaptureStore.state = ScreenCaptureState.ERROR
+        stopCapture()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun stopCapture() {
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+
+        // 清空缓存帧，避免服务停止后仍有旧画面被继续上传。
+        ScreenCaptureStore.latestFrame = null
+        ScreenCaptureStore.latestFrameWidth = 0
+        ScreenCaptureStore.latestFrameHeight = 0
+
         virtualDisplay?.release()
         virtualDisplay = null
 
@@ -247,6 +295,7 @@ class ScreenCaptureService : Service() {
     companion object {
         const val ACTION_START = "com.qsw.rdesk.action.START_CAPTURE"
         const val ACTION_STOP = "com.qsw.rdesk.action.STOP_CAPTURE"
+        private const val WATCHDOG_INTERVAL_MS = 5_000L
         private const val CHANNEL_ID = "rdesk_screen_capture"
         private const val NOTIFICATION_ID = 2201
     }

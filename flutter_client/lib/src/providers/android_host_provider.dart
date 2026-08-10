@@ -20,6 +20,31 @@ class AndroidHostProvider extends ChangeNotifier {
   static const _previewPollInterval = Duration(milliseconds: 80);
   static const _relayCommandPollInterval = Duration(milliseconds: 60);
 
+  /// 静止画面下的保活重传间隔。
+  ///
+  /// 原生侧用 ImageReader 挂在 VirtualDisplay 上，**只有屏幕内容变化时才产生新帧**，
+  /// 因此手机静置时 [AndroidHostFrame.timestampMs] 会停止推进。若此时因为
+  /// 「时间戳没变」而跳过上传，中继服务器上的画面会在 PREVIEW_TTL_MS（30 秒）后过期，
+  /// 观看端拉流得到 503——而注册心跳仍在跑，设备看起来一直「在线」。
+  ///
+  /// 所以即使帧没变化，也要按此间隔把最后一帧重发一次，取值需明显小于 30 秒。
+  static const _relayKeepAliveInterval = Duration(seconds: 10);
+
+  /// 保活重传的封顶时长。
+  ///
+  /// 保活只在「采集活着、但画面恰好静止」时才是正确行为。若原生侧的投屏已经
+  /// 被系统拆掉，最后一帧会永远停在那里——此时继续重传等于把一张定格的死图
+  /// 伪装成实时画面，观看端看到的屏幕再也不会更新，比设备直接离线更难排查。
+  ///
+  /// 因此超过此时长仍未见到新帧，就停止重传并回读一次原生状态，
+  /// 让设备如实反映为不可用。
+  static const _relayKeepAliveMaxSpan = Duration(seconds: 90);
+
+  /// 托管期间回读原生采集状态的间隔。
+  ///
+  /// 此前 [_state] 只在用户操作时刷新，原生把状态置为 ERROR 也无人知晓。
+  static const _captureStateRefreshInterval = Duration(seconds: 15);
+
   AndroidHostState _state = const AndroidHostState(
     state: 'idle',
     hasPermission: false,
@@ -44,6 +69,11 @@ class AndroidHostProvider extends ChangeNotifier {
   bool _relayCommandBusy = false;
   bool _relayUploadBusy = false;
   int? _lastUploadedFrameTimestampMs;
+  int? _lastRelayUploadAtMs;
+  int _relayUploadFailureStreak = 0;
+  int _relayUploadRetryAfterMs = 0;
+  int? _lastFrameAdvancedAtMs;
+  Timer? _captureStateTimer;
   // LAN session tokens issued via /session/trust (password-authenticated).
   final Set<String> _lanSessionTokens = {};
   String? _lastRemoteTap;
@@ -142,7 +172,7 @@ class AndroidHostProvider extends ChangeNotifier {
         _relayCommandTimer = null;
         final oldToken = _relayHostToken;
         _relayHostToken = null;
-        _lastUploadedFrameTimestampMs = null;
+        _resetRelayUploadState();
         if (_localDevice != null && oldToken != null) {
           try {
             await _bridge.unregisterPreviewHost(_localDevice!.deviceId,
@@ -227,7 +257,7 @@ class AndroidHostProvider extends ChangeNotifier {
 
       // 3) Clear host token so fresh registration gets a new one
       _relayHostToken = null;
-      _lastUploadedFrameTimestampMs = null;
+      _resetRelayUploadState();
 
       // 4) Revoke auto-trust and rotate the temporary password so the kicked
       // viewer cannot immediately auto-reconnect with cached trust/password.
@@ -251,6 +281,7 @@ class AndroidHostProvider extends ChangeNotifier {
     _previewTimer?.cancel();
     _registrationTimer?.cancel();
     _relayCommandTimer?.cancel();
+    _captureStateTimer?.cancel();
     unawaited(_closeLanRelay(notify: false));
     super.dispose();
   }
@@ -278,6 +309,8 @@ class AndroidHostProvider extends ChangeNotifier {
   void _ensurePreviewPolling() {
     _previewTimer?.cancel();
     if (!_state.isRunning) {
+      _captureStateTimer?.cancel();
+      _captureStateTimer = null;
       return;
     }
     unawaited(_pollPreviewFrame());
@@ -285,6 +318,7 @@ class AndroidHostProvider extends ChangeNotifier {
       _previewPollInterval,
       (_) => unawaited(_pollPreviewFrame()),
     );
+    _ensureCaptureStatePolling();
   }
 
   Future<void> _pollPreviewFrame() async {
@@ -301,6 +335,43 @@ class AndroidHostProvider extends ChangeNotifier {
       }
     } catch (_) {
       // Ignore transient preview polling failures while the service is warming up.
+    }
+  }
+
+  /// 托管期间周期回读原生采集状态。
+  ///
+  /// 投屏被系统回收时原生会把状态置为 ERROR，但此前 Dart 侧只在用户操作时刷新
+  /// [_state]，导致「采集已死、上层仍在推流」的状态可以无限持续下去。
+  void _ensureCaptureStatePolling() {
+    _captureStateTimer?.cancel();
+    if (!_state.isRunning) {
+      return;
+    }
+    _captureStateTimer = Timer.periodic(
+      _captureStateRefreshInterval,
+      (_) => unawaited(_refreshCaptureState()),
+    );
+  }
+
+  Future<void> _refreshCaptureState() async {
+    try {
+      final next = await _service.getState();
+      final wasRunning = _state.isRunning;
+      _state = next;
+      if (wasRunning && !next.isRunning) {
+        debugPrint('[rdesk-host] 原生采集已停止（投屏被回收），终止推流与广播');
+        _previewTimer?.cancel();
+        _previewTimer = null;
+        _previewFrame = null;
+        _resetRelayUploadState();
+        _error = '屏幕采集已被系统中断，请重新开启共享';
+        await _closeLanRelay(notify: false);
+        _captureStateTimer?.cancel();
+        _captureStateTimer = null;
+      }
+      notifyListeners();
+    } catch (error) {
+      debugPrint('[rdesk-host] 回读采集状态失败: $error');
     }
   }
 
@@ -654,7 +725,7 @@ class AndroidHostProvider extends ChangeNotifier {
     final server = _lanRelayServer;
     _lanRelayServer = null;
     _lanRelayEndpoint = null;
-    _lastUploadedFrameTimestampMs = null;
+    _resetRelayUploadState();
     // Revoke tokens first so in-flight requests get 401 (triggering viewer
     // termination) before the TCP listener is torn down.
     _lanSessionTokens.clear();
@@ -749,6 +820,18 @@ class AndroidHostProvider extends ChangeNotifier {
     _ensureRelayCommandPolling();
   }
 
+  /// 重置中继上传的全部游标。
+  ///
+  /// 这三个字段必须一起清空：只清时间戳会让保活计时残留，
+  /// 下次托管启动后首帧可能被延迟到一个保活周期之后才发出。
+  void _resetRelayUploadState() {
+    _lastUploadedFrameTimestampMs = null;
+    _lastRelayUploadAtMs = null;
+    _relayUploadFailureStreak = 0;
+    _relayUploadRetryAfterMs = 0;
+    _lastFrameAdvancedAtMs = null;
+  }
+
   Future<void> _uploadRelayFrame(AndroidHostFrame frame) async {
     final device = _localDevice;
     final hostToken = _relayHostToken;
@@ -756,9 +839,44 @@ class AndroidHostProvider extends ChangeNotifier {
         hostToken == null ||
         hostToken.isEmpty ||
         _relayUploadBusy ||
-        frame.bytes.isEmpty ||
-        _lastUploadedFrameTimestampMs == frame.timestampMs) {
+        frame.bytes.isEmpty) {
       return;
+    }
+
+    // 画面未变化时仍需按 _relayKeepAliveInterval 重传，否则静置的设备会在
+    // 服务端 30 秒 TTL 后变成「在线但无画面」，观看端只能拿到 503。
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+    // 上传失败后按退避等待再重试。预览轮询是 80ms 一次，若失败时立即重试，
+    // 服务器不可达期间会打出每秒十几次请求的风暴。
+    if (nowMs < _relayUploadRetryAfterMs) {
+      return;
+    }
+
+    final frameUnchanged = _lastUploadedFrameTimestampMs == frame.timestampMs;
+    if (!frameUnchanged) {
+      _lastFrameAdvancedAtMs = nowMs;
+    }
+
+    if (frameUnchanged) {
+      // 画面长时间没有推进：不再重传，并回读原生状态确认采集是否已经死亡。
+      // 宁可让设备显示为离线，也不能把定格的旧图当作实时画面继续供应。
+      final advancedAtMs = _lastFrameAdvancedAtMs ??= nowMs;
+      if (nowMs - advancedAtMs >= _relayKeepAliveMaxSpan.inMilliseconds) {
+        debugPrint(
+          '[rdesk-host] 画面已 ${_relayKeepAliveMaxSpan.inSeconds} 秒未更新，'
+          '停止保活重传并回读采集状态',
+        );
+        unawaited(_refreshCaptureState());
+        return;
+      }
+
+      final lastUploadAtMs = _lastRelayUploadAtMs;
+      final keepAliveDue = lastUploadAtMs == null ||
+          nowMs - lastUploadAtMs >= _relayKeepAliveInterval.inMilliseconds;
+      if (!keepAliveDue) {
+        return;
+      }
     }
 
     _relayUploadBusy = true;
@@ -772,8 +890,29 @@ class AndroidHostProvider extends ChangeNotifier {
         timestampMs: frame.timestampMs,
       );
       _lastUploadedFrameTimestampMs = frame.timestampMs;
-    } catch (_) {
-      // Keep hosting alive on transient relay upload failures.
+      _lastRelayUploadAtMs = DateTime.now().millisecondsSinceEpoch;
+      _relayUploadRetryAfterMs = 0;
+      if (_relayUploadFailureStreak > 0) {
+        debugPrint(
+          '[rdesk-host] 中继帧上传已恢复（此前连续失败 $_relayUploadFailureStreak 次）',
+        );
+        _relayUploadFailureStreak = 0;
+      }
+    } catch (error) {
+      // 上传失败不应中断托管，但必须留下痕迹：此前这里静默吞掉异常，
+      // 导致「设备显示在线、观看端却永远拉不到画面」无从排查。
+      _relayUploadFailureStreak++;
+      // 线性退避，上限 5 秒——仍远小于服务端 30 秒的帧 TTL，
+      // 网络恢复后不会因为退避而错过保活窗口。
+      final backoffMs = (_relayUploadFailureStreak * 500).clamp(500, 5000);
+      _relayUploadRetryAfterMs =
+          DateTime.now().millisecondsSinceEpoch + backoffMs;
+      if (_relayUploadFailureStreak == 1 ||
+          _relayUploadFailureStreak % 25 == 0) {
+        debugPrint(
+          '[rdesk-host] 中继帧上传失败（连续 $_relayUploadFailureStreak 次）: $error',
+        );
+      }
     } finally {
       _relayUploadBusy = false;
     }
