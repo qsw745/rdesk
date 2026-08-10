@@ -27,12 +27,34 @@ const MAX_MESSAGE_LEN: usize = 65535;
 /// convenient encrypt / decrypt methods.
 pub struct NoiseSession {
     transport: TransportState,
+    handshake_hash: Vec<u8>,
 }
 
 impl NoiseSession {
-    /// Wrap an already-transitioned `TransportState`.
-    pub fn new(transport: TransportState) -> Self {
-        Self { transport }
+    /// Finish a completed handshake and enter transport mode.
+    ///
+    /// The handshake hash is captured here rather than on demand because `snow`
+    /// only exposes it on `HandshakeState` — it is unreachable once the state
+    /// has been converted into a `TransportState`.
+    pub fn from_handshake(state: HandshakeState) -> Result<Self> {
+        let handshake_hash = state.get_handshake_hash().to_vec();
+        let transport = state
+            .into_transport_mode()
+            .map_err(|e| CryptoError::Handshake(format!("failed to enter transport mode: {e}")))?;
+        Ok(Self {
+            transport,
+            handshake_hash,
+        })
+    }
+
+    /// The Noise handshake hash: unique per session, identical on both ends,
+    /// and not predictable by anyone who did not take part in the handshake.
+    ///
+    /// Use it as a channel binding. Mixing it into an authentication response
+    /// ties that response to this specific encrypted session, so a response
+    /// observed in one session cannot be replayed into another.
+    pub fn handshake_hash(&self) -> &[u8] {
+        &self.handshake_hash
     }
 
     /// Encrypt `plaintext` and return the ciphertext (includes 16-byte AEAD tag).
@@ -190,13 +212,9 @@ where
     send_fn(&buf[..len])?;
     debug!("initiator sent handshake message 3");
 
-    // Transition to transport mode.
-    let transport = state
-        .into_transport_mode()
-        .map_err(|e| CryptoError::Handshake(format!("failed to enter transport mode: {e}")))?;
-
+    let session = NoiseSession::from_handshake(state)?;
     debug!("initiator handshake complete, transport mode active");
-    Ok(NoiseSession::new(transport))
+    Ok(session)
 }
 
 /// Drive a complete XX handshake for the **responder** side.
@@ -233,13 +251,9 @@ where
     let _payload_len = handshake_read(&mut state, &msg3, &mut payload_buf)?;
     debug!("responder received handshake message 3");
 
-    // Transition to transport mode.
-    let transport = state
-        .into_transport_mode()
-        .map_err(|e| CryptoError::Handshake(format!("failed to enter transport mode: {e}")))?;
-
+    let session = NoiseSession::from_handshake(state)?;
     debug!("responder handshake complete, transport mode active");
-    Ok(NoiseSession::new(transport))
+    Ok(session)
 }
 
 // ---------------------------------------------------------------------------
@@ -323,8 +337,8 @@ mod tests {
         let _ = handshake_read(&mut r_hs, &msg3, &mut payload_buf).unwrap();
 
         // Transition to transport.
-        let mut i_session = NoiseSession::new(i_hs.into_transport_mode().unwrap());
-        let mut r_session = NoiseSession::new(r_hs.into_transport_mode().unwrap());
+        let mut i_session = NoiseSession::from_handshake(i_hs).unwrap();
+        let mut r_session = NoiseSession::from_handshake(r_hs).unwrap();
 
         // Test encrypt/decrypt round-trip.
         let plaintext = b"Hello, remote desktop!";

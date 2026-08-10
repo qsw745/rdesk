@@ -17,6 +17,7 @@ pub mod file_transfer;
 pub mod input;
 pub mod server;
 pub mod session;
+pub mod transport;
 
 // Re-exports for downstream convenience.
 pub use capture::{CapturedFrame, ScreenCapturer};
@@ -26,3 +27,4 @@ pub use codec::{CodecType, DecodedFrame, VideoDecoder, VideoEncoder};
 pub use input::InputSimulator;
 pub use server::RemoteServer;
 pub use session::{Session, SessionState};
+pub use transport::SecureChannel;

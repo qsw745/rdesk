@@ -15,7 +15,7 @@ pub mod rendezvous;
 pub use p2p::{hole_punch, nat_detect, stun};
 pub use quic::{
     client::{QuicClient, ServerVerification},
-    server::{QuicServer, ServerCertificate},
+    server::{CertificateDer, QuicServer, ServerCertificate},
     stream::QuicConnection,
 };
 pub use relay::client::RelayClient;

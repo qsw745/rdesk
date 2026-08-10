@@ -17,8 +17,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use quinn::crypto::rustls::QuicServerConfig;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use tracing::{debug, info, warn};
+
+// Re-exported so downstream crates can name certificate material without taking
+// their own `rustls` dependency (and risking a version skew with ours).
+pub use rustls::pki_types::CertificateDer;
 
 use crate::quic::stream::QuicConnection;
 
