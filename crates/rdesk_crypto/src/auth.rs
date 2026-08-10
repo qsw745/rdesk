@@ -6,6 +6,15 @@
 //!
 //! This runs *inside* an already-encrypted Noise transport, so the hash is
 //! never exposed on the wire in cleartext.
+//!
+//! # Not the wired login path
+//!
+//! `rdesk_core`'s session login verifies the password with Argon2 via
+//! [`rdesk_common::password::verify_password`], against the hash stored in
+//! `AppConfig::permanent_password`. The helpers here are the challenge-response
+//! primitives, kept correct and tested, but a stored SHA-256 digest is
+//! password-equivalent and unsalted — do not reintroduce it as the at-rest
+//! format without deciding that trade-off deliberately.
 
 use std::fmt;
 
@@ -36,11 +45,18 @@ impl fmt::Display for AuthState {
     }
 }
 
-/// Compute `SHA256(password_bytes || nonce)`.
+/// Compute `SHA256(SHA256(password) || nonce)`.
 ///
-/// Used by the client to produce a login hash during authentication.
+/// Used by the client to produce a login hash during authentication. The inner
+/// digest must match what the server has stored, because
+/// [`verify_login_hash`] recomputes this from its stored value.
+///
+/// This previously hashed the raw password with the nonce, which did not match
+/// what the verifier computes — the two halves could never agree, so no correct
+/// password ever verified. `test_create_and_verify_login_hash` caught it.
 pub fn create_login_hash(password: &str, nonce: &[u8]) -> Vec<u8> {
-    let hash = sha256_concat(password.as_bytes(), nonce);
+    let password_digest = sha256_concat(password.as_bytes(), b"");
+    let hash = sha256_concat(&password_digest, nonce);
     debug!(nonce_len = nonce.len(), "created login hash");
     hash.to_vec()
 }
