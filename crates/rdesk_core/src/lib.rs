@@ -21,7 +21,7 @@ pub mod transport;
 
 // Re-exports for downstream convenience.
 pub use capture::{CapturedFrame, ScreenCapturer};
-pub use client::RemoteClient;
+pub use client::{DirectTarget, RemoteClient};
 pub use clipboard::{ClipboardContent, ClipboardManager};
 pub use codec::{CodecType, DecodedFrame, VideoDecoder, VideoEncoder};
 pub use input::InputSimulator;
