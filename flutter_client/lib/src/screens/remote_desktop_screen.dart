@@ -12,7 +12,7 @@ import '../providers/settings_provider.dart';
 import '../utils/platform_util.dart';
 import '../widgets/desktop_viewer_layout.dart';
 import '../widgets/remote_canvas.dart';
-import '../widgets/toolbar.dart';
+import '../widgets/remote_control_panel.dart';
 
 class RemoteDesktopScreen extends StatefulWidget {
   final String sessionId;
@@ -126,41 +126,34 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
               ),
             ),
 
-            // Toolbar
+            // 底部控制栏：高频动作常驻，其余收进「操作」面板
             if (_showToolbar)
               Positioned(
-                top: topPadding + 44,
-                left: 12,
-                right: 12,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: screenWidth * 0.95),
-                    child: RemoteToolbar(
-                      sessionId: widget.sessionId,
-                      onRemoteTextInput: () => _showTextInputDialog(context),
-                      onPushClipboard: () => _pushClipboard(context),
-                      onPullClipboard: () => _pullClipboard(context),
-                      onRemoteAction: (action) async {
-                        HapticFeedback.selectionClick();
-                        await context.read<SessionProvider>().sendAction(
-                              widget.sessionId,
-                              action,
-                            );
-                      },
-                      onDisconnect: () {
-                        context
-                            .read<ConnectionProvider>()
-                            .disconnect(widget.sessionId);
-                        context.read<SessionProvider>().clearSession();
-                        context.go('/');
-                      },
-                      onFileManager: () =>
-                          context.go('/files/${widget.sessionId}'),
-                      onChat: () => context.go('/chat/${widget.sessionId}'),
-                      onToggleToolbar: () =>
-                          setState(() => _showToolbar = false),
-                    ),
-                  ),
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: RemoteControlBar(
+                  sessionId: widget.sessionId,
+                  onRemoteTextInput: () => _showTextInputDialog(context),
+                  onPushClipboard: () => _pushClipboard(context),
+                  onPullClipboard: () => _pullClipboard(context),
+                  onRemoteAction: (action) async {
+                    HapticFeedback.selectionClick();
+                    await context.read<SessionProvider>().sendAction(
+                          widget.sessionId,
+                          action,
+                        );
+                  },
+                  onDisconnect: () {
+                    context
+                        .read<ConnectionProvider>()
+                        .disconnect(widget.sessionId);
+                    context.read<SessionProvider>().clearSession();
+                    context.go('/');
+                  },
+                  onFileManager: () => context.go('/files/${widget.sessionId}'),
+                  onChat: () => context.go('/chat/${widget.sessionId}'),
+                  onToggleToolbar: () => setState(() => _showToolbar = false),
                 ),
               ),
 
