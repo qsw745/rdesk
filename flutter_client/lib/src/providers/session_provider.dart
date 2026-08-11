@@ -32,6 +32,7 @@ class SessionProvider extends ChangeNotifier {
   int _jpegQuality = 75;
   bool _isRecording = false;
   bool _privacyScreenOn = false;
+  int _viewRotationQuarterTurns = 0;
   int _currentMonitor = 0;
   List<String> _availableMonitors = ['主显示器'];
   final List<Uint8List> _recordedFrames = [];
@@ -100,6 +101,30 @@ class SessionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 仅观看：只看画面、不向被控端下发任何操作。
+  ///
+  /// 复用既有的 [_controlEnabled]——该字段此前已存在但全项目零引用，
+  /// 语义正是「是否允许控制」，不再另立平行状态。
+  ///
+  /// 拦截点刻意放在本 Provider 的下发方法里而不是 UI 层：画布、控制栏以及
+  /// 以后任何新增的调用方都会自动受控，不会因为漏改某个入口而「看似只读、
+  /// 实则仍在操作对方设备」。
+  bool get viewOnly => !_controlEnabled;
+  int get viewRotationQuarterTurns => _viewRotationQuarterTurns;
+
+  void toggleViewOnly() => toggleControl();
+
+  /// 顺时针旋转本地视图 90°，仅影响本端渲染，不改变被控端方向。
+  void rotateView() {
+    _viewRotationQuarterTurns = (_viewRotationQuarterTurns + 1) % 4;
+    notifyListeners();
+  }
+
+  void resetViewPreferences() {
+    _controlEnabled = true;
+    _viewRotationQuarterTurns = 0;
+  }
+
   void togglePrivacyScreen() {
     _privacyScreenOn = !_privacyScreenOn;
     if (_currentSession != null) {
@@ -164,6 +189,7 @@ class SessionProvider extends ChangeNotifier {
   }
 
   void clearSession() {
+    resetViewPreferences();
     _currentSession = null;
     _sessionPassword = null;
     _currentFrame = null;
@@ -188,6 +214,9 @@ class SessionProvider extends ChangeNotifier {
 
   Future<bool> sendTap(
       String sessionId, Offset localPosition, Size viewportSize) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     if (viewportSize.width <= 0 || viewportSize.height <= 0) {
       return Future<bool>.value(false);
     }
@@ -199,6 +228,9 @@ class SessionProvider extends ChangeNotifier {
   }
 
   Future<bool> sendNormalizedTap(String sessionId, Offset normalizedPosition) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     return _bridge.sendRemoteTap(
       sessionId,
       normalizedX: normalizedPosition.dx.clamp(0.0, 1.0),
@@ -207,11 +239,17 @@ class SessionProvider extends ChangeNotifier {
   }
 
   Future<bool> sendAction(String sessionId, String action) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     return _bridge.sendRemoteAction(sessionId, action);
   }
 
   Future<bool> sendLongPress(
       String sessionId, Offset localPosition, Size viewportSize) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     if (viewportSize.width <= 0 || viewportSize.height <= 0) {
       return Future<bool>.value(false);
     }
@@ -226,6 +264,9 @@ class SessionProvider extends ChangeNotifier {
     String sessionId,
     Offset normalizedPosition,
   ) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     return _bridge.sendRemoteLongPress(
       sessionId,
       normalizedX: normalizedPosition.dx.clamp(0.0, 1.0),
@@ -239,6 +280,9 @@ class SessionProvider extends ChangeNotifier {
     Offset end,
     Size viewportSize,
   ) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     if (viewportSize.width <= 0 || viewportSize.height <= 0) {
       return Future<bool>.value(false);
     }
@@ -256,6 +300,9 @@ class SessionProvider extends ChangeNotifier {
     Offset normalizedStart,
     Offset normalizedEnd,
   ) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     return _bridge.sendRemoteDrag(
       sessionId,
       startX: normalizedStart.dx.clamp(0.0, 1.0),
@@ -269,6 +316,9 @@ class SessionProvider extends ChangeNotifier {
     String sessionId,
     List<Offset> normalizedPoints,
   ) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     final points = normalizedPoints
         .map((p) => [p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0)])
         .toList();
@@ -276,10 +326,16 @@ class SessionProvider extends ChangeNotifier {
   }
 
   Future<bool> sendTextInput(String sessionId, String text) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     return _bridge.sendRemoteTextInput(sessionId, text);
   }
 
   Future<bool> sendClipboard(String sessionId, String text) {
+    if (!_controlEnabled) {
+      return Future<bool>.value(false);
+    }
     _lastSyncedClipboard = text;
     return _bridge.sendRemoteClipboard(sessionId, text);
   }

@@ -80,7 +80,15 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
         if (!hasFrame) {
           return _buildPlaceholder(context);
         }
-        return _buildCanvas(context);
+        // 旋转包在最外层：RotatedBox 会把指针事件变换回子树坐标系，
+        // 因此内部的坐标归一化无需感知旋转，点击不会错位。
+        return Selector<SessionProvider, int>(
+          selector: (_, p) => p.viewRotationQuarterTurns,
+          builder: (context, quarterTurns, child) => quarterTurns == 0
+              ? child!
+              : RotatedBox(quarterTurns: quarterTurns, child: child),
+          child: _buildCanvas(context),
+        );
       },
     );
   }

@@ -126,6 +126,40 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
               ),
             ),
 
+            // 仅观看的常驻提示。没有可见状态的话，用户会把「操作没反应」
+            // 误判成连接故障——这个开关很容易开了就忘。
+            Positioned(
+              top: topPadding + 12,
+              right: 18,
+              child: Selector<SessionProvider, bool>(
+                selector: (_, p) => p.viewOnly,
+                builder: (context, viewOnly, _) => viewOnly
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.2),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.visibility_rounded,
+                                size: 14, color: Colors.white),
+                            SizedBox(width: 5),
+                            Text('仅观看',
+                                style: TextStyle(
+                                    fontSize: 11, color: Colors.white)),
+                          ],
+                        ),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+
             // 底部控制栏：高频动作常驻，其余收进「操作」面板
             if (_showToolbar)
               Positioned(
