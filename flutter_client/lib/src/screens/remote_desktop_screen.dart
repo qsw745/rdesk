@@ -160,34 +160,38 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
               ),
             ),
 
-            // 底部控制栏：高频动作常驻，其余收进「操作」面板
+            // 控制栏：竖屏贴底、横屏贴右侧居中。
+            // 横屏画面本就偏宽，底部横栏会白白压掉可视高度。
             if (_showToolbar)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: RemoteControlBar(
-                  sessionId: widget.sessionId,
-                  onRemoteTextInput: () => _showTextInputDialog(context),
-                  onPushClipboard: () => _pushClipboard(context),
-                  onPullClipboard: () => _pullClipboard(context),
-                  onRemoteAction: (action) async {
-                    HapticFeedback.selectionClick();
-                    await context.read<SessionProvider>().sendAction(
-                          widget.sessionId,
-                          action,
-                        );
-                  },
-                  onDisconnect: () {
-                    context
-                        .read<ConnectionProvider>()
-                        .disconnect(widget.sessionId);
-                    context.read<SessionProvider>().clearSession();
-                    context.go('/');
-                  },
-                  onFileManager: () => context.go('/files/${widget.sessionId}'),
-                  onChat: () => context.go('/chat/${widget.sessionId}'),
-                  onToggleToolbar: () => setState(() => _showToolbar = false),
+              Positioned.fill(
+                child: Align(
+                  alignment: mediaQuery.orientation == Orientation.landscape
+                      ? Alignment.centerRight
+                      : Alignment.bottomCenter,
+                  child: RemoteControlBar(
+                    sessionId: widget.sessionId,
+                    onRemoteTextInput: () => _showKeyboardSheet(context),
+                    onPushClipboard: () => _pushClipboard(context),
+                    onPullClipboard: () => _pullClipboard(context),
+                    onRemoteAction: (action) async {
+                      HapticFeedback.selectionClick();
+                      await context.read<SessionProvider>().sendAction(
+                            widget.sessionId,
+                            action,
+                          );
+                    },
+                    onDisconnect: () {
+                      context
+                          .read<ConnectionProvider>()
+                          .disconnect(widget.sessionId);
+                      context.read<SessionProvider>().clearSession();
+                      context.go('/');
+                    },
+                    onFileManager: () =>
+                        context.go('/files/${widget.sessionId}'),
+                    onChat: () => context.go('/chat/${widget.sessionId}'),
+                    onToggleToolbar: () => setState(() => _showToolbar = false),
+                  ),
                 ),
               ),
 
@@ -288,6 +292,30 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
     );
   }
 
+  /// 常驻键盘面板，取代原先一次性的文本输入对话框。
+  Future<void> _showKeyboardSheet(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => RemoteKeyboardSheet(
+        onSendText: (text) => context.read<SessionProvider>().sendTextInput(
+              widget.sessionId,
+              text,
+            ),
+        onRemoteAction: (action) async {
+          HapticFeedback.selectionClick();
+          await context.read<SessionProvider>().sendAction(
+                widget.sessionId,
+                action,
+              );
+        },
+        onPushClipboard: () => _pushClipboard(context),
+      ),
+    );
+  }
+
+  // ignore: unused_element
   Future<void> _showTextInputDialog(BuildContext context) async {
     final controller = TextEditingController();
     final submitted = await showDialog<String>(
