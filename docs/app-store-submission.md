@@ -379,7 +379,43 @@ RDesk 是一款安全、高效的跨平台远程桌面控制工具，让你随�
 |---|---|
 | 2.1.0 (4) | 上传成功，但被 Apple 邮件退回：**ITMS-90683** 缺少 `NSPhotoLibraryUsageDescription` |
 | 2.1.0 (5) | 上传成功，已补相册用途说明 |
-| 2.1.0 (6) | 上传成功。**应提交此版本**：默认服务器改为 HTTPS、新增应用内注销账号、更换 App 图标 |
+| 2.1.0 (6) | 上传成功。默认服务器改为 HTTPS、新增应用内注销账号、更换 App 图标。以此版本提交后被 **Guideline 5.6** 拒绝 |
+| 2.1.0 (7) | 上传成功。**应提交此版本**：修复静止画面停止推流 / 投屏被回收后推送死图、重做远控控制面板 |
+
+### ⚠️ 每次上传新构建后必做：补出口合规
+
+**未回答出口合规的构建，ASC 既不会分发给 TestFlight 测试员，也无法提交审核。**
+症状极具迷惑性：构建 `processingState` 明明是 `VALID`，TestFlight 里却怎么刷新都看不到。
+
+build 7 就踩了这个坑，排查时先后误判为「还在处理队列」和「自动分发只认 Xcode 上传」，
+最后靠对比 `usesNonExemptEncryption` 字段才定位（build 6 为 `False`，build 7 为 `None`）。
+
+用仓库里的工具一条命令解决：
+
+```bash
+./scripts/asc.py builds        # 查看各构建的处理状态与出口合规
+./scripts/asc.py compliance 7  # 把 build 7 标记为「豁免」
+./scripts/asc.py groups        # 确认已分发到 TestFlight 群组
+```
+
+> `compliance` 写入的是法律申报（`usesNonExemptEncryption=false`，即「只使用可豁免的加密」）。
+> RDesk 的判断依据见第四节——只用标准加密算法做 HTTPS/WSS 传输、不在法国分发。
+> 依据若变化，不要沿用此命令。
+
+### scripts/asc.py —— 绕过网页登录的 ASC 工具
+
+ASC 网页登录态经常过期，且带双重认证。该脚本用 App Store Connect API 密钥直连，
+不依赖浏览器、不依赖第三方库（ES256 的 JWT 由 openssl 签名后手工转 r||s 定长格式）。
+
+凭据全部走环境变量，**三项都不入库**：
+
+```bash
+export ASC_KEY_ID=<AuthKey_XXXXXXXXXX.p8 文件名中的那段>
+export ASC_ISSUER_ID=<ASC → 用户和访问 → 集成 → App Store Connect API 页面顶部>
+# 私钥默认读 ~/private_keys/AuthKey_<KEY_ID>.p8，可用 ASC_KEY_PATH 覆盖
+```
+
+私钥文件放 `~/private_keys/`、权限 600，**切勿提交到仓库**——本仓库是公开的。
 
 ### build 6 的三项关键变更
 
