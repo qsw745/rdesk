@@ -1,11 +1,22 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 
 import '../models/session.dart';
 import '../services/rdesk_bridge_service.dart';
 
-class SessionProvider extends ChangeNotifier {
+class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
+  SessionProvider() {
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// 判定远端离线前允许的无帧时长。
+  ///
+  /// 必须显著大于被控端的保活重传间隔（Android 侧为 5 秒），否则网络稍有
+  /// 抖动就会误判掉线；此前该值与保活间隔同为 10 秒，余量为零。
+  static const _offlineGracePeriod = Duration(seconds: 30);
+
   final _bridge = RdeskBridgeService.instance;
   SessionInfo? _currentSession;
   Uint8List? _currentFrame;
@@ -318,7 +329,21 @@ class SessionProvider extends ChangeNotifier {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed || _currentSession == null) {
+      return;
+    }
+    // App 处于后台时系统会挂起帧流，这段时间本就不该有帧到达。
+    // 若把它计入「多久没收到帧」，回到前台的瞬间必然超过阈值被判离线，
+    // 进而触发终止逻辑退回设备列表——这正是「放后台一会儿就掉线」的成因。
+    // 恢复前台时重置计时，把判定窗口让给真正的重连流程。
+    _lastFrameReceivedAt = DateTime.now();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stopClipboardSync(notify: false);
     _pendingFrameNotify?.cancel();
     unawaited(_frameSubscription?.cancel());
@@ -439,8 +464,8 @@ class SessionProvider extends ChangeNotifier {
   void _markRemoteUnavailable(SessionInfo session) {
     final lastFrame = _lastFrameReceivedAt;
     final now = DateTime.now();
-    final isDisconnected = lastFrame != null &&
-        now.difference(lastFrame) > const Duration(seconds: 10);
+    final isDisconnected =
+        lastFrame != null && now.difference(lastFrame) > _offlineGracePeriod;
     _isRemoteOnline = false;
     _connectionStatusLabel = isDisconnected ? '已离线' : '重连中';
     _currentSession = _currentSession?.copyWith(

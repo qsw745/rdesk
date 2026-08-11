@@ -27,8 +27,14 @@ class AndroidHostProvider extends ChangeNotifier {
   /// 「时间戳没变」而跳过上传，中继服务器上的画面会在 PREVIEW_TTL_MS（30 秒）后过期，
   /// 观看端拉流得到 503——而注册心跳仍在跑，设备看起来一直「在线」。
   ///
-  /// 所以即使帧没变化，也要按此间隔把最后一帧重发一次，取值需明显小于 30 秒。
-  static const _relayKeepAliveInterval = Duration(seconds: 10);
+  /// 所以即使帧没变化，也要按此间隔把最后一帧重发一次。
+  ///
+  /// 取值需同时小于两个阈值，且留足余量：
+  ///   - 服务端帧 TTL：30 秒（PREVIEW_TTL_MS）
+  ///   - 观看端判定离线的无帧时长：30 秒（SessionProvider._offlineGracePeriod）
+  /// 此前取 10 秒，与当时同为 10 秒的离线判定撞在一起，余量为零——
+  /// 网络稍有抖动，观看端就可能先一步判掉线。
+  static const _relayKeepAliveInterval = Duration(seconds: 5);
 
   /// 保活重传的封顶时长。
   ///
