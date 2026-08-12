@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/session_provider.dart';
 import '../utils/theme.dart';
-import 'toolbar.dart' show QualitySettingsContent;
+import 'quality_settings.dart' show QualitySettingsContent;
 
 /// 远控会话的底部控制栏。
 ///

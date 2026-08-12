@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/session_provider.dart';
-import 'toolbar.dart' show QualitySettingsContent;
+import 'quality_settings.dart' show QualitySettingsContent;
 
 /// Right-side control panel for the desktop remote viewer.
 /// Width is controlled by the parent layout (typically 280px).
