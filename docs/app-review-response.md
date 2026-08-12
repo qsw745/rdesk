@@ -21,10 +21,11 @@
 - [x] 加入电池优化白名单（`cmd deviceidle whitelist +com.qsw.rdesk`）
 - [x] `./scripts/check_review_host.sh` 全绿，退出码 0
 - [ ] 从**真机 iPhone** 实测连接一次（这一条还没做，发回复前必须补）
-- [ ] **移除「隐私屏」与「录屏」两个空开关**（见第四节「界面上的空开关」）。
-      两者都会弹出成功提示却什么都不做，正落在 5.6 指控的行为里。
-      第三节备注声明「界面上的每个控件都如其标签所述」，这一条不做，备注即为不实陈述。
-      **已上传的 build 10 仍含这两个开关**，移除后需要重新出 build 11 再提交。
+- [x] **移除「隐私屏」与「录屏」两个空开关**（见第四节「界面上的空开关」）——
+      已于 `0b0ecc9` 从移动端「操作」面板、桌面端侧栏、旧 `RemoteToolbar` 三处
+      及 `SessionProvider` 中删除，并出 **build 11**。
+      **提交时必须选 build 11**：build 10 仍含这两个开关，而第三节备注声明
+      「界面上的每个控件都如其标签所述」。
 - [x] 用真实值替换下方所有 `<...>` 占位符
 
 **实测得到的真实值（下方文案已按此填写）：**
@@ -199,7 +200,7 @@ accounts or data. The empty home screen reflects a genuinely new profile.
 
 Unattended access is enabled, so no manual approval is needed on the host side.
 
-Build under review: 2.1.0 (<提交时选中的构建号>)
+Build under review: 2.1.0 (11)
 
 To connect:
 1. Open the app, tap "远程连接" (Remote Connection) in the bottom tab bar.
@@ -375,8 +376,8 @@ Apple 的 5.6 措辞是模板，不指明具体功能。以下是我们自己的
 2. 真正实现它们。隐私屏需要被控端加协议与遮罩窗口，录屏需要观看端落盘编码，
    工作量都不小，且在审核期间新增功能会带来新的审核面。
 
-> **已上传的 build 10 仍含这两个开关**。走方案 1 需要重新出 build 11，
-> 因为第三节的备注写着「界面上的每个控件都如其标签所述」。
+> **处理结果**：已按方案 1 执行（`0b0ecc9`），并出 build 11。
+> build 10 仍含这两个开关，提交时不要选它。
 
 ### 真正的问题：备注与实际环境不符
 
