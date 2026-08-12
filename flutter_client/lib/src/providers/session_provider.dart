@@ -58,11 +58,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   String _qualityPreset = 'auto';
   int _fpsLimit = 30;
   int _jpegQuality = 75;
-  bool _isRecording = false;
-  bool _privacyScreenOn = false;
   int _currentMonitor = 0;
   List<String> _availableMonitors = ['主显示器'];
-  final List<Uint8List> _recordedFrames = [];
   bool _viewOnly = false;
   int _rotationQuarterTurns = 0;
   bool _pointerMode = false;
@@ -85,11 +82,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   String get qualityPreset => _qualityPreset;
   int get fpsLimit => _fpsLimit;
   int get jpegQuality => _jpegQuality;
-  bool get isRecording => _isRecording;
-  bool get privacyScreenOn => _privacyScreenOn;
   int get currentMonitor => _currentMonitor;
   List<String> get availableMonitors => List.unmodifiable(_availableMonitors);
-  int get recordedFrameCount => _recordedFrames.length;
 
   /// 仅观看：只收画面，不向被控端发任何输入。
   bool get viewOnly => _viewOnly;
@@ -172,23 +166,6 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  void togglePrivacyScreen() {
-    _privacyScreenOn = !_privacyScreenOn;
-    if (_currentSession != null) {
-      final action = _privacyScreenOn ? 'privacy_on' : 'privacy_off';
-      _bridge.sendRemoteAction(_currentSession!.sessionId, action);
-    }
-    notifyListeners();
-  }
-
-  void toggleRecording() {
-    _isRecording = !_isRecording;
-    if (!_isRecording) {
-      _recordedFrames.clear();
-    }
-    notifyListeners();
-  }
-
   void setMonitor(int index) {
     if (index < 0 || index >= _availableMonitors.length) return;
     _currentMonitor = index;
@@ -265,7 +242,7 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   ///
   /// 拦在 provider 层而不是各个 UI 回调里：移动端画布、桌面端侧栏、剪贴板
   /// 自动同步都从这些方法出去，只在某一处挡必然漏。
-  /// 切显示器、画质、隐私屏不算输入，仍然放行。
+  /// 切显示器、画质不算输入，仍然放行。
   Future<bool> _blockedInput() => Future<bool>.value(false);
 
   Future<bool> sendTap(
@@ -439,7 +416,9 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     // 一次失败上。等看门狗慢慢发现要好几秒，期间画面是黑的。这里主动重建。
     final stale = lastFrame == null ||
         DateTime.now().difference(lastFrame) > _resumeRebindThreshold;
-    if (wasBackgrounded && stale && !_bridge.isSessionTerminated(session.sessionId)) {
+    if (wasBackgrounded &&
+        stale &&
+        !_bridge.isSessionTerminated(session.sessionId)) {
       _connectionStatusLabel = '重连中';
       notifyListeners();
       unawaited(_bindFrameStream(session));

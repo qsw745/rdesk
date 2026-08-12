@@ -203,8 +203,6 @@ class RemoteActionSheet extends StatelessWidget {
             children: [
               const _SheetHandle(),
               _QuickChipRow(
-                isRecording: session.isRecording,
-                privacyScreenOn: session.privacyScreenOn,
                 viewOnly: session.viewOnly,
                 pointerMode: session.pointerMode,
                 rotationQuarterTurns: session.rotationQuarterTurns,
@@ -213,8 +211,6 @@ class RemoteActionSheet extends StatelessWidget {
                   onDisconnect();
                 },
                 onToggleFullscreen: () => _toggleFullscreen(context),
-                onTogglePrivacy: () => _togglePrivacyScreen(context),
-                onToggleRecording: () => _toggleRecording(context),
                 onToggleViewOnly: () => _toggleViewOnly(context),
                 onTogglePointerMode: () => _togglePointerMode(context),
                 onRotate: () => _rotateCanvas(context),
@@ -354,18 +350,6 @@ class RemoteActionSheet extends StatelessWidget {
     _toast(context, degrees == 0 ? '画面已回正' : '画面已旋转 $degrees°');
   }
 
-  void _togglePrivacyScreen(BuildContext context) {
-    final session = context.read<SessionProvider>();
-    session.togglePrivacyScreen();
-    _toast(context, session.privacyScreenOn ? '隐私屏已开启' : '隐私屏已关闭');
-  }
-
-  void _toggleRecording(BuildContext context) {
-    final session = context.read<SessionProvider>();
-    session.toggleRecording();
-    _toast(context, session.isRecording ? '录屏已开始' : '录屏已停止');
-  }
-
   void _toast(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -486,30 +470,22 @@ class _SheetShell extends StatelessWidget {
 /// 顶部快捷开关行：横向滚动的大圆角按钮，开启态高亮。
 class _QuickChipRow extends StatelessWidget {
   const _QuickChipRow({
-    required this.isRecording,
-    required this.privacyScreenOn,
     required this.viewOnly,
     required this.pointerMode,
     required this.rotationQuarterTurns,
     required this.onDisconnect,
     required this.onToggleFullscreen,
-    required this.onTogglePrivacy,
-    required this.onToggleRecording,
     required this.onToggleViewOnly,
     required this.onTogglePointerMode,
     required this.onRotate,
     required this.onHideToolbar,
   });
 
-  final bool isRecording;
-  final bool privacyScreenOn;
   final bool viewOnly;
   final bool pointerMode;
   final int rotationQuarterTurns;
   final VoidCallback onDisconnect;
   final VoidCallback onToggleFullscreen;
-  final VoidCallback onTogglePrivacy;
-  final VoidCallback onToggleRecording;
   final VoidCallback onToggleViewOnly;
   final VoidCallback onTogglePointerMode;
   final VoidCallback onRotate;
@@ -551,18 +527,6 @@ class _QuickChipRow extends StatelessWidget {
             icon: Icons.fullscreen_rounded,
             label: '全屏',
             onTap: onToggleFullscreen,
-          ),
-          _Chip(
-            icon: Icons.privacy_tip_outlined,
-            label: '隐私屏',
-            active: privacyScreenOn,
-            onTap: onTogglePrivacy,
-          ),
-          _Chip(
-            icon: Icons.fiber_manual_record,
-            label: '录屏',
-            active: isRecording,
-            onTap: onToggleRecording,
           ),
           _Chip(
             icon: Icons.visibility_off_outlined,

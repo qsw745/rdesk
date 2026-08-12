@@ -121,13 +121,6 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
                       child: _buildWindowSection(isDark),
                     ),
                     _buildSection(
-                      key: 'security',
-                      icon: Icons.privacy_tip_outlined,
-                      label: '安全',
-                      isDark: isDark,
-                      child: _buildSecuritySection(isDark, session),
-                    ),
-                    _buildSection(
                       key: 'peripherals',
                       icon: Icons.keyboard_rounded,
                       label: '外设',
@@ -167,8 +160,8 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
                       child: OutlinedButton.icon(
                         onPressed: () => _toggleFullscreen(context),
                         icon: const Icon(Icons.fullscreen_rounded, size: 18),
-                        label: const Text('进入全屏幕',
-                            style: TextStyle(fontSize: 13)),
+                        label:
+                            const Text('进入全屏幕', style: TextStyle(fontSize: 13)),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           shape: RoundedRectangleBorder(
@@ -184,10 +177,9 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
                       height: 36,
                       child: FilledButton.icon(
                         onPressed: widget.onDisconnect,
-                        icon:
-                            const Icon(Icons.link_off_rounded, size: 18),
-                        label: const Text('退出远控',
-                            style: TextStyle(fontSize: 13)),
+                        icon: const Icon(Icons.link_off_rounded, size: 18),
+                        label:
+                            const Text('退出远控', style: TextStyle(fontSize: 13)),
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.redAccent,
                           foregroundColor: Colors.white,
@@ -292,33 +284,6 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
     );
   }
 
-  Widget _buildSecuritySection(bool isDark, SessionProvider session) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        children: [
-          _SidebarToggleTile(
-            icon: Icons.privacy_tip_outlined,
-            label: '隐私屏',
-            isDark: isDark,
-            value: session.privacyScreenOn,
-            onChanged: (_) {
-              session.togglePrivacyScreen();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                      session.privacyScreenOn ? '隐私屏已开启' : '隐私屏已关闭'),
-                  behavior: SnackBarBehavior.floating,
-                  duration: const Duration(milliseconds: 800),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPeripheralsSection(bool isDark) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -364,32 +329,6 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
-          _SidebarActionTile(
-            icon: Icons.fiber_manual_record,
-            label: '录屏',
-            isDark: isDark,
-            trailing: session.isRecording
-                ? Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Colors.redAccent,
-                      shape: BoxShape.circle,
-                    ),
-                  )
-                : null,
-            onTap: () {
-              session.toggleRecording();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content:
-                      Text(session.isRecording ? '录屏已开始' : '录屏已停止'),
-                  behavior: SnackBarBehavior.floating,
-                  duration: const Duration(milliseconds: 800),
-                ),
-              );
-            },
-          ),
           _SidebarActionTile(
             icon: Icons.folder_open_rounded,
             label: '文件管理',
@@ -476,14 +415,12 @@ class _SidebarActionTile extends StatelessWidget {
   final String label;
   final bool isDark;
   final VoidCallback onTap;
-  final Widget? trailing;
 
   const _SidebarActionTile({
     required this.icon,
     required this.label,
     required this.isDark,
     required this.onTap,
-    this.trailing,
   });
 
   @override
@@ -496,8 +433,7 @@ class _SidebarActionTile extends StatelessWidget {
         child: Row(
           children: [
             Icon(icon,
-                size: 16,
-                color: isDark ? Colors.white54 : Colors.black54),
+                size: 16, color: isDark ? Colors.white54 : Colors.black54),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -508,7 +444,6 @@ class _SidebarActionTile extends StatelessWidget {
                 ),
               ),
             ),
-            if (trailing != null) trailing!,
             Icon(
               Icons.chevron_right_rounded,
               size: 16,
@@ -516,53 +451,6 @@ class _SidebarActionTile extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SidebarToggleTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isDark;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _SidebarToggleTile({
-    required this.icon,
-    required this.label,
-    required this.isDark,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      child: Row(
-        children: [
-          Icon(icon,
-              size: 16, color: isDark ? Colors.white54 : Colors.black54),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                color: isDark ? Colors.white70 : Colors.black87,
-              ),
-            ),
-          ),
-          SizedBox(
-            height: 24,
-            child: Switch(
-              value: value,
-              onChanged: onChanged,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -597,8 +485,7 @@ class _CompactActionChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon,
-                  size: 14,
-                  color: isDark ? Colors.white54 : Colors.black54),
+                  size: 14, color: isDark ? Colors.white54 : Colors.black54),
               const SizedBox(width: 4),
               Text(
                 label,

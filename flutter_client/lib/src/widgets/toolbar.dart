@@ -210,27 +210,6 @@ class RemoteToolbar extends StatelessWidget {
                   vPadding: vPadding,
                 ),
                 _ToolbarAction(
-                  icon: Icons.privacy_tip_outlined,
-                  label: '隐私屏',
-                  iconSize: iconSize,
-                  fontSize: fontSize,
-                  hPadding: hPadding,
-                  vPadding: vPadding,
-                  onTap: () => _togglePrivacyScreen(context),
-                ),
-                _ToolbarAction(
-                  icon: Icons.fiber_manual_record,
-                  label: '录屏',
-                  iconSize: iconSize,
-                  fontSize: fontSize,
-                  hPadding: hPadding,
-                  vPadding: vPadding,
-                  color: context.watch<SessionProvider>().isRecording
-                      ? const Color(0xFFFF5252)
-                      : Colors.white,
-                  onTap: () => _toggleRecording(context),
-                ),
-                _ToolbarAction(
                   icon: Icons.monitor,
                   label: '显示器',
                   iconSize: iconSize,
@@ -290,30 +269,6 @@ class RemoteToolbar extends StatelessWidget {
     );
   }
 
-  void _togglePrivacyScreen(BuildContext context) {
-    final session = context.read<SessionProvider>();
-    session.togglePrivacyScreen();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(session.privacyScreenOn ? '隐私屏已开启' : '隐私屏已关闭'),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 800),
-      ),
-    );
-  }
-
-  void _toggleRecording(BuildContext context) {
-    final session = context.read<SessionProvider>();
-    session.toggleRecording();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(session.isRecording ? '录屏已开始' : '录屏已停止'),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 800),
-      ),
-    );
-  }
-
   void _showMonitorPicker(BuildContext context) {
     final session = context.read<SessionProvider>();
     final monitors = session.availableMonitors;
@@ -325,8 +280,7 @@ class RemoteToolbar extends StatelessWidget {
         return Container(
           decoration: BoxDecoration(
             color: isDark ? const Color(0xFF1A1E2D) : Colors.white,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -521,7 +475,8 @@ class _QualitySettingsContentState extends State<QualitySettingsContent> {
                             selected
                                 ? Icons.radio_button_checked
                                 : Icons.radio_button_unchecked,
-                            color: selected ? AppTheme.primaryBlue : Colors.grey,
+                            color:
+                                selected ? AppTheme.primaryBlue : Colors.grey,
                             size: 20,
                           ),
                           const SizedBox(width: 14),
@@ -661,15 +616,14 @@ class _ToolbarAction extends StatelessWidget {
         splashColor: Colors.white.withValues(alpha: 0.1),
         highlightColor: Colors.white.withValues(alpha: 0.05),
         child: Padding(
-          padding: EdgeInsets.symmetric(
-              horizontal: hPadding, vertical: vPadding),
+          padding:
+              EdgeInsets.symmetric(horizontal: hPadding, vertical: vPadding),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, color: color, size: iconSize),
               SizedBox(height: vPadding > 6 ? 4 : 2),
-              Text(label,
-                  style: TextStyle(color: color, fontSize: fontSize)),
+              Text(label, style: TextStyle(color: color, fontSize: fontSize)),
             ],
           ),
         ),
