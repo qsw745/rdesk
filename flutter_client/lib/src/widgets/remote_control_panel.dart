@@ -36,6 +36,19 @@ class RemoteControlBar extends StatelessWidget {
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
 
+  /// 内容区固定高度，用于让远程画布精确内缩相同距离。
+  static const double _contentHeight = 56;
+  static const double _verticalPadding = 8;
+
+  /// 底栏实际占据的高度。
+  ///
+  /// 会话页据此内缩画布，避免底栏盖住远程画面底部——此前底栏是直接叠在
+  /// 铺满的画布上的，被遮挡的那条恰好是安卓被控端的导航栏区域。
+  static double heightFor(BuildContext context) =>
+      _contentHeight +
+      _verticalPadding * 2 +
+      MediaQuery.of(context).padding.bottom * 0.4;
+
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
@@ -43,6 +56,7 @@ class RemoteControlBar extends StatelessWidget {
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
         child: Container(
+          height: heightFor(context),
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.62),
             border: Border(
@@ -50,8 +64,9 @@ class RemoteControlBar extends StatelessWidget {
             ),
           ),
           padding: EdgeInsets.only(
-            top: 8,
-            bottom: 8 + MediaQuery.of(context).padding.bottom * 0.4,
+            top: _verticalPadding,
+            bottom:
+                _verticalPadding + MediaQuery.of(context).padding.bottom * 0.4,
           ),
           child: Row(
             children: [
@@ -190,6 +205,9 @@ class RemoteActionSheet extends StatelessWidget {
               _QuickChipRow(
                 isRecording: session.isRecording,
                 privacyScreenOn: session.privacyScreenOn,
+                viewOnly: session.viewOnly,
+                pointerMode: session.pointerMode,
+                rotationQuarterTurns: session.rotationQuarterTurns,
                 onDisconnect: () {
                   Navigator.pop(context);
                   onDisconnect();
@@ -197,6 +215,9 @@ class RemoteActionSheet extends StatelessWidget {
                 onToggleFullscreen: () => _toggleFullscreen(context),
                 onTogglePrivacy: () => _togglePrivacyScreen(context),
                 onToggleRecording: () => _toggleRecording(context),
+                onToggleViewOnly: () => _toggleViewOnly(context),
+                onTogglePointerMode: () => _togglePointerMode(context),
+                onRotate: () => _rotateCanvas(context),
                 onHideToolbar: () {
                   Navigator.pop(context);
                   onToggleToolbar();
@@ -222,7 +243,8 @@ class RemoteActionSheet extends StatelessWidget {
                   _ActionRow(
                     icon: Icons.power_settings_new_rounded,
                     title: '唤醒屏幕',
-                    onTap: () => onRemoteAction('wake'),
+                    // 被控端只认 wake_screen；此前发的 'wake' 会被直接丢掉。
+                    onTap: () => onRemoteAction('wake_screen'),
                   ),
                 ],
               ),
@@ -305,6 +327,31 @@ class RemoteActionSheet extends StatelessWidget {
       isFullscreen ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
     );
     _toast(context, isFullscreen ? '已退出全屏' : '已进入全屏模式');
+  }
+
+  void _toggleViewOnly(BuildContext context) {
+    final session = context.read<SessionProvider>();
+    session.toggleViewOnly();
+    _toast(
+      context,
+      session.viewOnly ? '已切到仅观看，输入不再发送' : '已恢复远程控制',
+    );
+  }
+
+  void _togglePointerMode(BuildContext context) {
+    final session = context.read<SessionProvider>();
+    session.togglePointerMode();
+    _toast(
+      context,
+      session.pointerMode ? '指针模式：拖动移动指针，点击落在指针处' : '已关闭指针模式',
+    );
+  }
+
+  void _rotateCanvas(BuildContext context) {
+    final session = context.read<SessionProvider>();
+    session.rotateCanvas();
+    final degrees = session.rotationQuarterTurns * 90;
+    _toast(context, degrees == 0 ? '画面已回正' : '画面已旋转 $degrees°');
   }
 
   void _togglePrivacyScreen(BuildContext context) {
@@ -441,23 +488,36 @@ class _QuickChipRow extends StatelessWidget {
   const _QuickChipRow({
     required this.isRecording,
     required this.privacyScreenOn,
+    required this.viewOnly,
+    required this.pointerMode,
+    required this.rotationQuarterTurns,
     required this.onDisconnect,
     required this.onToggleFullscreen,
     required this.onTogglePrivacy,
     required this.onToggleRecording,
+    required this.onToggleViewOnly,
+    required this.onTogglePointerMode,
+    required this.onRotate,
     required this.onHideToolbar,
   });
 
   final bool isRecording;
   final bool privacyScreenOn;
+  final bool viewOnly;
+  final bool pointerMode;
+  final int rotationQuarterTurns;
   final VoidCallback onDisconnect;
   final VoidCallback onToggleFullscreen;
   final VoidCallback onTogglePrivacy;
   final VoidCallback onToggleRecording;
+  final VoidCallback onToggleViewOnly;
+  final VoidCallback onTogglePointerMode;
+  final VoidCallback onRotate;
   final VoidCallback onHideToolbar;
 
   @override
   Widget build(BuildContext context) {
+    final degrees = rotationQuarterTurns * 90;
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
@@ -468,6 +528,24 @@ class _QuickChipRow extends StatelessWidget {
             label: '退出远控',
             danger: true,
             onTap: onDisconnect,
+          ),
+          _Chip(
+            icon: Icons.visibility_outlined,
+            label: '仅观看',
+            active: viewOnly,
+            onTap: onToggleViewOnly,
+          ),
+          _Chip(
+            icon: Icons.mouse_outlined,
+            label: '指针模式',
+            active: pointerMode,
+            onTap: onTogglePointerMode,
+          ),
+          _Chip(
+            icon: Icons.screen_rotation_rounded,
+            label: degrees == 0 ? '旋转画面' : '旋转 $degrees°',
+            active: degrees != 0,
+            onTap: onRotate,
           ),
           _Chip(
             icon: Icons.fullscreen_rounded,

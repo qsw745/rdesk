@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../models/session.dart';
 import '../services/rdesk_bridge_service.dart';
+import '../utils/canvas_rotation.dart';
 
 class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   SessionProvider() {
@@ -16,6 +17,22 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// 必须显著大于被控端的保活重传间隔（Android 侧为 5 秒），否则网络稍有
   /// 抖动就会误判掉线；此前该值与保活间隔同为 10 秒，余量为零。
   static const _offlineGracePeriod = Duration(seconds: 30);
+
+  /// 连续多少次重连尝试失败后，才认定连接真的救不回来。
+  ///
+  /// 单次失败几乎总是网络抖动：切应用、切 Wi-Fi、锁屏后系统冻结网络，都会让
+  /// 一次请求抛异常。此前一次异常就写下终态标签「重连失败」，界面随即把用户
+  /// 踢回设备列表——这正是「切个应用回来就断开」的直接成因。
+  static const _reconnectFailureThreshold = 4;
+
+  /// 连续多少次查不到设备，才认定对端离线。
+  ///
+  /// 被控端每 10 秒续一次注册，服务端 TTL 30 秒。单次查不到可能只是恰好撞上
+  /// 续期空档或一次请求失败，不足以判死。
+  static const _deviceMissingThreshold = 3;
+
+  /// 回到前台后，多久没有新帧才主动重建帧流。
+  static const _resumeRebindThreshold = Duration(seconds: 2);
 
   final _bridge = RdeskBridgeService.instance;
   SessionInfo? _currentSession;
@@ -46,6 +63,16 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   int _currentMonitor = 0;
   List<String> _availableMonitors = ['主显示器'];
   final List<Uint8List> _recordedFrames = [];
+  bool _viewOnly = false;
+  int _rotationQuarterTurns = 0;
+  bool _pointerMode = false;
+  int _reconnectFailureStreak = 0;
+  int _deviceMissingStreak = 0;
+
+  /// App 是否处于前台。
+  ///
+  /// 后台期间系统会冻结网络与定时器，任何失败都不能作为「对端不可用」的证据。
+  bool _appResumed = true;
 
   SessionInfo? get currentSession => _currentSession;
   Uint8List? get currentFrame => _currentFrame;
@@ -63,6 +90,15 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   int get currentMonitor => _currentMonitor;
   List<String> get availableMonitors => List.unmodifiable(_availableMonitors);
   int get recordedFrameCount => _recordedFrames.length;
+
+  /// 仅观看：只收画面，不向被控端发任何输入。
+  bool get viewOnly => _viewOnly;
+
+  /// 画面旋转档位（0-3，一档 90°），纯观看端行为。
+  int get rotationQuarterTurns => _rotationQuarterTurns;
+
+  /// 指针模式：本地画一个虚拟指针，拖动移动它，点击落在指针处。
+  bool get pointerMode => _pointerMode;
   bool get isReconnecting =>
       _currentSession?.state == SessionState.reconnecting;
   DateTime? get lastFrameReceivedAt => _lastFrameReceivedAt;
@@ -78,6 +114,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _lastFrameReceivedAt = null;
     _lastReconnectAttemptAt = null;
     _reconnectInFlight = false;
+    _reconnectFailureStreak = 0;
+    _deviceMissingStreak = 0;
     notifyListeners();
     unawaited(_bindFrameStream(session));
     unawaited(_fetchDisplayList(session.sessionId));
@@ -108,6 +146,29 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void toggleControl() {
     _controlEnabled = !_controlEnabled;
+    notifyListeners();
+  }
+
+  void toggleViewOnly() {
+    _viewOnly = !_viewOnly;
+    notifyListeners();
+  }
+
+  /// 顺时针旋转画面一档。
+  void rotateCanvas() {
+    _rotationQuarterTurns =
+        (_rotationQuarterTurns + 1) % CanvasRotation.turnCount;
+    notifyListeners();
+  }
+
+  void resetCanvasRotation() {
+    if (_rotationQuarterTurns == 0) return;
+    _rotationQuarterTurns = 0;
+    notifyListeners();
+  }
+
+  void togglePointerMode() {
+    _pointerMode = !_pointerMode;
     notifyListeners();
   }
 
@@ -188,6 +249,9 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _lastFrameNotifiedAt = null;
     _pendingFrameNotify?.cancel();
     _pendingFrameNotify = null;
+    _viewOnly = false;
+    _rotationQuarterTurns = 0;
+    _pointerMode = false;
     _stopClipboardSync();
     final subscription = _frameSubscription;
     _frameSubscription = null;
@@ -197,8 +261,16 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// 仅观看模式下所有写向被控端的输入都在这里被丢弃。
+  ///
+  /// 拦在 provider 层而不是各个 UI 回调里：移动端画布、桌面端侧栏、剪贴板
+  /// 自动同步都从这些方法出去，只在某一处挡必然漏。
+  /// 切显示器、画质、隐私屏不算输入，仍然放行。
+  Future<bool> _blockedInput() => Future<bool>.value(false);
+
   Future<bool> sendTap(
       String sessionId, Offset localPosition, Size viewportSize) {
+    if (_viewOnly) return _blockedInput();
     if (viewportSize.width <= 0 || viewportSize.height <= 0) {
       return Future<bool>.value(false);
     }
@@ -210,6 +282,7 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<bool> sendNormalizedTap(String sessionId, Offset normalizedPosition) {
+    if (_viewOnly) return _blockedInput();
     return _bridge.sendRemoteTap(
       sessionId,
       normalizedX: normalizedPosition.dx.clamp(0.0, 1.0),
@@ -218,11 +291,13 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<bool> sendAction(String sessionId, String action) {
+    if (_viewOnly) return _blockedInput();
     return _bridge.sendRemoteAction(sessionId, action);
   }
 
   Future<bool> sendLongPress(
       String sessionId, Offset localPosition, Size viewportSize) {
+    if (_viewOnly) return _blockedInput();
     if (viewportSize.width <= 0 || viewportSize.height <= 0) {
       return Future<bool>.value(false);
     }
@@ -237,6 +312,7 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     String sessionId,
     Offset normalizedPosition,
   ) {
+    if (_viewOnly) return _blockedInput();
     return _bridge.sendRemoteLongPress(
       sessionId,
       normalizedX: normalizedPosition.dx.clamp(0.0, 1.0),
@@ -250,6 +326,7 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     Offset end,
     Size viewportSize,
   ) {
+    if (_viewOnly) return _blockedInput();
     if (viewportSize.width <= 0 || viewportSize.height <= 0) {
       return Future<bool>.value(false);
     }
@@ -267,6 +344,7 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     Offset normalizedStart,
     Offset normalizedEnd,
   ) {
+    if (_viewOnly) return _blockedInput();
     return _bridge.sendRemoteDrag(
       sessionId,
       startX: normalizedStart.dx.clamp(0.0, 1.0),
@@ -280,6 +358,7 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     String sessionId,
     List<Offset> normalizedPoints,
   ) {
+    if (_viewOnly) return _blockedInput();
     final points = normalizedPoints
         .map((p) => [p.dx.clamp(0.0, 1.0), p.dy.clamp(0.0, 1.0)])
         .toList();
@@ -287,10 +366,12 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<bool> sendTextInput(String sessionId, String text) {
+    if (_viewOnly) return _blockedInput();
     return _bridge.sendRemoteTextInput(sessionId, text);
   }
 
   Future<bool> sendClipboard(String sessionId, String text) {
+    if (_viewOnly) return _blockedInput();
     _lastSyncedClipboard = text;
     return _bridge.sendRemoteClipboard(sessionId, text);
   }
@@ -331,14 +412,38 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state != AppLifecycleState.resumed || _currentSession == null) {
+    if (state != AppLifecycleState.resumed) {
+      _appResumed = false;
       return;
     }
+
+    final wasBackgrounded = !_appResumed;
+    _appResumed = true;
+    final session = _currentSession;
+    if (session == null) {
+      return;
+    }
+
+    final lastFrame = _lastFrameReceivedAt;
     // App 处于后台时系统会挂起帧流，这段时间本就不该有帧到达。
     // 若把它计入「多久没收到帧」，回到前台的瞬间必然超过阈值被判离线，
     // 进而触发终止逻辑退回设备列表——这正是「放后台一会儿就掉线」的成因。
     // 恢复前台时重置计时，把判定窗口让给真正的重连流程。
     _lastFrameReceivedAt = DateTime.now();
+    // 后台期间累计的失败全部作废：它们证明的是「系统冻结了网络」，
+    // 而不是「对端不可用」。
+    _reconnectFailureStreak = 0;
+    _deviceMissingStreak = 0;
+
+    // 回到前台时帧流多半已经死了：WebSocket 被系统拆掉、轮询循环也可能停在
+    // 一次失败上。等看门狗慢慢发现要好几秒，期间画面是黑的。这里主动重建。
+    final stale = lastFrame == null ||
+        DateTime.now().difference(lastFrame) > _resumeRebindThreshold;
+    if (wasBackgrounded && stale && !_bridge.isSessionTerminated(session.sessionId)) {
+      _connectionStatusLabel = '重连中';
+      notifyListeners();
+      unawaited(_bindFrameStream(session));
+    }
   }
 
   @override
@@ -372,6 +477,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
       _frameHeight = frame.height;
       _lastFrameReceivedAt = DateTime.now();
       _reconnectInFlight = false;
+      _reconnectFailureStreak = 0;
+      _deviceMissingStreak = 0;
 
       // Update session state (latency / online status) always
       final wasOffline = !_isRemoteOnline;
@@ -525,16 +632,31 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
         return;
       }
       if (!resolved.found) {
-        _connectionStatusLabel = '设备离线';
-        _currentSession = _currentSession?.copyWith(
-          state: SessionState.disconnected,
-        );
+        _reconnectFailureStreak = 0;
+        _deviceMissingStreak++;
+        // 只有连续多次查不到、且 App 确实在前台时才判离线。
+        if (_deviceMissingStreak >= _deviceMissingThreshold && _appResumed) {
+          _connectionStatusLabel = '设备离线';
+          _currentSession = _currentSession?.copyWith(
+            state: SessionState.disconnected,
+          );
+        } else {
+          _connectionStatusLabel = '重连中';
+          _currentSession = _currentSession?.copyWith(
+            state: SessionState.reconnecting,
+          );
+        }
       } else if (!resolved.authorized) {
+        // 授权结论来自服务端，不是网络抖动，直接采信。
+        _deviceMissingStreak = 0;
+        _reconnectFailureStreak = 0;
         _connectionStatusLabel = password.isEmpty ? '等待对端授权' : '密码已变更';
         _currentSession = _currentSession?.copyWith(
           state: SessionState.error,
         );
       } else {
+        _deviceMissingStreak = 0;
+        _reconnectFailureStreak = 0;
         _connectionStatusLabel = '已重连，等待画面';
         _currentSession = _currentSession?.copyWith(
           state: SessionState.reconnecting,
@@ -543,7 +665,13 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     } catch (_) {
       if (_currentSession?.sessionId == session.sessionId) {
-        _connectionStatusLabel = '重连失败';
+        _reconnectFailureStreak++;
+        // 单次异常只说明这一刻网络不通。攒够连续失败、且 App 在前台，
+        // 才允许落到会把用户踢回设备列表的终态。
+        _connectionStatusLabel =
+            _reconnectFailureStreak >= _reconnectFailureThreshold && _appResumed
+                ? '重连失败'
+                : '重连中';
         notifyListeners();
       }
     } finally {

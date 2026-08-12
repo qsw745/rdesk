@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/session_provider.dart';
+import '../utils/canvas_rotation.dart';
+import 'remote_pointer_layer.dart';
 
 class RemoteCanvas extends StatefulWidget {
   final String sessionId;
@@ -44,6 +46,19 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
   Offset? _pointerDownPos;
   DateTime? _pointerDownTime;
   bool _pointerMoved = false;
+
+  /// 指针模式下虚拟指针的位置（画面空间归一化坐标）。
+  Offset _pointerFramePos = const Offset(0.5, 0.5);
+
+  /// 已武装拖拽：下一次拖动作为拖拽发出，而不是移动指针。
+  bool _pointerDragArmed = false;
+
+  /// 武装拖拽期间指针经过的轨迹（画面空间）。
+  final List<Offset> _pointerTrail = [];
+
+  /// 按住多久算长按。缩放分支只有 Listener，没有长按识别器，
+  /// 这个阈值同时也是「点击 / 长按」的分界。
+  static const _longPressThreshold = Duration(milliseconds: 450);
 
   @override
   void initState() {
@@ -130,6 +145,14 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
   }
 
   Widget _buildCanvas(BuildContext context) {
+    // 旋转与指针模式是观看端行为，直接从 provider 取，避免层层传参。
+    final viewState = context.select<SessionProvider, (int, bool)>(
+      (p) => (p.rotationQuarterTurns, p.pointerMode),
+    );
+    final quarterTurns = viewState.$1;
+    // 指针模式只在移动端（启用缩放的画布）生效，桌面端本来就有真鼠标。
+    final pointerMode = viewState.$2 && widget.enableZoom;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportSize = Size(
@@ -141,19 +164,26 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
           provider.frameWidth > 0 ? provider.frameWidth.toDouble() : 1,
           provider.frameHeight > 0 ? provider.frameHeight.toDouble() : 1,
         );
-        final contentRect = _calculateContainRect(viewportSize, frameSize);
+        // 旋转奇数档时画面宽高互换，居中矩形必须按旋转后的尺寸算。
+        final contentRect = _calculateContainRect(
+          viewportSize,
+          CanvasRotation.displaySize(frameSize, quarterTurns),
+        );
         final threshold = _dragThreshold(context);
 
-        /// Convert a screen-space position to content-rect-relative position,
-        /// accounting for the current zoom transform when zoom is enabled.
-        Offset? toNormalized(Offset screenPos) {
+        /// 屏幕坐标 → 被控端认的画面空间归一化坐标。
+        ///
+        /// 先反解缩放矩阵拿到未变换位置，再按旋转档位换算回画面空间。
+        Offset? toFrame(Offset screenPos) {
           Offset localPos = screenPos;
           if (widget.enableZoom) {
             // Invert the zoom transform to get the untransformed position.
             final inverse = Matrix4.inverted(_zoomController.value);
             localPos = MatrixUtils.transformPoint(inverse, screenPos);
           }
-          return _normalizeToContentRect(localPos, contentRect);
+          final display = _normalizeToContentRect(localPos, contentRect);
+          if (display == null) return null;
+          return CanvasRotation.displayToFrame(display, quarterTurns);
         }
 
         final frameLayer = Stack(
@@ -168,7 +198,10 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                   Positioned.fromRect(
                     rect: contentRect,
                     child: RepaintBoundary(
-                      child: _FrameImage(sessionId: widget.sessionId),
+                      child: RotatedBox(
+                        quarterTurns: quarterTurns,
+                        child: _FrameImage(sessionId: widget.sessionId),
+                      ),
                     ),
                   ),
                 ],
@@ -193,7 +226,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
         // InteractiveViewer's own onInteraction* callbacks to avoid
         // gesture arena conflicts.
         if (widget.enableZoom) {
-          return Listener(
+          final interactive = Listener(
             onPointerDown: (event) {
               _activePointers++;
               // Track first finger for tap detection
@@ -225,21 +258,27 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                 _pointerMoved = false;
               }
 
-              // Single-finger tap: short duration, small movement.
-              // Works in both zoomed and non-zoomed states.
+              // Single-finger tap / long press: small movement, duration
+              // decides which. 此前这里只识别点击，按住再抬手什么都不发——
+              // 提示语写着「长按发送长按」，实际在缩放画布上从未生效。
               if (downPos != null && downTime != null && _activePointers == 0) {
                 final duration = DateTime.now().difference(downTime);
                 debugPrint(
                     '[RDesk] pointerUp: moved=$moved isZoomed=$_isZoomed '
                     'duration=${duration.inMilliseconds}ms pos=$downPos');
-                if (!moved &&
-                    duration < const Duration(milliseconds: 400) &&
-                    widget.onRemoteTap != null) {
-                  final normalized = toNormalized(downPos);
-                  debugPrint('[RDesk] tap normalized=$normalized');
-                  if (normalized != null) {
-                    widget.onRemoteTap!(normalized);
-                  }
+                if (moved) return;
+
+                final isLongPress = duration >= _longPressThreshold;
+                // 指针模式下落点是虚拟指针的位置，而不是手指位置。
+                final target =
+                    pointerMode ? _pointerFramePos : toFrame(downPos);
+                if (target == null) return;
+                debugPrint('[RDesk] ${isLongPress ? "longPress" : "tap"} '
+                    'frame=$target');
+                if (isLongPress) {
+                  widget.onRemoteLongPress?.call(target);
+                } else {
+                  widget.onRemoteTap?.call(target);
                 }
               }
             },
@@ -255,8 +294,17 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
               transformationController: _zoomController,
               minScale: 1.0,
               maxScale: 5.0,
-              panEnabled: _isZoomed,
+              // 指针模式下单指用来移动指针，不能同时拖动画面。
+              panEnabled: _isZoomed && !pointerMode,
               onInteractionStart: (details) {
+                if (pointerMode) {
+                  if (details.pointerCount == 1) {
+                    _pointerTrail
+                      ..clear()
+                      ..add(_pointerFramePos);
+                  }
+                  return;
+                }
                 if (details.pointerCount == 1 && !_isZoomed) {
                   _dragStart = details.focalPoint;
                   _dragCurrent = _dragStart;
@@ -268,6 +316,15 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                 }
               },
               onInteractionUpdate: (details) {
+                if (pointerMode) {
+                  if (details.pointerCount != 1) return;
+                  _movePointer(
+                    details.focalPointDelta,
+                    contentRect,
+                    quarterTurns,
+                  );
+                  return;
+                }
                 if (_dragStart != null && details.pointerCount == 1) {
                   _dragCurrent = details.focalPoint;
                   // Sample points but avoid excessive density
@@ -283,6 +340,10 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                 }
               },
               onInteractionEnd: (details) {
+                if (pointerMode) {
+                  _flushPointerDrag();
+                  return;
+                }
                 final start = _dragStart;
                 final end = _dragCurrent;
                 final pathPoints = List<Offset>.from(_dragPathPoints);
@@ -300,7 +361,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                   // Subsample to max ~20 points
                   final sampled = _subsamplePath(pathPoints, 20);
                   final normalizedPath = sampled
-                      .map((p) => toNormalized(p))
+                      .map((p) => toFrame(p))
                       .where((p) => p != null)
                       .cast<Offset>()
                       .toList();
@@ -311,8 +372,8 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                 }
                 // Fallback to start/end
                 if (widget.onRemoteDrag != null) {
-                  final normalizedStart = toNormalized(start);
-                  final normalizedEnd = toNormalized(end);
+                  final normalizedStart = toFrame(start);
+                  final normalizedEnd = toFrame(end);
                   if (normalizedStart != null && normalizedEnd != null) {
                     widget.onRemoteDrag!(normalizedStart, normalizedEnd);
                   }
@@ -320,6 +381,27 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
               },
               child: frameLayer,
             ),
+          );
+
+          if (!pointerMode) return interactive;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              interactive,
+              RemotePointerLayer(
+                zoom: _zoomController,
+                contentRect: contentRect,
+                pointerFramePosition: _pointerFramePos,
+                quarterTurns: quarterTurns,
+                dragArmed: _pointerDragArmed,
+                onTap: () => widget.onRemoteTap?.call(_pointerFramePos),
+                onLongPress: () =>
+                    widget.onRemoteLongPress?.call(_pointerFramePos),
+                onToggleDrag: () => setState(
+                  () => _pointerDragArmed = !_pointerDragArmed,
+                ),
+              ),
+            ],
           );
         }
 
@@ -329,10 +411,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
           onTapUp: widget.onRemoteTap == null
               ? null
               : (details) {
-                  final normalized = _normalizeToContentRect(
-                    details.localPosition,
-                    contentRect,
-                  );
+                  final normalized = toFrame(details.localPosition);
                   if (normalized == null) return;
                   debugPrint(
                       '[RDesk] tap at ${normalized.dx.toStringAsFixed(3)}, '
@@ -342,10 +421,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
           onLongPressStart: widget.onRemoteLongPress == null
               ? null
               : (details) {
-                  final normalized = _normalizeToContentRect(
-                    details.localPosition,
-                    contentRect,
-                  );
+                  final normalized = toFrame(details.localPosition);
                   if (normalized == null) return;
                   widget.onRemoteLongPress!(normalized);
                 },
@@ -413,7 +489,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                           pathPoints.length >= 2) {
                         final sampled = _subsamplePath(pathPoints, 40);
                         final normalizedPath = sampled
-                            .map((p) => _normalizeToContentRect(p, contentRect))
+                            .map((p) => toFrame(p))
                             .where((p) => p != null)
                             .cast<Offset>()
                             .toList();
@@ -423,10 +499,8 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                         }
                       }
                       if (widget.onRemoteDrag != null) {
-                        final normalizedStart =
-                            _normalizeToContentRect(start, contentRect);
-                        final normalizedEnd =
-                            _normalizeToContentRect(end, contentRect);
+                        final normalizedStart = toFrame(start);
+                        final normalizedEnd = toFrame(end);
                         if (normalizedStart == null || normalizedEnd == null) {
                           return;
                         }
@@ -437,6 +511,41 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
         );
       },
     );
+  }
+
+  /// 按手指位移移动虚拟指针。
+  ///
+  /// 位移先除以画面在屏幕上的实际尺寸（含缩放），指针才会跟着手指等距走；
+  /// 再按旋转档位转向，否则画面转了 90° 之后指针会往错误方向跑。
+  void _movePointer(Offset screenDelta, Rect contentRect, int quarterTurns) {
+    if (contentRect.width <= 0 || contentRect.height <= 0) return;
+    final scale =
+        widget.enableZoom ? _zoomController.value.getMaxScaleOnAxis() : 1.0;
+    final displayDelta = Offset(
+      screenDelta.dx / (contentRect.width * scale),
+      screenDelta.dy / (contentRect.height * scale),
+    );
+    final frameDelta =
+        CanvasRotation.displayDeltaToFrame(displayDelta, quarterTurns);
+    setState(() {
+      _pointerFramePos =
+          CanvasRotation.clampNormalized(_pointerFramePos + frameDelta);
+      if (_pointerDragArmed) {
+        _pointerTrail.add(_pointerFramePos);
+      }
+    });
+  }
+
+  /// 一次指针拖动结束：武装状态下把轨迹作为拖拽发出，然后解除武装。
+  void _flushPointerDrag() {
+    if (!_pointerDragArmed || _pointerTrail.length < 2) {
+      _pointerTrail.clear();
+      return;
+    }
+    final path = _subsamplePath(List<Offset>.from(_pointerTrail), 24);
+    _pointerTrail.clear();
+    setState(() => _pointerDragArmed = false);
+    widget.onRemoteDragPath?.call(path);
   }
 
   Rect _calculateContainRect(Size viewportSize, Size imageSize) {

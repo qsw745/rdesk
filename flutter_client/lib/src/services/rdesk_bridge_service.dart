@@ -97,6 +97,51 @@ class HostedRelayCommand {
   }
 }
 
+/// NTP 式时钟偏移估算。
+///
+/// 两端各自的墙钟可以差出几百毫秒甚至几秒，而「延迟」= 本机现在 - 对端时刻，
+/// 直接相减等于把时钟差算进延迟里。这里用一次往返里的
+/// `offset = 本机中点 - 服务端时刻` 估算偏移，并且只信任**往返最快**的那次采样：
+/// RTT 越小，请求去程/回程越对称，偏移估计越准。
+class _ClockOffset {
+  int _offsetMs;
+  int _rttMs;
+  DateTime _measuredAt;
+
+  _ClockOffset._(this._offsetMs, this._rttMs, this._measuredAt);
+
+  int get offsetMs => _offsetMs;
+  int get rttMs => _rttMs;
+
+  /// 采样有效期。过期后即便 RTT 更差也接受新值，避免时钟被慢慢校准后
+  /// 一直沿用一个陈旧的偏移。
+  static const _sampleTtl = Duration(minutes: 2);
+
+  static _ClockOffset? sample({
+    required int sentAtMs,
+    required int receivedAtMs,
+    required int serverTimeMs,
+    _ClockOffset? previous,
+  }) {
+    if (serverTimeMs <= 0 || receivedAtMs < sentAtMs) return previous;
+    final rtt = receivedAtMs - sentAtMs;
+    if (rtt > 5000) return previous;
+    final offset = ((sentAtMs + receivedAtMs) ~/ 2) - serverTimeMs;
+    final now = DateTime.now();
+    if (previous == null) {
+      return _ClockOffset._(offset, rtt, now);
+    }
+    final stale = now.difference(previous._measuredAt) > _sampleTtl;
+    if (stale || rtt <= previous._rttMs) {
+      previous
+        .._offsetMs = offset
+        .._rttMs = rtt
+        .._measuredAt = now;
+    }
+    return previous;
+  }
+}
+
 class RdeskBridgeService {
   RdeskBridgeService._();
 
@@ -125,6 +170,12 @@ class RdeskBridgeService {
     'https://qisw.top',
     'http://qisw.top',
     'qisw.top',
+    // 旧版本的默认值，走明文 HTTP。必须列在此处，
+    // 否则已安装用户的本地设置不会被迁移到 HTTPS。
+    'qisw.top:80',
+    'qisw.top:21116',
+    'http://qisw.top:80',
+    'http://qisw.top:21116',
     'https://rdesk.qisw.top',
     'http://rdesk.qisw.top',
     'rdesk.qisw.top',
@@ -159,6 +210,23 @@ class RdeskBridgeService {
   // ── Persistent HTTP clients for connection reuse (keep-alive) ──
   HttpClient? _frameClient;
   HttpClient? _controlClient;
+  HttpClient? _hostClient;
+  Uri? _cachedSignalingBase;
+  DateTime? _cachedSignalingBaseAt;
+
+  /// 被控端本机时钟相对服务端时钟的偏移（本机 - 服务端，毫秒）。
+  _ClockOffset? _hostClockOffset;
+
+  /// 观看端本机时钟相对服务端时钟的偏移（本机 - 服务端，毫秒）。
+  _ClockOffset? _viewerClockOffset;
+
+  /// 观看端到服务端的往返时延（单时钟测量，不受时钟差影响）。
+  int? _viewerRttMs;
+
+  /// 会话上一次开始出现 socket 级失败的时刻。
+  ///
+  /// 用于区分「对端真的关了」和「本机网络抖了一下」。
+  final Map<String, int> _sessionSocketFailureSince = <String, int>{};
 
   HttpClient get _getFrameClient {
     _frameClient ??= HttpClient()
@@ -174,12 +242,57 @@ class RdeskBridgeService {
     return _controlClient!;
   }
 
+  /// 被控端上行专用的长连客户端。
+  ///
+  /// 帧上传和命令轮询此前各自 `HttpClient()` 新建再 `close(force: true)`，
+  /// 等于每帧、每次轮询都重做一遍 TCP + TLS 握手：HTTPS 下这是 2~3 个 RTT，
+  /// 在手机上行链路上往往比传输帧本身还贵，直接体现在观看端的延迟数字里。
+  /// 复用同一条 keep-alive 连接后，这部分开销只在首帧付一次。
+  HttpClient get _getHostClient {
+    _hostClient ??= HttpClient()
+      ..connectionTimeout = const Duration(seconds: 3)
+      ..idleTimeout = const Duration(seconds: 30);
+    return _hostClient!;
+  }
+
   /// Closes persistent HTTP clients (call on disconnect).
   void closePersistentClients() {
     _frameClient?.close();
     _frameClient = null;
     _controlClient?.close();
     _controlClient = null;
+  }
+
+  /// 被控端上行连接与信令地址缓存的复位入口（停止托管时调用）。
+  void closeHostClient() {
+    _hostClient?.close();
+    _hostClient = null;
+    _cachedSignalingBase = null;
+    _hostClockOffset = null;
+  }
+
+  /// 信令基址缓存。
+  ///
+  /// 此前每帧上传、每次命令轮询都会走一遍 [loadSettings]，而它内部要读一次
+  /// 安全存储（Keychain / Keystore）。托管时这是每秒二三十次密钥库读取，
+  /// 既拖慢上传起步，也白白耗电。这里只取出真正需要的信令地址并短时缓存。
+  Future<Uri> _signalingApiBase() async {
+    final cached = _cachedSignalingBase;
+    final cachedAt = _cachedSignalingBaseAt;
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(seconds: 30)) {
+      return cached;
+    }
+    final prefs = await _prefs;
+    final server = _migrateServerSetting(
+      prefs.getString(_signalingServerKey),
+      AppConstants.defaultSignalingServer,
+    );
+    final base = _normalizeApiBaseUri(server.trim());
+    _cachedSignalingBase = base;
+    _cachedSignalingBaseAt = DateTime.now();
+    return base;
   }
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
@@ -267,6 +380,7 @@ class RdeskBridgeService {
     }
     final sessionId = 'session-${DateTime.now().millisecondsSinceEpoch}';
     _terminatedSessions.remove(sessionId);
+    _sessionSocketFailureSince.remove(sessionId);
     if (resolved.endpoint != null) {
       _sessionPreviewEndpoints[sessionId] = resolved.endpoint!;
     }
@@ -348,6 +462,7 @@ class RdeskBridgeService {
     final sessionId = 'direct-${DateTime.now().millisecondsSinceEpoch}';
     final endpoint = Uri.http('$host:$port', '/frame.jpg');
     _terminatedSessions.remove(sessionId);
+    _sessionSocketFailureSince.remove(sessionId);
     _sessionPreviewEndpoints[sessionId] = endpoint;
 
     // Authenticate with the host via /session/trust (password required).
@@ -434,14 +549,23 @@ class RdeskBridgeService {
       var lastFrameAt = DateTime.now();
       const wsFrameTimeout = Duration(seconds: 6);
 
-      void closeStream() {
+      /// 关闭 WebSocket 帧流。
+      ///
+      /// [reportLost] 决定要不要向上游吐一个 `null`。`null` 会被
+      /// `SessionProvider` 当作「画面没了」，进而启动重连判定，失败即把用户
+      /// 踢回设备列表。但 WebSocket 断开在这里绝大多数情况只意味着
+      /// **该降级到 HTTP 轮询**——切应用、切网络、NAT 老化都会断它，而 HTTP
+      /// 轮询往往立刻就能继续取到画面。只有会话确实被终止时才需要上报。
+      void closeStream({bool reportLost = false}) {
         frameWatchdog?.cancel();
         frameWatchdog = null;
         transportLatencyTimer?.cancel();
         transportLatencyTimer = null;
         channel?.sink.close();
         if (!controller.isClosed) {
-          controller.add(null);
+          if (reportLost) {
+            controller.add(null);
+          }
           controller.close();
         }
       }
@@ -453,7 +577,7 @@ class RdeskBridgeService {
           frameWatchdog = Timer.periodic(const Duration(seconds: 1), (_) {
             if (controller.isClosed) return;
             if (_terminatedSessions.contains(sessionId)) {
-              closeStream();
+              closeStream(reportLost: true);
               return;
             }
             if (DateTime.now().difference(lastFrameAt) >= wsFrameTimeout) {
@@ -466,7 +590,7 @@ class RdeskBridgeService {
           channel!.stream.listen(
             (message) {
               if (_terminatedSessions.contains(sessionId)) {
-                closeStream();
+                closeStream(reportLost: true);
                 return;
               }
               if (message is List<int>) {
@@ -548,6 +672,11 @@ class RdeskBridgeService {
       }
 
       final endpoint = _sessionPreviewEndpoints[sessionId];
+      // 轮询路径同样需要时钟校准样本，否则延迟显示会退回「裸相减」，
+      // 两端墙钟差多少就多显示多少。约每 2 秒探一次，与 WebSocket 路径一致。
+      if (endpoint != null && tick % 40 == 0) {
+        unawaited(_refreshTransportLatency(endpoint, (_) {}));
+      }
       final remoteFrame = await _fetchRemotePreviewFrame(
         sessionId,
         endpoint: endpoint,
@@ -680,6 +809,10 @@ class RdeskBridgeService {
     final prefs = await _prefs;
     if (signalingServer != null) {
       await prefs.setString(_signalingServerKey, signalingServer);
+      // 缓存的信令基址会在 30 秒内继续被上行路径使用，改服务器后必须立刻失效。
+      _cachedSignalingBase = null;
+      _cachedSignalingBaseAt = null;
+      _hostClockOffset = null;
     }
     if (relayServer != null) {
       await prefs.setString(_relayServerKey, relayServer);
@@ -945,6 +1078,22 @@ class RdeskBridgeService {
       },
     );
     return _parseAccountSession(payload);
+  }
+
+  /// 永久注销账号。需要重新提供密码，服务端会二次校验。
+  ///
+  /// 成功后服务端会删除账号本身、全部登录会话与该账号下的设备在线记录；
+  /// 本机的连接历史等本地数据由调用方负责清理。
+  Future<void> deleteAccount({required String password}) async {
+    final session = await getSavedAccountSession();
+    if (session == null) {
+      throw StateError('登录状态已失效，请重新登录后再试');
+    }
+    await _postJson(
+      path: '/api/account/delete',
+      body: <String, Object?>{'password': password},
+      bearerToken: session.token,
+    );
   }
 
   Future<List<AccountDevice>> listAccountDevices() async {
@@ -1274,7 +1423,11 @@ class RdeskBridgeService {
     }
   }
 
-  Future<void> uploadRelayPreviewFrame({
+  /// 上传一帧到中继服务器，返回本次上传实际耗时（毫秒）。
+  ///
+  /// 耗时是被控端唯一能拿到的上行拥塞信号：一旦它超过帧间隔，说明手机上行
+  /// 已经喂不动当前码率，继续原样推流只会让观看端的画面越积越旧。
+  Future<int> uploadRelayPreviewFrame({
     required String deviceId,
     required String hostToken,
     required Uint8List bytes,
@@ -1282,72 +1435,109 @@ class RdeskBridgeService {
     required int height,
     required int timestampMs,
   }) async {
-    final settings = await loadSettings();
-    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    final apiBase = await _signalingApiBase();
+    final client = _getHostClient;
 
+    // 采集时刻换算到服务端时钟后再上报，观看端相减得到的才是真实链路耗时。
+    final offset = _hostClockOffset;
+    final normalizedTimestampMs =
+        offset == null ? timestampMs : timestampMs - offset.offsetMs;
+
+    final sentAtMs = DateTime.now().millisecondsSinceEpoch;
+    final request = await client.postUrl(
+      apiBase.replace(
+        path: '/api/preview/host/frame',
+        queryParameters: <String, String>{
+          'device_id': deviceId,
+          'host_token': hostToken,
+          'width': width.toString(),
+          'height': height.toString(),
+          'timestamp_ms': normalizedTimestampMs.toString(),
+        },
+      ),
+    );
+    request.headers.contentType = ContentType('image', 'jpeg');
+    request.contentLength = bytes.length;
+    request.add(bytes);
+    final response = await request.close();
+    // 响应体必须读干净，否则这条连接无法被 keep-alive 复用，
+    // 复用长连的意义就没了。
+    final body = await utf8.decoder.bind(response).join();
+    final receivedAtMs = DateTime.now().millisecondsSinceEpoch;
+    if (response.statusCode != HttpStatus.ok) {
+      throw HttpException('frame upload failed: ${response.statusCode}',
+          uri: apiBase);
+    }
+    _updateHostClockOffset(
+      body: body,
+      sentAtMs: sentAtMs,
+      receivedAtMs: receivedAtMs,
+    );
+    return receivedAtMs - sentAtMs;
+  }
+
+  void _updateHostClockOffset({
+    required String body,
+    required int sentAtMs,
+    required int receivedAtMs,
+  }) {
+    if (body.isEmpty) return;
     try {
-      final request = await client.postUrl(
-        apiBase.replace(
-          path: '/api/preview/host/frame',
-          queryParameters: <String, String>{
-            'device_id': deviceId,
-            'host_token': hostToken,
-            'width': width.toString(),
-            'height': height.toString(),
-            'timestamp_ms': timestampMs.toString(),
-          },
-        ),
+      final payload = jsonDecode(body);
+      if (payload is! Map) return;
+      final serverTimeMs = (payload['server_time_ms'] as num?)?.toInt();
+      if (serverTimeMs == null) return;
+      _hostClockOffset = _ClockOffset.sample(
+        sentAtMs: sentAtMs,
+        receivedAtMs: receivedAtMs,
+        serverTimeMs: serverTimeMs,
+        previous: _hostClockOffset,
       );
-      request.headers.contentType = ContentType('image', 'jpeg');
-      request.add(bytes);
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException('frame upload failed: ${response.statusCode}',
-            uri: apiBase);
-      }
-    } finally {
-      client.close(force: true);
+    } on FormatException {
+      // 旧版服务端只回状态码，没有 JSON 体：保持未校准，行为与此前一致。
     }
   }
 
+  /// 拉取一条待执行的远程命令。
+  ///
+  /// 服务端已改为长轮询：队列为空时请求会挂住数秒而不是立刻返回 204，
+  /// 所以这里必须给足读超时，并且复用长连——否则每次挂起都要重做 TLS 握手，
+  /// 比原来的短轮询还糟。超时上限略大于服务端的挂起上限。
   Future<HostedRelayCommand?> pollHostedCommand({
     required String deviceId,
     required String hostToken,
   }) async {
-    final settings = await loadSettings();
-    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    final apiBase = await _signalingApiBase();
+    final client = _getHostClient;
 
-    try {
-      final request = await client.getUrl(
-        apiBase.replace(
-          path: '/api/preview/host/control/poll',
-          queryParameters: <String, String>{
-            'device_id': deviceId,
-            'host_token': hostToken,
-          },
-        ),
-      );
-      final response = await request.close();
-      if (response.statusCode == HttpStatus.noContent) {
-        return null;
-      }
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException(
-          'command poll failed: ${response.statusCode}',
-          uri: apiBase,
-        );
-      }
-      final body = await utf8.decoder.bind(response).join();
-      if (body.isEmpty) {
-        return null;
-      }
-      final payload = jsonDecode(body) as Map<String, dynamic>;
-      return HostedRelayCommand.fromJson(payload);
-    } finally {
-      client.close(force: true);
+    final request = await client.getUrl(
+      apiBase.replace(
+        path: '/api/preview/host/control/poll',
+        queryParameters: <String, String>{
+          'device_id': deviceId,
+          'host_token': hostToken,
+        },
+      ),
+    );
+    final response =
+        await request.close().timeout(const Duration(seconds: 12));
+    if (response.statusCode == HttpStatus.noContent) {
+      await response.drain<void>();
+      return null;
     }
+    if (response.statusCode != HttpStatus.ok) {
+      await response.drain<void>();
+      throw HttpException(
+        'command poll failed: ${response.statusCode}',
+        uri: apiBase,
+      );
+    }
+    final body = await utf8.decoder.bind(response).join();
+    if (body.isEmpty) {
+      return null;
+    }
+    final payload = jsonDecode(body) as Map<String, dynamic>;
+    return HostedRelayCommand.fromJson(payload);
   }
 
   Future<void> submitHostedCommandResult({
@@ -1357,37 +1547,33 @@ class RdeskBridgeService {
     required bool ok,
     String? text,
   }) async {
-    final settings = await loadSettings();
-    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 3);
+    final apiBase = await _signalingApiBase();
+    final client = _getHostClient;
 
-    try {
-      final request = await client.postUrl(
-        apiBase.replace(
-          path: '/api/preview/host/control/result',
-          queryParameters: <String, String>{
-            'device_id': deviceId,
-            'host_token': hostToken,
-          },
-        ),
+    final request = await client.postUrl(
+      apiBase.replace(
+        path: '/api/preview/host/control/result',
+        queryParameters: <String, String>{
+          'device_id': deviceId,
+          'host_token': hostToken,
+        },
+      ),
+    );
+    request.headers.contentType = ContentType.json;
+    request.write(
+      jsonEncode(<String, Object?>{
+        'command_id': commandId,
+        'ok': ok,
+        'text': text,
+      }),
+    );
+    final response = await request.close();
+    await response.drain<void>();
+    if (response.statusCode != HttpStatus.ok) {
+      throw HttpException(
+        'command result failed: ${response.statusCode}',
+        uri: apiBase,
       );
-      request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, Object?>{
-          'command_id': commandId,
-          'ok': ok,
-          'text': text,
-        }),
-      );
-      final response = await request.close();
-      if (response.statusCode != HttpStatus.ok) {
-        throw HttpException(
-          'command result failed: ${response.statusCode}',
-          uri: apiBase,
-        );
-      }
-    } finally {
-      client.close(force: true);
     }
   }
 
@@ -1426,6 +1612,8 @@ class RdeskBridgeService {
     }
     if (resolved.found && resolved.authorized && resolved.endpoint != null) {
       _sessionPreviewEndpoints[sessionId] = resolved.endpoint!;
+      // 重新拿到可用端点，先前的 socket 失败不再计入判死窗口。
+      _sessionSocketFailureSince.remove(sessionId);
     }
     return resolved;
   }
@@ -1722,7 +1910,14 @@ class RdeskBridgeService {
       final networkLatencyMs =
           _boundedElapsedMs(receivedAtMs, relayReceivedAtMs) ??
               requestLatencyMs;
-      final latencyMs = frameAgeMs ?? networkLatencyMs;
+      final latencyMs = _estimateFrameLatencyMs(
+        nowMs: receivedAtMs,
+        capturedAtMs: capturedAtMs,
+        relayReceivedAtMs: relayReceivedAtMs,
+        fallbackMs: requestLatencyMs,
+      );
+      // 取到帧就说明链路是通的，socket 失败窗口清零。
+      _sessionSocketFailureSince.remove(sessionId);
 
       return RemoteFrameData(
         bytes: bytes,
@@ -1734,14 +1929,29 @@ class RdeskBridgeService {
         latencyAvailable: true,
       );
     } on SocketException {
-      // Connection refused / reset — the host has closed the LAN relay.
-      // Treat as session termination so the viewer exits promptly.
-      _terminatedSessions.add(sessionId);
-      _sessionPreviewEndpoints.remove(sessionId);
+      // Connection refused / reset。对端关掉中继时会这样，**但本机切后台、
+      // Wi-Fi 与蜂窝网切换、基站切换也会这样**。此前一次异常就把会话判死，
+      // 于是「切个应用回来就退回设备列表」。改为给一个持续窗口：网络抖动会在
+      // 几百毫秒内自愈，真正的对端关闭则会持续失败到窗口耗尽。
+      _noteSocketFailure(sessionId);
       return null;
     } catch (_) {
       return null;
     }
+  }
+
+  /// socket 级失败必须持续这么久，才认定会话真的没了。
+  static const _socketFailureGrace = Duration(seconds: 20);
+
+  void _noteSocketFailure(String sessionId) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final since = _sessionSocketFailureSince[sessionId] ??= nowMs;
+    if (nowMs - since < _socketFailureGrace.inMilliseconds) {
+      return;
+    }
+    _terminatedSessions.add(sessionId);
+    _sessionPreviewEndpoints.remove(sessionId);
+    _sessionSocketFailureSince.remove(sessionId);
   }
 
   RemoteFrameData? _decodeRemoteFramePacket(
@@ -1778,7 +1988,12 @@ class RdeskBridgeService {
         final networkLatencyMs =
             _boundedElapsedMs(nowMs, relayReceivedAtMs.toInt()) ??
                 fallbackNetworkLatencyMs;
-        final latencyMs = frameAgeMs ?? networkLatencyMs;
+        final latencyMs = _estimateFrameLatencyMs(
+          nowMs: nowMs,
+          capturedAtMs: capturedAtMs.toInt(),
+          relayReceivedAtMs: relayReceivedAtMs.toInt(),
+          fallbackMs: fallbackNetworkLatencyMs,
+        );
         return RemoteFrameData(
           bytes: payload,
           width: safeWidth,
@@ -1810,8 +2025,11 @@ class RdeskBridgeService {
           height.toInt(),
           fallback: dims?.$2 ?? 0,
         );
-        final latencyMs = _boundedElapsedMs(nowMs, timestampMs.toInt());
-        final displayLatencyMs = latencyMs ?? fallbackNetworkLatencyMs;
+        final displayLatencyMs = _estimateFrameLatencyMs(
+          nowMs: nowMs,
+          capturedAtMs: timestampMs.toInt(),
+          fallbackMs: fallbackNetworkLatencyMs,
+        );
         return RemoteFrameData(
           bytes: payload,
           width: safeWidth,
@@ -1838,6 +2056,10 @@ class RdeskBridgeService {
     return null;
   }
 
+  /// 探测观看端到服务端的往返时延，并顺带校准两端时钟偏移。
+  ///
+  /// RTT 用同一只秒表测量，天然不受时钟差影响；`/health` 回带的服务端时间则
+  /// 让我们把「本机现在」换算到服务端时钟，从而把帧龄里的时钟差扣掉。
   Future<void> _refreshTransportLatency(
     Uri endpoint,
     void Function(int latencyMs) onMeasured,
@@ -1848,21 +2070,70 @@ class RdeskBridgeService {
       port: endpoint.hasPort ? endpoint.port : null,
       path: '/health',
     );
-    final stopwatch = Stopwatch()..start();
+    final sentAtMs = DateTime.now().millisecondsSinceEpoch;
     try {
       final request = await _getControlClient
           .getUrl(origin)
           .timeout(const Duration(seconds: 2));
       final response =
           await request.close().timeout(const Duration(seconds: 2));
-      await response.drain<void>();
-      stopwatch.stop();
-      if (response.statusCode == HttpStatus.ok) {
-        onMeasured(stopwatch.elapsedMilliseconds.clamp(1, 9999).toInt());
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 2));
+      final receivedAtMs = DateTime.now().millisecondsSinceEpoch;
+      if (response.statusCode != HttpStatus.ok) {
+        return;
       }
+      final rttMs = (receivedAtMs - sentAtMs).clamp(1, 9999).toInt();
+      _viewerRttMs = rttMs;
+      onMeasured(rttMs);
+
+      if (body.isEmpty) return;
+      final payload = jsonDecode(body);
+      if (payload is! Map) return;
+      final serverTimeMs = (payload['server_time_ms'] as num?)?.toInt();
+      if (serverTimeMs == null) return;
+      _viewerClockOffset = _ClockOffset.sample(
+        sentAtMs: sentAtMs,
+        receivedAtMs: receivedAtMs,
+        serverTimeMs: serverTimeMs,
+        previous: _viewerClockOffset,
+      );
+    } on FormatException {
+      // 旧版服务端的 /health 没有 server_time_ms：只用 RTT，行为同此前。
     } catch (_) {
       // Transport latency is only a display fallback; ignore probe failures.
     }
+  }
+
+  /// 估算画面延迟（毫秒）。
+  ///
+  /// 优先用「服务端时钟下的现在」减去帧上的服务端时刻，这样两端墙钟差多少都
+  /// 不影响结果。采集时刻由被控端换算到服务端时钟后上报；万一它来自未升级的
+  /// 旧被控端（仍是本机时钟）而算出不合常理的值，就退回服务端自己盖的
+  /// 中继接收时刻——那只覆盖下行段，宁可少算也不显示一个凭空多出来的数字。
+  int? _estimateFrameLatencyMs({
+    required int nowMs,
+    int? capturedAtMs,
+    int? relayReceivedAtMs,
+    int? fallbackMs,
+  }) {
+    final offset = _viewerClockOffset;
+    if (offset != null) {
+      final serverNowMs = nowMs - offset.offsetMs;
+      final floorMs = (_viewerRttMs ?? offset.rttMs) ~/ 2;
+      for (final stamp in <int?>[capturedAtMs, relayReceivedAtMs]) {
+        if (stamp == null || stamp <= 0) continue;
+        final elapsed = serverNowMs - stamp;
+        if (elapsed < -2000 || elapsed > 60000) continue;
+        return max(elapsed, floorMs).clamp(1, 9999).toInt();
+      }
+    }
+    // 未完成时钟校准时沿用原有的裸相减。
+    return _boundedElapsedMs(nowMs, capturedAtMs) ??
+        _boundedElapsedMs(nowMs, relayReceivedAtMs) ??
+        fallbackMs;
   }
 
   bool _hasRdf1Header(Uint8List packet) {
@@ -1982,7 +2253,7 @@ class RdeskBridgeService {
 
   Uri _normalizeApiBaseUri(String endpoint) {
     if (endpoint.isEmpty) {
-      return Uri.parse('http://${AppConstants.defaultSignalingServer}');
+      return Uri.parse(AppConstants.defaultSignalingServer);
     }
     if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
       return Uri.parse(endpoint);

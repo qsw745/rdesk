@@ -71,6 +71,9 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
     final topPadding = mediaQuery.padding.top;
     final bottomPadding = mediaQuery.padding.bottom;
     final screenWidth = mediaQuery.size.width;
+    // 仅观看时连震动反馈都不给：输入已在 provider 层丢弃，
+    // 再震一下会让人以为点出去了。
+    final viewOnly = context.select<SessionProvider, bool>((p) => p.viewOnly);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: _mobileOverlayStyle,
@@ -78,14 +81,19 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
         backgroundColor: Colors.black,
         body: Stack(
           children: [
-            // Remote canvas — full screen, pinch-to-zoom enabled.
+            // Remote canvas — pinch-to-zoom enabled.
             // No outer onDoubleTap wrapper — it delays single-tap recognition
             // by 300ms. Use the floating toggle button below instead.
+            //
+            // 底栏展开时画布向上内缩相同高度：底栏是半透明浮层，若让画布铺满，
+            // 被盖住的正是安卓被控端底部的导航栏区域，点不到也看不见。
             Positioned.fill(
+              bottom: _showToolbar ? RemoteControlBar.heightFor(context) : 0,
               child: RemoteCanvas(
                 sessionId: widget.sessionId,
                 enableZoom: true,
                 onRemoteTap: (normalizedPosition) async {
+                  if (viewOnly) return;
                   HapticFeedback.lightImpact();
                   await context.read<SessionProvider>().sendNormalizedTap(
                         widget.sessionId,
@@ -93,6 +101,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                       );
                 },
                 onRemoteLongPress: (normalizedPosition) async {
+                  if (viewOnly) return;
                   HapticFeedback.mediumImpact();
                   await context.read<SessionProvider>().sendNormalizedLongPress(
                         widget.sessionId,
@@ -100,6 +109,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                       );
                 },
                 onRemoteDrag: (start, end) async {
+                  if (viewOnly) return;
                   HapticFeedback.selectionClick();
                   await context.read<SessionProvider>().sendNormalizedDrag(
                         widget.sessionId,
@@ -108,6 +118,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                       );
                 },
                 onRemoteDragPath: (points) async {
+                  if (viewOnly) return;
                   HapticFeedback.selectionClick();
                   await context.read<SessionProvider>().sendNormalizedDragPath(
                         widget.sessionId,
@@ -117,12 +128,19 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
               ),
             ),
 
-            // Connection quality indicator (top-left)
+            // Connection quality indicator (top-left) + 当前生效的观看端模式
             Positioned(
               top: topPadding + 12,
               left: 18,
               child: IgnorePointer(
-                child: _ConnectionQualityBadge(sessionId: widget.sessionId),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ConnectionQualityBadge(sessionId: widget.sessionId),
+                    const SizedBox(height: 8),
+                    const _ViewerModeBadges(),
+                  ],
+                ),
               ),
             ),
 
@@ -349,6 +367,71 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
   }
 }
 
+/// 观看端模式指示：仅观看 / 指针模式 / 画面旋转。
+///
+/// 这些开关只改本机行为，不会在远端留下任何痕迹，所以必须在画面上明示，
+/// 否则「点了没反应」会被当成连接故障。
+class _ViewerModeBadges extends StatelessWidget {
+  const _ViewerModeBadges();
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<SessionProvider,
+        ({bool viewOnly, bool pointer, int turns})>(
+      selector: (_, p) => (
+        viewOnly: p.viewOnly,
+        pointer: p.pointerMode,
+        turns: p.rotationQuarterTurns,
+      ),
+      builder: (context, state, _) {
+        final badges = <Widget>[
+          if (state.viewOnly)
+            const _ModePill(icon: Icons.visibility_outlined, label: '仅观看'),
+          if (state.pointer)
+            const _ModePill(icon: Icons.mouse_outlined, label: '指针'),
+          if (state.turns != 0)
+            _ModePill(
+              icon: Icons.screen_rotation_rounded,
+              label: '${state.turns * 90}°',
+            ),
+        ];
+        if (badges.isEmpty) return const SizedBox.shrink();
+        return Wrap(spacing: 6, runSpacing: 6, children: badges);
+      },
+    );
+  }
+}
+
+class _ModePill extends StatelessWidget {
+  const _ModePill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.56),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: Colors.white70),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Connection quality badge — top-left corner.
 /// Uses Selector to only rebuild when latency / online state changes.
 class _ConnectionQualityBadge extends StatelessWidget {
@@ -371,9 +454,9 @@ class _ConnectionQualityBadge extends StatelessWidget {
             ? (state.reconnecting ? Colors.amberAccent : Colors.redAccent)
             : state.latency == null
                 ? Colors.white70
-                : state.latency! < 50
+                : state.latency! < _LatencyGrade.good
                     ? Colors.greenAccent
-                    : state.latency! < 150
+                    : state.latency! < _LatencyGrade.fair
                         ? Colors.amberAccent
                         : Colors.redAccent;
         return Container(
@@ -397,6 +480,20 @@ class _ConnectionQualityBadge extends StatelessWidget {
       },
     );
   }
+}
+
+/// 延迟分档阈值。
+///
+/// 这里的延迟是「画面从被控端采集到显示在本机」的端到端耗时，链路是
+/// 采集 → JPEG 编码 → 手机上行 → 中继服务器 → 本机下行 → 解码，而不是一次
+/// ping 的往返。原来沿用 50ms / 150ms 的 ping 式分档，在这条链路上几乎永远
+/// 是红色，等于没有分档。按实际可用体验重新划线。
+class _LatencyGrade {
+  /// 低于此值：跟手，操作几乎无感知延迟。
+  static const good = 150;
+
+  /// 低于此值：可正常操作，快速滑动能看出拖影。
+  static const fair = 400;
 }
 
 /// Latency badge — bottom-right corner.
@@ -460,14 +557,14 @@ class _LatencyBadge extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                latency < 50
+                latency < _LatencyGrade.good
                     ? Icons.network_wifi_3_bar
-                    : latency < 150
+                    : latency < _LatencyGrade.fair
                         ? Icons.network_wifi_2_bar
                         : Icons.network_wifi_1_bar,
-                color: latency < 50
+                color: latency < _LatencyGrade.good
                     ? Colors.green
-                    : latency < 150
+                    : latency < _LatencyGrade.fair
                         ? Colors.amber
                         : Colors.red,
                 size: 16,
@@ -476,9 +573,9 @@ class _LatencyBadge extends StatelessWidget {
               Text(
                 '延迟 ${latency}ms',
                 style: TextStyle(
-                  color: latency < 50
+                  color: latency < _LatencyGrade.good
                       ? Colors.green
-                      : latency < 150
+                      : latency < _LatencyGrade.fair
                           ? Colors.yellow
                           : Colors.red,
                   fontSize: 12,

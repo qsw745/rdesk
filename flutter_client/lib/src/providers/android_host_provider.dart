@@ -51,6 +51,21 @@ class AndroidHostProvider extends ChangeNotifier {
   /// 此前 [_state] 只在用户操作时刷新，原生把状态置为 ERROR 也无人知晓。
   static const _captureStateRefreshInterval = Duration(seconds: 15);
 
+  // ── 上行自适应档位。取值与原生 ScreenCaptureStore.setCaptureQuality 的三档对应 ──
+  static const _qualityHigh = 0.9; // 1920 长边 / q85 / 15fps
+  static const _qualityMedium = 0.75; // 1440 长边 / q75 / 12fps
+  static const _qualityLow = 0.5; // 960 长边 / q55 / 10fps
+
+  /// 单帧上传平均耗时超过此值即判定上行喂不动，降档。
+  /// 中档目标 12fps（83ms 一帧），留出约 4 倍余量再动手，避免抖动导致来回跳。
+  static const _uploadSlowThresholdMs = 350;
+
+  /// 平均耗时低于此值且用户要求更高画质时，升档。
+  static const _uploadFastThresholdMs = 120;
+
+  /// 两次调档之间的最小间隔，防止在阈值边缘反复横跳。
+  static const _qualityShiftCooldown = Duration(seconds: 8);
+
   AndroidHostState _state = const AndroidHostState(
     state: 'idle',
     hasPermission: false,
@@ -79,6 +94,19 @@ class AndroidHostProvider extends ChangeNotifier {
   int _relayUploadFailureStreak = 0;
   int _relayUploadRetryAfterMs = 0;
   int? _lastFrameAdvancedAtMs;
+
+  int _relayCommandFailureStreak = 0;
+  int _relayCommandRetryAfterMs = 0;
+
+  /// 帧上传耗时的滑动平均，上行拥塞的唯一可观测信号。
+  double? _uploadMsAverage;
+
+  /// 观看端明确要求的画质档位，自适应升档不会越过它。
+  double _requestedQuality = _qualityMedium;
+
+  /// 当前实际生效的画质档位。
+  double _effectiveQuality = _qualityMedium;
+  int? _lastQualityShiftAtMs;
   Timer? _captureStateTimer;
   // LAN session tokens issued via /session/trust (password-authenticated).
   final Set<String> _lanSessionTokens = {};
@@ -840,6 +868,12 @@ class AndroidHostProvider extends ChangeNotifier {
     _relayUploadFailureStreak = 0;
     _relayUploadRetryAfterMs = 0;
     _lastFrameAdvancedAtMs = null;
+    _uploadMsAverage = null;
+    _lastQualityShiftAtMs = null;
+    _relayCommandFailureStreak = 0;
+    _relayCommandRetryAfterMs = 0;
+    // 上行长连与时钟校准都绑在这次托管上，一并释放。
+    _bridge.closeHostClient();
   }
 
   Future<void> _uploadRelayFrame(AndroidHostFrame frame) async {
@@ -891,7 +925,7 @@ class AndroidHostProvider extends ChangeNotifier {
 
     _relayUploadBusy = true;
     try {
-      await _bridge.uploadRelayPreviewFrame(
+      final uploadMs = await _bridge.uploadRelayPreviewFrame(
         deviceId: device.deviceId,
         hostToken: hostToken,
         bytes: frame.bytes,
@@ -899,6 +933,10 @@ class AndroidHostProvider extends ChangeNotifier {
         height: frame.height,
         timestampMs: frame.timestampMs,
       );
+      if (!frameUnchanged) {
+        // 保活重传不参与拥塞判断：它本来就是低频的。
+        _noteUploadDuration(uploadMs);
+      }
       _lastUploadedFrameTimestampMs = frame.timestampMs;
       _lastRelayUploadAtMs = DateTime.now().millisecondsSinceEpoch;
       _relayUploadRetryAfterMs = 0;
@@ -928,6 +966,60 @@ class AndroidHostProvider extends ChangeNotifier {
     }
   }
 
+  /// 记录一次帧上传耗时，并据此自动调整采集档位。
+  ///
+  /// 观看端看到的延迟，主干是「被控端把这一帧推上去花了多久」。手机上行远小于
+  /// 服务器带宽：1440 长边、质量 75 的整屏 JPEG 常有 200~400KB，12fps 就要
+  /// 20~40Mbps 上行，蜂窝网根本喂不动。链路喂不动时帧不会丢，只会排队变旧——
+  /// 画面看着还在动，延迟数字却一路涨到几百上千毫秒。
+  ///
+  /// 这里用上传耗时的滑动平均作为拥塞信号：持续追不上帧间隔就降档，
+  /// 长期富余再升回去，上限不超过观看端明确要求的画质。
+  void _noteUploadDuration(int uploadMs) {
+    final previous = _uploadMsAverage;
+    _uploadMsAverage =
+        previous == null ? uploadMs.toDouble() : previous * 0.7 + uploadMs * 0.3;
+    final average = _uploadMsAverage!;
+
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final lastShiftAtMs = _lastQualityShiftAtMs;
+    if (lastShiftAtMs != null &&
+        nowMs - lastShiftAtMs < _qualityShiftCooldown.inMilliseconds) {
+      return;
+    }
+
+    final current = _effectiveQuality;
+    double? next;
+    if (average > _uploadSlowThresholdMs) {
+      next = _lowerQualityTier(current);
+    } else if (average < _uploadFastThresholdMs && current < _requestedQuality) {
+      next = _raiseQualityTier(current, ceiling: _requestedQuality);
+    }
+    if (next == null || next == current) {
+      return;
+    }
+
+    _effectiveQuality = next;
+    _lastQualityShiftAtMs = nowMs;
+    _uploadMsAverage = null;
+    debugPrint(
+      '[rdesk-host] 上行平均耗时 ${average.round()}ms，采集档位 '
+      '${(current * 100).round()}% → ${(next * 100).round()}%',
+    );
+    unawaited(_service.setCaptureQuality(quality: next, fps: null));
+  }
+
+  double? _lowerQualityTier(double current) {
+    if (current > _qualityMedium) return _qualityMedium;
+    if (current > _qualityLow) return _qualityLow;
+    return null;
+  }
+
+  double? _raiseQualityTier(double current, {required double ceiling}) {
+    final next = current < _qualityMedium ? _qualityMedium : _qualityHigh;
+    return next > ceiling ? ceiling : next;
+  }
+
   Future<bool> _applyCaptureQualityPayload(Map<String, dynamic> payload) async {
     final quality = (payload['quality'] as num?)?.toDouble();
     if (quality == null) {
@@ -939,6 +1031,11 @@ class AndroidHostProvider extends ChangeNotifier {
       fps: fps,
     );
     if (ok) {
+      // 观看端的选择既是起点也是自适应升档的上限：用户挑了低画质就别偷偷升回去。
+      _requestedQuality = quality;
+      _effectiveQuality = quality;
+      _uploadMsAverage = null;
+      _lastQualityShiftAtMs = DateTime.now().millisecondsSinceEpoch;
       _lastRemoteAction = 'quality ${(quality * 100).round()}%';
       notifyListeners();
     }
@@ -954,6 +1051,11 @@ class AndroidHostProvider extends ChangeNotifier {
     if (device == null || hostToken == null || hostToken.isEmpty) {
       return;
     }
+    // 服务器不可达时轮询会立刻失败返回，60ms 的定时器随即再发一次——
+    // 断网期间就是每秒十几次连接尝试。与帧上传一样做线性退避。
+    if (DateTime.now().millisecondsSinceEpoch < _relayCommandRetryAfterMs) {
+      return;
+    }
 
     _relayCommandBusy = true;
     try {
@@ -961,6 +1063,9 @@ class AndroidHostProvider extends ChangeNotifier {
         deviceId: device.deviceId,
         hostToken: hostToken,
       );
+      // 请求本身成功即说明链路恢复，退避清零；队列空（返回 null）也算成功。
+      _relayCommandFailureStreak = 0;
+      _relayCommandRetryAfterMs = 0;
       if (command == null || command.commandId.isEmpty) {
         return;
       }
@@ -1111,6 +1216,10 @@ class AndroidHostProvider extends ChangeNotifier {
       );
     } catch (_) {
       // Ignore transient relay command failures and continue polling.
+      _relayCommandFailureStreak++;
+      final backoffMs = (_relayCommandFailureStreak * 250).clamp(250, 3000);
+      _relayCommandRetryAfterMs =
+          DateTime.now().millisecondsSinceEpoch + backoffMs;
     } finally {
       _relayCommandBusy = false;
     }
