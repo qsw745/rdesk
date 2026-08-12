@@ -76,7 +76,15 @@ class MobileHostControlPanel extends StatelessWidget {
     );
   }
 
+  /// 最近一次远程操作的回显，仅用于开发期排查。
+  ///
+  /// 正式构建不再显示：其中「远程文本」「远程剪贴板」会把对端输入的内容明文
+  /// 渲染在被控端屏幕上，而这块屏幕正在被推流，等同于把远程输入的文字
+  /// （可能包含密码）和剪贴板内容长期留在画面里。
   List<Widget> _debugInfoRows() {
+    if (!kDebugMode) {
+      return const [];
+    }
     final items = <MapEntry<String, String?>>[];
     if (host.lastRemoteTap != null) {
       items.add(MapEntry('远程点击', host.lastRemoteTap));
@@ -256,16 +264,34 @@ class _GuardModeCard extends StatelessWidget {
   }
 }
 
+/// 一条权限清单项。
+///
+/// 此前 6 项是硬写死的 6 个 tile，每项都完整铺开，页面很长；改为数据驱动后
+/// 才能按「必需 / 增强」分组，并把已完成的项折叠起来。
+class _PermissionItem {
+  const _PermissionItem({
+    required this.label,
+    required this.description,
+    required this.done,
+    required this.actionLabel,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String description;
+  final bool done;
+  final String actionLabel;
+  final VoidCallback? onPressed;
+}
+
 class _AndroidPermissionChecklist extends StatelessWidget {
   final AndroidHostProvider host;
 
   const _AndroidPermissionChecklist({required this.host});
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _ChecklistTile(
+  /// 缺失即无法被控——必须展开催促用户处理。
+  List<_PermissionItem> get _required => [
+        _PermissionItem(
           label: '录屏权限',
           description: host.state.hasPermission
               ? '已授予；守护模式可直接恢复前台服务。'
@@ -274,8 +300,7 @@ class _AndroidPermissionChecklist extends StatelessWidget {
           actionLabel: '去授权',
           onPressed: host.busy ? null : host.requestPermission,
         ),
-        const SizedBox(height: 10),
-        _ChecklistTile(
+        _PermissionItem(
           label: '无障碍控制',
           description: host.state.accessibilityEnabled
               ? '已开启；远程点击、返回、拖拽、文本输入可下发到系统界面。'
@@ -284,18 +309,11 @@ class _AndroidPermissionChecklist extends StatelessWidget {
           actionLabel: '去开启',
           onPressed: host.openAccessibilitySettings,
         ),
-        const SizedBox(height: 10),
-        _ChecklistTile(
-          label: '悬浮窗 / Overlay',
-          description: host.state.overlayEnabled
-              ? '已允许；便于后续扩展远控提示与状态浮层。'
-              : '建议开启，避免后续提示被系统拦截。',
-          done: host.state.overlayEnabled,
-          actionLabel: '去设置',
-          onPressed: host.openOverlaySettings,
-        ),
-        const SizedBox(height: 10),
-        _ChecklistTile(
+      ];
+
+  /// 缺失仍可用，只影响后台驻留的稳定性——默认收起。
+  List<_PermissionItem> get _optional => [
+        _PermissionItem(
           label: '通知权限',
           description: host.state.notificationsEnabled
               ? '已允许；前台服务通知更稳定。'
@@ -304,8 +322,7 @@ class _AndroidPermissionChecklist extends StatelessWidget {
           actionLabel: '去设置',
           onPressed: host.openNotificationSettings,
         ),
-        const SizedBox(height: 10),
-        _ChecklistTile(
+        _PermissionItem(
           label: '忽略电池优化',
           description: host.state.batteryOptimizationIgnored
               ? '已加入白名单；后台驻留更稳定。'
@@ -314,17 +331,121 @@ class _AndroidPermissionChecklist extends StatelessWidget {
           actionLabel: '去设置',
           onPressed: host.openBatteryOptimizationSettings,
         ),
-        const SizedBox(height: 10),
-        _ChecklistTile(
+        _PermissionItem(
+          label: '悬浮窗 / Overlay',
+          description: host.state.overlayEnabled
+              ? '已允许；便于后续扩展远控提示与状态浮层。'
+              : '建议开启，避免后续提示被系统拦截。',
+          done: host.state.overlayEnabled,
+          actionLabel: '去设置',
+          onPressed: host.openOverlaySettings,
+        ),
+        // 厂商自启动无法用 API 检测，永远显示为待处理，因此只作为建议项收在这里。
+        _PermissionItem(
           label: '厂商自启动 / 后台保护',
           description: host.autostartGuidance,
           done: false,
           actionLabel: '应用详情',
           onPressed: host.openAppDetailsSettings,
         ),
+      ];
+
+  @override
+  Widget build(BuildContext context) {
+    final required = _required;
+    final optional = _optional;
+    final pendingRequired = required.where((item) => !item.done).toList();
+    final pendingOptional = optional.where((item) => !item.done).length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 必需项：全部完成时收成一行，避免两条「已授予」长期占据版面。
+        if (pendingRequired.isEmpty)
+          const _DoneSummary(text: '录屏与无障碍均已就绪')
+        else
+          ..._withSpacing(pendingRequired),
+        const SizedBox(height: 12),
+        _OptionalSection(items: optional, pendingCount: pendingOptional),
         const SizedBox(height: 12),
         _ReadinessNotice(ready: host.isReadyForRemoteRequests),
       ],
+    );
+  }
+
+  List<Widget> _withSpacing(List<_PermissionItem> items) {
+    final widgets = <Widget>[];
+    for (var i = 0; i < items.length; i++) {
+      if (i > 0) {
+        widgets.add(const SizedBox(height: 10));
+      }
+      widgets.add(_tileOf(items[i]));
+    }
+    return widgets;
+  }
+
+  static Widget _tileOf(_PermissionItem item) => _ChecklistTile(
+        label: item.label,
+        description: item.description,
+        done: item.done,
+        actionLabel: item.actionLabel,
+        onPressed: item.onPressed,
+      );
+}
+
+/// 必需项全部完成后的紧凑摘要。
+class _DoneSummary extends StatelessWidget {
+  const _DoneSummary({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Icon(Icons.check_circle_rounded,
+            size: 18, color: Color(0xFF34C759)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 稳定性增强项，默认折叠。
+class _OptionalSection extends StatelessWidget {
+  const _OptionalSection({required this.items, required this.pendingCount});
+
+  final List<_PermissionItem> items;
+  final int pendingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(top: 4, bottom: 4),
+        title: const Text(
+          '后台驻留优化',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          pendingCount == 0 ? '已全部设置' : '$pendingCount 项建议设置，不影响基本使用',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            _AndroidPermissionChecklist._tileOf(items[i]),
+          ],
+        ],
+      ),
     );
   }
 }

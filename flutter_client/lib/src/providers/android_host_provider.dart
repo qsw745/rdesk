@@ -118,25 +118,37 @@ class AndroidHostProvider extends ChangeNotifier {
         _ => '如果系统有“自启动/后台保护/无限制电量”设置，建议把 RDesk 加入白名单。',
       };
 
+  /// 托管启动后必须成套执行的动作。
+  ///
+  /// 此前 initialize / requestPermission / startHosting 各自抄了一份，
+  /// 而 refresh 只抄了其中两步——漏掉 [_registerPreviewHost] 导致
+  /// 「采集在跑、设备却没在服务端登记」：App 内一切正常，对外完全不可见，
+  /// 且 _relayHostToken 为 null 时 [_uploadRelayFrame] 会静默返回，连帧也不传。
+  /// 收敛为一处，避免再次漏步。
+  Future<void> _beginHostingSession() async {
+    if (!_state.isRunning) {
+      return;
+    }
+    await _service.setKeepScreenOn(enabled: true);
+    _ensurePreviewPolling();
+    await _ensureLanRelay();
+    await _registerPreviewHost();
+    _ensureRelayCommandPolling();
+  }
+
   Future<void> initialize({bool enabled = true}) async {
     if (!enabled) {
       return;
     }
-    _localDevice = await _bridge.getLocalDeviceInfo();
-    final prefs = await SharedPreferences.getInstance();
-    _guardModeEnabled = prefs.getBool(_guardModeEnabledKey) ?? false;
     await _run(() async {
+      _localDevice = await _bridge.getLocalDeviceInfo();
+      final prefs = await SharedPreferences.getInstance();
+      _guardModeEnabled = prefs.getBool(_guardModeEnabledKey) ?? false;
       _state = await _service.getState();
       if (_guardModeEnabled && _state.hasPermission && !_state.isRunning) {
         _state = await _service.startHosting();
       }
-      if (_state.isRunning) {
-        await _service.setKeepScreenOn(enabled: true);
-        _ensurePreviewPolling();
-        await _ensureLanRelay();
-        await _registerPreviewHost();
-        _ensureRelayCommandPolling();
-      }
+      await _beginHostingSession();
     }, clearError: false);
   }
 
@@ -145,11 +157,7 @@ class AndroidHostProvider extends ChangeNotifier {
       _state = await _service.requestPermission();
       if (_guardModeEnabled && _state.hasPermission && !_state.isRunning) {
         _state = await _service.startHosting();
-        await _service.setKeepScreenOn(enabled: true);
-        _ensurePreviewPolling();
-        await _ensureLanRelay();
-        await _registerPreviewHost();
-        _ensureRelayCommandPolling();
+        await _beginHostingSession();
       }
     });
   }
@@ -157,12 +165,7 @@ class AndroidHostProvider extends ChangeNotifier {
   Future<void> startHosting() async {
     await _run(() async {
       _state = await _service.startHosting();
-      // Keep screen on while hosting to prevent sleep
-      await _service.setKeepScreenOn(enabled: true);
-      _ensurePreviewPolling();
-      await _ensureLanRelay();
-      await _registerPreviewHost();
-      _ensureRelayCommandPolling();
+      await _beginHostingSession();
     });
   }
 
@@ -176,6 +179,8 @@ class AndroidHostProvider extends ChangeNotifier {
         _registrationTimer = null;
         _relayCommandTimer?.cancel();
         _relayCommandTimer = null;
+        _captureStateTimer?.cancel();
+        _captureStateTimer = null;
         final oldToken = _relayHostToken;
         _relayHostToken = null;
         _resetRelayUploadState();
@@ -195,10 +200,9 @@ class AndroidHostProvider extends ChangeNotifier {
   Future<void> refresh() async {
     await _run(() async {
       _state = await _service.getState();
-      if (_state.isRunning) {
-        _ensurePreviewPolling();
-        _ensureRelayCommandPolling();
-      }
+      // 走完整启动序列：此前这里只重启了轮询，没有重新注册，
+      // 刷新状态或开启守护模式后设备会从服务端消失。
+      await _beginHostingSession();
     }, clearError: false);
   }
 
