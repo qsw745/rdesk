@@ -21,6 +21,10 @@
 - [x] 加入电池优化白名单（`cmd deviceidle whitelist +com.qsw.rdesk`）
 - [x] `./scripts/check_review_host.sh` 全绿，退出码 0
 - [ ] 从**真机 iPhone** 实测连接一次（这一条还没做，发回复前必须补）
+- [ ] **移除「隐私屏」与「录屏」两个空开关**（见第四节「界面上的空开关」）。
+      两者都会弹出成功提示却什么都不做，正落在 5.6 指控的行为里。
+      第三节备注声明「界面上的每个控件都如其标签所述」，这一条不做，备注即为不实陈述。
+      **已上传的 build 10 仍含这两个开关**，移除后需要重新出 build 11 再提交。
 - [x] 用真实值替换下方所有 `<...>` 占位符
 
 **实测得到的真实值（下方文案已按此填写）：**
@@ -195,19 +199,79 @@ accounts or data. The empty home screen reflects a genuinely new profile.
 
 Unattended access is enabled, so no manual approval is needed on the host side.
 
+Build under review: 2.1.0 (<提交时选中的构建号>)
+
 To connect:
 1. Open the app, tap "远程连接" (Remote Connection) in the bottom tab bar.
 2. Enter the Device ID in "设备代码" (Device Code).
 3. Enter the Password in "验证码" (Access Code).
 4. Keep the mode as "远程控制" (Remote Control) — this is the default.
 5. Tap the blue "密码连接" (Connect with Password) button.
-6. The remote Android screen appears. Tap to tap, long-press to long-press, and
-   pinch with two fingers to zoom. The top toolbar provides Back, Home, and
-   Recents, which operate the host's system UI.
+6. The remote Android screen appears.
 
 If the app reports that no online device was found, the host is temporarily
 offline. Please contact us at 641742030@qq.com and we will restore it
 immediately.
+
+GESTURES ON THE REMOTE SCREEN
+
+  Single tap           sends a tap at that point on the host
+  Long press           sends a long press at that point on the host
+  Drag                 sends the same swipe on the host (scrolling)
+  Two-finger pinch     zooms the local view only; the host is not affected
+
+COMPLETE LIST OF CONTROLS IN THE SESSION SCREEN
+
+We list every control exhaustively. There are no other menus, gestures, or
+entry points in this screen.
+
+A bottom bar with five items:
+
+  返回 (Back)          host system Back
+  主页 (Home)          host system Home
+  任务 (Recents)       host system Recents
+  键盘 (Keyboard)      opens a text box; the text is typed into whichever input
+                       field currently has focus on the host
+  操作 (Actions)       opens the sheet described below
+
+Tapping 操作 opens a sheet containing the remaining controls:
+
+  Toggle row
+    退出远控 (Disconnect)      ends the session and returns to the device list
+    仅观看 (View only)         client-side switch; while it is on the app sends
+                               no input of any kind to the host
+    指针模式 (Pointer mode)    draws a pointer on the local view; dragging moves
+                               the pointer, and three buttons send tap, long
+                               press, or drag at the pointer's position. Added
+                               because a finger cannot hit small targets on a
+                               phone-sized remote screen.
+    旋转画面 (Rotate view)     rotates the local view by 90 degrees per tap, for
+                               viewing a landscape host on a portrait phone. The
+                               host's own screen orientation is not changed.
+    全屏 (Full screen)         hides the iOS status and home indicator locally
+    隐藏工具栏 (Hide bar)      hides the bottom bar; a button appears at the top
+                               right to bring it back
+
+  操作 (Actions) group
+    滚动 上滑 / 下滑           sends a swipe up or down on the host
+    删除 (Delete)              deletes one character in the focused host input
+    回车 (Enter)               sends Enter to the focused host input
+    唤醒屏幕 (Wake screen)     wakes the host's display
+
+  剪贴板 (Clipboard) group
+    发送到远端                 sends this device's clipboard text to the host
+    从远端获取                 fetches the host's clipboard text to this device
+
+  更多 (More) group
+    画质设置 (Quality)         requests a JPEG quality and frame rate
+    显示器 (Displays)          switches monitor when the host has more than one
+    文件传输 (File transfer)   opens the file transfer screen
+    会话聊天 (Chat)            opens the in-session chat screen
+
+仅观看, 指针模式, 旋转画面, 全屏, and 隐藏工具栏 change only what this device
+displays or sends; they do not reach the host. Every other control results in a
+request to the host. Every control does what its label says — the app contains
+no switch that reports success without acting.
 
 GUIDELINE 4.2.7 — REMOTE DESKTOP CLIENT
 
@@ -228,6 +292,8 @@ NO HIDDEN OR REMOTELY ENABLED FUNCTIONALITY
   user, account, region, or date.
 - No dynamic code loading. No custom URL schemes. No background modes.
 - Every screen is reachable from the tab bar on first launch.
+- Every control in the session screen is enumerated above, including the ones
+  that only affect local display.
 
 CONNECTION SECURITY
 
@@ -287,6 +353,30 @@ Apple 的 5.6 措辞是模板，不指明具体功能。以下是我们自己的
 | 动态代码加载 | 无 | 无 `dlopen` / `dlsym` / JS 引擎 |
 | URL scheme / 后台模式 | 无 | `Runner/Info.plist` 未声明 |
 | iOS 原生代码量 | 4 个文件 | `AppDelegate` / `SceneDelegate` / `FrameShared` / `SampleHandler` |
+
+### 界面上的空开关（2026-08-12 发现，发回复前必须处理）
+
+上面那张表查的是「有没有藏起来的功能」，漏了反过来的一种：**界面上有、但什么都
+不做的开关**。会话页「操作」面板里有两个：
+
+| 开关 | 实际行为 | 依据 |
+|---|---|---|
+| 隐私屏 | 发送 `privacy_on` / `privacy_off`，两种被控端都没有对应分支，恒返回 `false` | `RdeskAccessibilityService.performAction` 与 `DesktopHostService.performRemoteAction` 的 switch 里都没有该 case |
+| 录屏 | 只翻转一个 bool。`_recordedFrames` 除声明、getter、`clear()` 外从未被写入 | `session_provider.dart` 全文搜索 `_recordedFrames` |
+
+两者点击后都会弹出「隐私屏已开启」「录屏已开始」的提示——**App 明确告知用户一件
+没有发生的事**。这正是 5.6 措辞里 manipulative and misleading behavior 所指的
+行为，比「隐藏功能」更直接。
+
+处理方式二选一，不能都不做：
+
+1. **移除这两个开关**（推荐）。改动只在 `remote_control_panel.dart` 的开关行与
+   `session_provider.dart` 的两个 toggle 方法，成本很低。
+2. 真正实现它们。隐私屏需要被控端加协议与遮罩窗口，录屏需要观看端落盘编码，
+   工作量都不小，且在审核期间新增功能会带来新的审核面。
+
+> **已上传的 build 10 仍含这两个开关**。走方案 1 需要重新出 build 11，
+> 因为第三节的备注写着「界面上的每个控件都如其标签所述」。
 
 ### 真正的问题：备注与实际环境不符
 
