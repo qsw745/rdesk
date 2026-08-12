@@ -378,6 +378,8 @@ class DesktopHostService {
       case 'recents':
         // Mission Control: Ctrl+Up
         return _macKeyPress(126, 'control'); // keycode 126 = UpArrow
+      case 'wake_screen':
+        return _macWakeScreen();
       default:
         if (action.startsWith('switch_monitor_')) {
           final idx = int.tryParse(action.substring('switch_monitor_'.length));
@@ -558,6 +560,17 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Q
       '-e',
       'tell application "System Events" to keystroke "$escaped"',
     ]);
+    return result.exitCode == 0;
+  }
+
+  /// 唤醒被控端显示器。
+  ///
+  /// 用系统自带的 caffeinate（`-u` 模拟一次用户活动，`-t 1` 只维持 1 秒），
+  /// 而不是走 _macKeyPress：唤醒屏幕不需要真的注入按键，也就不必依赖那条路径
+  /// 里手动安装的 pyobjc。此前 macOS 被控端没有这个分支，观看端点「唤醒屏幕」
+  /// 会静默失败。
+  Future<bool> _macWakeScreen() async {
+    final result = await Process.run('/usr/bin/caffeinate', ['-u', '-t', '1']);
     return result.exitCode == 0;
   }
 
