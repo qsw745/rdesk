@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Store 分发 -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>6N5T3G6H33</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- 仅导出 IPA，上传步骤单独执行以便检查产物 -->
+	<key>destination</key>
+	<string>export</string>
+	<!-- 上传 dSYM 以便崩溃符号化 -->
+	<key>uploadSymbols</key>
+	<true/>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<!-- 版本号由 pubspec.yaml 统一管理，禁止 Xcode 自动递增 -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>
