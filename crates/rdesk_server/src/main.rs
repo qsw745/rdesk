@@ -28,6 +28,10 @@ const PREVIEW_TTL_MS: u64 = 30_000;
 const ACCOUNT_PRESENCE_TTL_MS: u64 = 75_000;
 const VIEWER_SESSION_TTL_MS: u64 = 30 * 60 * 1_000;
 const COMMAND_TTL_MS: u64 = 15_000;
+/// 被控端命令长轮询的挂起上限。必须明显小于 nginx 的 proxy_read_timeout（默认 60s）。
+const HOST_COMMAND_LONG_POLL: Duration = Duration::from_secs(5);
+/// 长轮询期间检查队列的间隔。
+const HOST_COMMAND_POLL_TICK: Duration = Duration::from_millis(15);
 const AUTH_SESSION_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
 const MIN_PASSWORD_LEN: usize = 6;
 
@@ -248,6 +252,12 @@ struct UpsertAccountPresenceRequest {
     hostname: String,
 }
 
+/// 注销账号请求。要求重新提供密码，避免令牌泄露导致账号被误删。
+#[derive(Debug, Deserialize)]
+struct DeleteAccountRequest {
+    password: String,
+}
+
 #[derive(Debug, Serialize)]
 struct ErrorResponse {
     message: String,
@@ -277,6 +287,12 @@ struct HealthResponse {
     ok: bool,
     preview_count: usize,
     viewer_count: usize,
+    /// 服务端墙钟时间。客户端用它做 NTP 式时钟偏移估算。
+    ///
+    /// 观看端显示的延迟本质上是「本机现在」减「对端采集时刻」，两端时钟只要
+    /// 差几百毫秒，显示值就会凭空多出几百毫秒。统一以服务端时钟为基准换算，
+    /// 才能让这个数字反映真实链路耗时。
+    server_time_ms: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -392,6 +408,7 @@ async fn main() -> Result<()> {
         .route("/api/account/login", post(login_account))
         .route("/api/account/presence", post(upsert_account_presence))
         .route("/api/account/devices", get(list_account_devices))
+        .route("/api/account/delete", post(delete_account))
         .route(
             "/api/preview/host/control/result",
             post(complete_host_command),
@@ -439,6 +456,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         ok: true,
         preview_count: state.previews.len(),
         viewer_count: state.viewer_sessions.len(),
+        server_time_ms: now_ms(),
     })
 }
 
@@ -592,6 +610,79 @@ async fn login_account(
     let session = create_account_session(&state, &user);
     let _ = persist_auth_sessions(&state).await;
     Json(session).into_response()
+}
+
+/// 注销（永久删除）账号。
+///
+/// App Store 审核指南 5.1.1(v) 要求支持账号注册的 App 必须提供
+/// 应用内直接删除账号的能力，仅提供邮件联系方式不满足要求。
+///
+/// 删除会一并清理：用户记录、用户名索引、该用户的全部登录会话、
+/// 该用户名下所有设备的在线状态。本机上的连接历史等本地数据由客户端自行清除。
+async fn delete_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<DeleteAccountRequest>,
+) -> Response {
+    let Some(user) = authenticated_user(&state, &headers) else {
+        return error_response(StatusCode::UNAUTHORIZED, "登录状态已失效");
+    };
+
+    // 二次校验密码：令牌可能泄露，删除是不可逆操作。
+    let verified = verify_password(request.password.trim(), &user.password_hash).unwrap_or(false);
+    if !verified {
+        return error_response(StatusCode::UNAUTHORIZED, "密码错误，账号未删除");
+    }
+
+    let user_id = user.user_id.clone();
+
+    // 先备份，失败时可回滚内存态。
+    let removed_user = state.users.remove(&user_id).map(|(_, value)| value);
+    state.username_index.remove(&user.username);
+
+    let removed_sessions: Vec<(String, AuthSession)> = state
+        .auth_sessions
+        .iter()
+        .filter(|entry| entry.value().user_id == user_id)
+        .map(|entry| (entry.key().clone(), entry.value().clone()))
+        .collect();
+    for (token, _) in &removed_sessions {
+        state.auth_sessions.remove(token);
+    }
+
+    let removed_devices: Vec<String> = state
+        .account_presence
+        .iter()
+        .filter(|entry| entry.value().user_id == user_id)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for device_id in &removed_devices {
+        state.account_presence.remove(device_id);
+    }
+
+    if let Err(err) = persist_users(&state).await {
+        // 回滚，避免内存与磁盘不一致导致账号「半删除」。
+        if let Some(value) = removed_user {
+            state.username_index.insert(user.username.clone(), user_id.clone());
+            state.users.insert(user_id.clone(), value);
+        }
+        for (token, session) in removed_sessions {
+            state.auth_sessions.insert(token, session);
+        }
+        warn!(error = %err, user_id = %user_id, "failed to persist account deletion");
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "删除账号失败，请重试");
+    }
+
+    let _ = persist_auth_sessions(&state).await;
+
+    info!(
+        user_id = %user_id,
+        sessions = removed_sessions.len(),
+        devices = removed_devices.len(),
+        "account deleted"
+    );
+
+    (StatusCode::OK, Json(json!({"ok": true}))).into_response()
 }
 
 async fn list_account_devices(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -933,10 +1024,10 @@ async fn upload_frame(
     State(state): State<AppState>,
     Query(query): Query<FrameUploadQuery>,
     body: Bytes,
-) -> StatusCode {
+) -> Response {
     if !validate_host(&state, &query.device_id, &query.host_token) {
         warn!(device_id = %query.device_id, "frame upload rejected: invalid host token");
-        return StatusCode::UNAUTHORIZED;
+        return StatusCode::UNAUTHORIZED.into_response();
     }
 
     let received_at_ms = now_ms();
@@ -976,7 +1067,13 @@ async fn upload_frame(
             updated_at_ms: received_at_ms,
         },
     );
-    StatusCode::OK
+    // 回带服务端时间，被控端据此把采集时刻换算到服务端时钟再上报，
+    // 观看端才能算出不含时钟差的真实延迟。
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "server_time_ms": now_ms() })),
+    )
+        .into_response()
 }
 
 async fn fetch_frame(
@@ -1187,14 +1284,30 @@ async fn poll_host_command(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    expire_stale_device_commands(&state, &query.device_id);
-    let Some(mut queue) = state.command_queues.get_mut(&query.device_id) else {
-        return StatusCode::NO_CONTENT.into_response();
-    };
-    let Some(command) = queue.pop_front() else {
-        return StatusCode::NO_CONTENT.into_response();
-    };
-    (StatusCode::OK, Json(command)).into_response()
+    // 长轮询：命令队列为空时挂住请求，直到有命令或超时。
+    //
+    // 此前这里立刻返回 204，被控端只能用 60ms 定时器不停重问——每秒十几个
+    // HTTPS 请求，握手开销和帧上传抢同一条上行链路，输入指令还要等下一次
+    // 轮询才被取走。挂住请求后被控端稳定保持一个在途请求，命令一入队即被取走。
+    let deadline = tokio::time::Instant::now() + HOST_COMMAND_LONG_POLL;
+    loop {
+        expire_stale_device_commands(&state, &query.device_id);
+        // 取命令的作用域必须结束后才能 await，否则 DashMap 的分片锁会跨越
+        // 挂起点，把同一分片上的其他设备一并阻塞。
+        let command = {
+            state
+                .command_queues
+                .get_mut(&query.device_id)
+                .and_then(|mut queue| queue.pop_front())
+        };
+        if let Some(command) = command {
+            return (StatusCode::OK, Json(command)).into_response();
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return StatusCode::NO_CONTENT.into_response();
+        }
+        tokio::time::sleep(HOST_COMMAND_POLL_TICK).await;
+    }
 }
 
 async fn complete_host_command(
