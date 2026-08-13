@@ -19,10 +19,12 @@
 - [x] 授权录屏（`ScreenCaptureService` 前台运行，`types=0x00000020`）与无障碍
       （`accessibility_enabled=1`）
 - [x] 加入电池优化白名单（`cmd deviceidle whitelist +com.qsw.rdesk`）
-- [ ] `./scripts/check_review_host.sh` 全绿，退出码 0
-      —— 2026-08-13 重装 APK（versionCode 11）并重新授权录屏后**尚未重跑**，
-      之前那次结论已过期。发回复前必须再跑一次：
-      `RDESK_REVIEW_DEVICE_ID=660725198 RDESK_REVIEW_PASSWORD='<密码>' ./scripts/check_review_host.sh`
+- [x] `./scripts/check_review_host.sh` 全绿，退出码 0
+      —— 2026-08-13 重装 APK（versionCode 11）、重新授权录屏、开启「保持屏幕常亮」后重跑通过。
+      四段全绿，且服务端返回的身份与本文档声明逐字一致：
+      `hostname=PLU110`、`platform=android`、画面 `661x1440`。
+      注：多台设备在线时必须指定序列号，否则 adb 检查会给出假警报（见 `9edf981`）：
+      `RDESK_REVIEW_DEVICE_ID=660725198 RDESK_REVIEW_PASSWORD='<密码>' RDESK_REVIEW_SERIAL=<序列号> ./scripts/check_review_host.sh`
 - [x] 从**真机 iPhone** 实测连接一次 —— 2026-08-13 用 iPhone 17 Pro Max 装
       build 11 连 `660725198` 实测通过：画面、返回/主页/任务、长按、仅观看、
       指针模式、画面旋转均由操作者在屏幕上确认可用；被控端日志侧确认整段会话
