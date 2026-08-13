@@ -30,6 +30,9 @@ class ScreenCaptureService : Service() {
     private var captureThread: HandlerThread? = null
     private var captureHandler: Handler? = null
     private var cpuWakeLock: PowerManager.WakeLock? = null
+
+    /// 当前持有的唤醒锁是否是亮屏级别，用于判断开关变化后需不需要换锁。
+    private var wakeLockHoldsScreen = false
     private var lastEncodedFrameAtMs = 0L
 
     /// 投屏存活看门狗。
@@ -49,8 +52,42 @@ class ScreenCaptureService : Service() {
                 onProjectionLost()
                 return
             }
+            // 心跳：证明持有投屏的实例还活着，供 startCapture 判断标记是否新鲜。
+            ScreenCaptureStore.projectionHeartbeatMs = SystemClock.elapsedRealtime()
+            // 顺带跟随「保持屏幕常亮」开关的变化：用户在运行期间切换开关时，
+            // 靠这一跳应用，省掉往服务里传实例引用的那套管线。
+            applyWakeLock()
             watchdogHandler.postDelayed(this, WATCHDOG_INTERVAL_MS)
         }
+    }
+
+    /// 按「保持屏幕常亮」开关选择唤醒锁级别。
+    ///
+    /// 关：PARTIAL —— 只保 CPU，屏幕可以熄，采集与命令轮询照常。
+    /// 开：SCREEN_BRIGHT —— 屏幕不灭，锁屏不出现，避开会终止投屏的
+    ///     STOP_REASON_KEYGUARD 策略。
+    /// 已废弃的 SCREEN_BRIGHT_WAKE_LOCK 仍是唯一能在后台服务里保持亮屏的手段，
+    /// FLAG_KEEP_SCREEN_ON 需要前台 Activity，托管时 App 通常在后台。
+    @Suppress("DEPRECATION")
+    private fun applyWakeLock() {
+        val wantScreenOn = ScreenCaptureStore.keepScreenAwake
+        if (cpuWakeLock != null && wantScreenOn == wakeLockHoldsScreen) {
+            return
+        }
+
+        cpuWakeLock?.let { if (it.isHeld) it.release() }
+
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val level = if (wantScreenOn) {
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK
+        } else {
+            PowerManager.PARTIAL_WAKE_LOCK
+        }
+        cpuWakeLock = pm.newWakeLock(
+            level,
+            if (wantScreenOn) "rdesk:capture-screen" else "rdesk:capture-cpu",
+        ).apply { acquire() }
+        wakeLockHoldsScreen = wantScreenOn
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -87,20 +124,28 @@ class ScreenCaptureService : Service() {
             return
         }
 
-        if (mediaProjection != null) {
+        // 已有活动投屏就不要再取第二个：同一个 resultData 再取一次会让系统作废
+        // 前一个，刚建好的采集当场失效。判断用进程级标记，因为服务实例重建后
+        // mediaProjection 字段会归零，只看它会漏判。
+        val heartbeatAgeMs =
+            SystemClock.elapsedRealtime() - ScreenCaptureStore.projectionHeartbeatMs
+        val otherInstanceAlive = ScreenCaptureStore.projectionActive &&
+            heartbeatAgeMs < PROJECTION_HEARTBEAT_STALE_MS
+        if (mediaProjection != null || otherInstanceAlive) {
             ScreenCaptureStore.state = ScreenCaptureState.RUNNING
             return
         }
 
-        // Acquire a partial wake lock to keep CPU alive even when screen is off.
-        // This ensures frame capture and command polling continue working.
-        if (cpuWakeLock == null) {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            cpuWakeLock = pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "rdesk:capture-cpu"
-            ).apply { acquire() }
+        // 标记还在但心跳早停：持有投屏的实例已经不在了，而授权 token 已被它用掉，
+        // 无法静默重建。如实要求重新授权，别谎报可用。
+        if (ScreenCaptureStore.projectionActive) {
+            ScreenCaptureStore.projectionActive = false
+            ScreenCaptureStore.invalidatePermission()
+            ScreenCaptureStore.state = ScreenCaptureState.ERROR
+            return
         }
+
+        applyWakeLock()
 
         val projectionManager =
             getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -202,6 +247,8 @@ class ScreenCaptureService : Service() {
                 captureHandler,
             )
 
+        ScreenCaptureStore.projectionActive = virtualDisplay != null
+        ScreenCaptureStore.projectionHeartbeatMs = SystemClock.elapsedRealtime()
         ScreenCaptureStore.state = ScreenCaptureState.RUNNING
         watchdogHandler.removeCallbacks(watchdogRunnable)
         watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
@@ -213,18 +260,27 @@ class ScreenCaptureService : Service() {
         mediaProjection != null && virtualDisplay?.display?.isValid == true
 
     /// 投屏丢失：必须清掉缓存帧，否则上层会把这张死图当作有效画面持续推送。
+    ///
+    /// 系统终止投屏（锁屏 STOP_REASON_KEYGUARD、后台回收）时授权 token 同时作废，
+    /// 因此这里要一并 invalidatePermission()：
+    ///   1. 留着死 token，下一次启动采集会抛 SecurityException 使服务启动失败，
+    ///      表现为 App 崩溃重启；
+    ///   2. hasPermission() 若仍为 true，stopCapture() 末尾会把状态改写成 READY，
+    ///      把「投屏已死」伪装成「随时可用」，上层于是继续按在线对待。
     private fun onProjectionLost() {
         ScreenCaptureStore.latestFrame = null
         ScreenCaptureStore.latestFrameWidth = 0
         ScreenCaptureStore.latestFrameHeight = 0
-        ScreenCaptureStore.state = ScreenCaptureState.ERROR
+        ScreenCaptureStore.invalidatePermission()
         stopCapture()
+        ScreenCaptureStore.state = ScreenCaptureState.ERROR
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     private fun stopCapture() {
         watchdogHandler.removeCallbacks(watchdogRunnable)
+        ScreenCaptureStore.projectionActive = false
 
         // 清空缓存帧，避免服务停止后仍有旧画面被继续上传。
         ScreenCaptureStore.latestFrame = null
@@ -251,6 +307,7 @@ class ScreenCaptureService : Service() {
             if (it.isHeld) it.release()
         }
         cpuWakeLock = null
+        wakeLockHoldsScreen = false
 
         if (ScreenCaptureStore.state == ScreenCaptureState.RUNNING ||
             ScreenCaptureStore.state == ScreenCaptureState.ERROR
@@ -296,6 +353,9 @@ class ScreenCaptureService : Service() {
         const val ACTION_START = "com.qsw.rdesk.action.START_CAPTURE"
         const val ACTION_STOP = "com.qsw.rdesk.action.STOP_CAPTURE"
         private const val WATCHDOG_INTERVAL_MS = 5_000L
+
+        /// 心跳超过此时长即认为持有投屏的实例已不在。取看门狗间隔的三倍余量。
+        private const val PROJECTION_HEARTBEAT_STALE_MS = 15_000L
         private const val CHANNEL_ID = "rdesk_screen_capture"
         private const val NOTIFICATION_ID = 2201
     }

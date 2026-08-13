@@ -53,6 +53,7 @@ class MainActivity : FlutterActivity() {
                 "openAppDetailsSettings" -> openAppDetailsSettings(result)
                 "wakeScreen" -> wakeScreen(result)
                 "setKeepScreenOn" -> setKeepScreenOn(call, result)
+                "setHostKeepScreenAwake" -> setHostKeepScreenAwake(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -265,6 +266,16 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /// 托管期间是否保持屏幕常亮（服务级，App 退到后台仍然有效）。
+    ///
+    /// 与 [setKeepScreenOn] 的区别：后者加的是 Activity 窗口标志
+    /// FLAG_KEEP_SCREEN_ON，只在 RDesk 处于前台时生效，用户一退出应用屏幕就会灭，
+    /// 随后锁屏出现、投屏被系统终止。这里改由前台服务持有亮屏唤醒锁，覆盖后台。
+    private fun setHostKeepScreenAwake(call: MethodCall, result: MethodChannel.Result) {
+        ScreenCaptureStore.keepScreenAwake = call.argument<Boolean>("enabled") ?: false
+        result.success(ScreenCaptureStore.keepScreenAwake)
+    }
+
     private fun setKeepScreenOn(call: MethodCall, result: MethodChannel.Result) {
         val enabled = call.argument<Boolean>("enabled") ?: true
         runOnUiThread {
@@ -290,6 +301,7 @@ class MainActivity : FlutterActivity() {
         if (resultCode == Activity.RESULT_OK && data != null) {
             ScreenCaptureStore.permissionResultCode = resultCode
             ScreenCaptureStore.permissionData = Intent(data)
+            ScreenCaptureStore.needsReauthorization = false
             ScreenCaptureStore.state = ScreenCaptureState.READY
             channelResult?.success(ScreenCaptureStore.toMap("录屏权限已授予"))
         } else {
@@ -336,7 +348,51 @@ object ScreenCaptureStore {
     @Volatile var minFrameIntervalMs: Long = 83L
     @Volatile var jpegQuality: Int = 75
 
+    /// 投屏被系统终止后置位，表示必须由用户重新走一次系统授权弹窗。
+    ///
+    /// 系统（锁屏 STOP_REASON_KEYGUARD、后台回收等）终止投屏时会把授权 token
+    /// 一并作废。此时若还留着旧的 resultData，任何再次启动采集的尝试都会抛
+    /// SecurityException（"Don't re-use the resultData..."）并导致服务启动失败，
+    /// 表现为 App 崩溃重启。所以丢失时必须清 token，并用这个标记告诉上层
+    /// 「不是还没授权，是授权被系统收回了」。
+    @Volatile var needsReauthorization: Boolean = false
+
+    /// 托管期间是否保持屏幕常亮。
+    ///
+    /// 部分 ROM（实测 ColorOS / Android 16）在锁屏出现时会直接终止 MediaProjection
+    /// （日志理由 STOP_REASON_KEYGUARD），而 Android 不允许静默重新授权，被终止后
+    /// 只能由用户再确认一次系统弹窗——无人值守的被控端就此失联。屏幕不灭则锁屏
+    /// 不出现，从根上避开该策略。
+    /// 代价是屏幕常亮（耗电、烧屏风险），因此做成开关而非默认行为。
+    @Volatile var keepScreenAwake: Boolean = false
+
+    /// 是否已有活动投屏，进程级。
+    ///
+    /// 一个应用同时只能有一个 MediaProjection：用同一个 resultData 再取一次，
+    /// 系统会立刻作废前一个并释放它的 VirtualDisplay，我们的 onStop 回调随之
+    /// 触发，表现为「刚授权好、一刷新就说投屏被回收」。旧版更惨——直接抛
+    /// SecurityException 让服务启动失败，即 8-11 / 8-12 两次崩溃。
+    ///
+    /// 判断不能只看 ScreenCaptureService 的实例字段：服务实例被销毁重建后字段
+    /// 归零，守护模式那条「!isRunning 就 startHosting」的路径于是又取一次。
+    @Volatile var projectionActive: Boolean = false
+
+    /// 持有投屏的那个服务实例的心跳（SystemClock.elapsedRealtime）。
+    ///
+    /// [projectionActive] 只说明「某个实例建过投屏」。若那个实例已被系统回收且
+    /// 没走到 onDestroy，标记会残留为 true，此后任何启动请求都会被误判成
+    /// 「已在采集」，于是谎报 RUNNING、却永远不产生新帧。用心跳给标记加时效：
+    /// 心跳过期即认定上一个实例已不在。
+    @Volatile var projectionHeartbeatMs: Long = 0L
+
     fun hasPermission(): Boolean = permissionResultCode != null && permissionData != null
+
+    /// 作废已被系统消费的授权，杜绝拿死 token 重试。
+    fun invalidatePermission() {
+        permissionResultCode = null
+        permissionData = null
+        needsReauthorization = true
+    }
 
     fun setCaptureQuality(quality: Double, fps: Int?) {
         val clampedQuality = quality.coerceIn(0.1, 1.0)
@@ -368,6 +424,7 @@ object ScreenCaptureStore {
         return mapOf(
             "state" to state.name.lowercase(),
             "hasPermission" to hasPermission(),
+            "needsReauthorization" to needsReauthorization,
             "isRunning" to (state == ScreenCaptureState.RUNNING),
             "accessibilityEnabled" to (
                 RdeskAccessibilityService.instance != null ||
