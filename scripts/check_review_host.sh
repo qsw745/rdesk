@@ -20,6 +20,12 @@ ADB_BIN="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
 # "more than one device/emulator"，脚本随即把在跑的服务误判成「未运行」。
 # 这类假警报比漏报更危险：审核期间会让人去「修」根本没坏的东西。
 SERIAL="${RDESK_REVIEW_SERIAL:-${ANDROID_SERIAL:-}}"
+# 提示语里用的完整 adb 命令。不用 ${VAR:+...} 拼接：macOS 自带 bash 3.2 在
+# UTF-8 locale 下会把紧跟 :+ 的多字节字符首字节并进变量名，报 "unbound variable"。
+# 注意：本脚本会在 macOS 自带的 bash 3.2 上运行。UTF-8 locale 下
+# "$VAR中文" 会把中文首字节并进变量名，报 "unbound variable"。
+# 变量后紧跟中文时必须写成 "${VAR}中文"。
+ADB_HINT_CMD=""
 adb_sh() {
   if [[ -n "$SERIAL" ]]; then
     "$ADB_BIN" -s "$SERIAL" "$@"
@@ -93,14 +99,20 @@ if [[ -z "$SERIAL" && "$ONLINE_COUNT" -gt 1 ]]; then
   echo "结论：无法判定，请指定序列号后重跑。"
   exit 1
 fi
-pass "adb 设备在线${SERIAL:+（$SERIAL）}"
+if [[ -n "$SERIAL" ]]; then
+  ADB_HINT_CMD="$ADB_BIN -s $SERIAL"
+  pass "adb 设备在线（${SERIAL}）"
+else
+  ADB_HINT_CMD="$ADB_BIN"
+  pass "adb 设备在线"
+fi
 
 # ---- 2. App 与授权状态 ----
 if adb_sh shell ps -A 2>/dev/null | grep -q "$PACKAGE"; then
   pass "RDesk 进程运行中"
 else
   fail "RDesk 未运行"
-  hint "adb${SERIAL:+ -s $SERIAL} shell monkey -p $PACKAGE -c android.intent.category.LAUNCHER 1"
+  hint "$ADB_HINT_CMD shell monkey -p $PACKAGE -c android.intent.category.LAUNCHER 1"
 fi
 
 # types 位掩码 0x20 = FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION，
@@ -264,7 +276,7 @@ for path in /rdesk/privacy /rdesk/support; do
   if [[ "$CODE" == "200" ]]; then
     pass "$SERVER$path"
   else
-    fail "$SERVER$path 返回 $CODE（ASC 中填写的链接必须可访问）"
+    fail "${SERVER}${path} 返回 ${CODE}（ASC 中填写的链接必须可访问）"
   fi
 done
 
