@@ -409,7 +409,8 @@ class RdeskBridgeService {
       ),
       ...records,
     ];
-    await _saveConnectionHistory(updated.take(12).toList());
+    // 不在这里截断：去重后再截断，否则同一台设备的重复记录会挤掉别的设备。
+    await _saveConnectionHistory(updated);
     return sessionId;
   }
 
@@ -492,7 +493,8 @@ class RdeskBridgeService {
       ),
       ...records,
     ];
-    await _saveConnectionHistory(updated.take(12).toList());
+    // 不在这里截断：去重后再截断，否则同一台设备的重复记录会挤掉别的设备。
+    await _saveConnectionHistory(updated);
 
     return sessionId;
   }
@@ -722,7 +724,7 @@ class RdeskBridgeService {
     if (raw == null || raw.isEmpty) return [];
     final data =
         (jsonDecode(raw) as List<dynamic>).cast<Map<String, dynamic>>();
-    return data
+    final records = data
         .map(
           (item) => ConnectionRecord(
             peerId: item['peerId'] as String,
@@ -738,6 +740,8 @@ class RdeskBridgeService {
           ),
         )
         .toList();
+    // 读取时也去重：老版本已经写进本地的重复记录不必等到下次连接才收敛。
+    return _dedupeConnectionHistory(records);
   }
 
   Future<void> recordConnectionFailure({
@@ -757,7 +761,8 @@ class RdeskBridgeService {
       ),
       ...records,
     ];
-    await _saveConnectionHistory(updated.take(12).toList());
+    // 不在这里截断：去重后再截断，否则同一台设备的重复记录会挤掉别的设备。
+    await _saveConnectionHistory(updated);
   }
 
   Future<BridgeSettingsData> loadSettings() async {
@@ -1519,8 +1524,7 @@ class RdeskBridgeService {
         },
       ),
     );
-    final response =
-        await request.close().timeout(const Duration(seconds: 12));
+    final response = await request.close().timeout(const Duration(seconds: 12));
     if (response.statusCode == HttpStatus.noContent) {
       await response.drain<void>();
       return null;
@@ -1798,9 +1802,30 @@ class RdeskBridgeService {
     return target.replace(path: path);
   }
 
+  /// 一台设备只保留最新一条记录。
+  ///
+  /// 此前每次连接都追加一条，反复连同一台设备会攒出十几条 peerId 相同的记录：
+  /// 连接页的设备代码下拉里于是出现一串完全一样的代码，而且 12 条上限被同一台
+  /// 设备占满后，别的设备再也不会出现在建议里。
+  /// 去重必须在截断之前做，否则截断掉的正是那些不同的设备。
+  static const _connectionHistoryLimit = 12;
+
+  List<ConnectionRecord> _dedupeConnectionHistory(
+    List<ConnectionRecord> records,
+  ) {
+    final seen = <String>{};
+    final unique = <ConnectionRecord>[];
+    for (final record in records) {
+      if (seen.add(record.peerId)) {
+        unique.add(record);
+      }
+    }
+    return unique.take(_connectionHistoryLimit).toList();
+  }
+
   Future<void> _saveConnectionHistory(List<ConnectionRecord> records) async {
     final prefs = await _prefs;
-    final payload = records
+    final payload = _dedupeConnectionHistory(records)
         .map(
           (record) => <String, dynamic>{
             'peerId': record.peerId,
