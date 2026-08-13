@@ -275,7 +275,10 @@ Info.plist doesn't match the key value of the app's export compliance documentat
 RDesk 是一款安全、高效的跨平台远程桌面控制工具，让你随时随地访问自己的电脑。
 
 【核心功能】
-· 远程控制 —— 实时查看并操控远程设备屏幕，支持鼠标、键盘与多点触控手势
+· 远程控制 —— 实时查看远程设备屏幕，用点按、长按、拖动直接操作对端
+· 指针模式 —— 屏幕上叠加一个可拖动的指针，在手机上也能点准小控件
+· 观看辅助 —— 双指捏合放大本机画面、按 90° 旋转显示方向、可切换为仅观看不发送任何操作
+· 文本输入 —— 把文字写入对端当前聚焦的输入框；macOS 被控端另支持真实按键
 · 多显示器 —— 自由切换远程设备的多个屏幕
 · 画质调节 —— 可按需调整画面清晰度，在流畅与清晰之间取舍
 · 文件传输 —— 在本机与远程设备之间双向传输文件
@@ -320,6 +323,11 @@ iOS、macOS、Android 之间互联；iOS 作为被控端仅共享画面，不接
 | 生物识别 | ✅ 有 | `local_auth` |
 | P2P NAT 穿透 | ❌ 无 | 无 STUN/ICE/打洞实现 |
 | 局域网直连 | ✅ 有 | `remote_assist_screen.dart` 直连地址 |
+| 指针模式 | ✅ 有 | `remote_pointer_layer.dart`，观看端本地指针，点击/长按/拖拽落在指针处 |
+| 仅观看 | ✅ 有 | `SessionProvider._blockedInput()` 拦在 provider 层，所有输入方法一律丢弃 |
+| 画面旋转 | ✅ 有 | `CanvasRotation`，按 90° 一档，落点按档位反算 |
+| 双指捏合缩放 | ⚠️ 仅本机 | `InteractiveViewer`，只放大观看端显示，不改变被控端 |
+| 多点触控透传 | ❌ 无 | 仅单指 tap / long press / drag，`TouchEvent` 未接入实时链路 |
 | Windows 被控端 | ❌ 无 | `create_input_simulator()` 返回 `NoopInputSimulator`（注释自称「平台后端尚未实现」）；`desktop_host_service.dart` 全是 `if (Platform.isMacOS)`，无 Windows 分支 |
 | 真实按键（方向键/修饰键/快捷键） | ⚠️ 仅 macOS 被控端 | macOS 走 `_macKeyPress` 发 CGEvent；安卓被控端靠无障碍服务，拿不到 `INJECT_EVENTS`，只能整段写入文本 |
 | Linux 支持 | ⚠️ 未验证 | 存在 `linux/` 目录可构建，但未实测运行 |
