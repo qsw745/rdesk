@@ -8,11 +8,25 @@ set -uo pipefail
 #
 # 背景与上架材料见 docs/app-store-submission.md
 
-DEVICE_ID="${RDESK_REVIEW_DEVICE_ID:-927251902}"
-PASSWORD="${RDESK_REVIEW_PASSWORD:-Review2026}"
+# 旧默认值 927251902 / Review2026 属于 2026-08-07 作废的模拟器演示环境，
+# 留着会让人误以为脚本查的是当前演示机。现改为必须显式传入。
+DEVICE_ID="${RDESK_REVIEW_DEVICE_ID:-}"
+PASSWORD="${RDESK_REVIEW_PASSWORD:-}"
 SERVER="${RDESK_REVIEW_SERVER:-https://qisw.top}"
 PACKAGE="com.qsw.rdesk"
-ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+ADB_BIN="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+
+# 目标设备序列号。多台设备在线时若不指定，adb 会对每条 shell 命令报
+# "more than one device/emulator"，脚本随即把在跑的服务误判成「未运行」。
+# 这类假警报比漏报更危险：审核期间会让人去「修」根本没坏的东西。
+SERIAL="${RDESK_REVIEW_SERIAL:-${ANDROID_SERIAL:-}}"
+adb_sh() {
+  if [[ -n "$SERIAL" ]]; then
+    "$ADB_BIN" -s "$SERIAL" "$@"
+  else
+    "$ADB_BIN" "$@"
+  fi
+}
 
 usage() {
   cat <<'EOF'
@@ -22,9 +36,11 @@ Usage:
 检查 App Store 审核用的演示被控端是否可被审核员连接。
 
 环境变量（均有默认值）：
-  RDESK_REVIEW_DEVICE_ID   设备 ID，默认 927251902
-  RDESK_REVIEW_PASSWORD    连接密码，默认 Review2026
+  RDESK_REVIEW_DEVICE_ID   设备 ID（必填）
+  RDESK_REVIEW_PASSWORD    连接密码（必填，勿写入文件）
   RDESK_REVIEW_SERVER      服务器地址，默认 https://qisw.top
+  RDESK_REVIEW_SERIAL      被控端 adb 序列号；多台设备在线时必填
+                           （也认 ANDROID_SERIAL）
 
 退出码：0 = 审核员可正常连接；1 = 存在阻塞问题，需按输出提示修复。
 EOF
@@ -33,6 +49,13 @@ EOF
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
+fi
+
+if [[ -z "$DEVICE_ID" || -z "$PASSWORD" ]]; then
+  echo "错误：必须提供设备 ID 与密码。" >&2
+  echo "  RDESK_REVIEW_DEVICE_ID=<设备ID> RDESK_REVIEW_PASSWORD='<密码>' $0" >&2
+  echo "（密码只经环境变量传入，切勿写进文件——本仓库是公开的）" >&2
+  exit 1
 fi
 
 FAILED=0
@@ -47,27 +70,37 @@ echo
 
 # ---- 1. 模拟器 / 实体设备是否连上 adb ----
 echo "[1/4] Android 被控端"
-if [[ ! -x "$ADB" ]]; then
-  fail "找不到 adb：$ADB"
+if [[ ! -x "$ADB_BIN" ]]; then
+  fail "找不到 adb：$ADB_BIN"
   hint "设置 ANDROID_HOME 指向 Android SDK 目录"
   exit 1
 fi
 
-if ! "$ADB" devices 2>/dev/null | awk 'NR>1 && $2=="device"{found=1} END{exit !found}'; then
+if ! "$ADB_BIN" devices 2>/dev/null | awk 'NR>1 && $2=="device"{found=1} END{exit !found}'; then
   fail "没有在线的 Android 设备"
   hint "启动模拟器：~/Library/Android/sdk/emulator/emulator -avd RDeskDemo -no-audio -no-boot-anim &"
   echo
   echo "结论：审核员当前连不上，必须先恢复演示设备。"
   exit 1
 fi
-pass "adb 设备在线"
+ONLINE_COUNT="$("$ADB_BIN" devices 2>/dev/null | awk 'NR>1 && $2=="device"{n++} END{print n+0}')"
+if [[ -z "$SERIAL" && "$ONLINE_COUNT" -gt 1 ]]; then
+  fail "有 $ONLINE_COUNT 台设备在线，但未指定序列号"
+  hint "指定被控端：RDESK_REVIEW_SERIAL=<序列号> 重跑；序列号见 $ADB_BIN devices -l"
+  hint "不指定的话每条 adb shell 都会报 more than one device，"
+  hint "在跑的服务会被误判为「未运行/未授权」——本脚本 2026-08-13 曾因此三条假警报"
+  echo
+  echo "结论：无法判定，请指定序列号后重跑。"
+  exit 1
+fi
+pass "adb 设备在线${SERIAL:+（$SERIAL）}"
 
 # ---- 2. App 与授权状态 ----
-if "$ADB" shell ps -A 2>/dev/null | grep -q "$PACKAGE"; then
+if adb_sh shell ps -A 2>/dev/null | grep -q "$PACKAGE"; then
   pass "RDesk 进程运行中"
 else
   fail "RDesk 未运行"
-  hint "$ADB shell monkey -p $PACKAGE -c android.intent.category.LAUNCHER 1"
+  hint "adb${SERIAL:+ -s $SERIAL} shell monkey -p $PACKAGE -c android.intent.category.LAUNCHER 1"
 fi
 
 # types 位掩码 0x20 = FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION，
@@ -75,7 +108,7 @@ fi
 # types 位掩码 0x20 = FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION。
 # 各 ROM 的打印格式不一致：模拟器输出 types=00000020，
 # 一加(ColorOS/OxygenOS)输出 types=0x00000020，故 0x 前缀需可选。
-if "$ADB" shell "dumpsys activity services $PACKAGE" 2>/dev/null \
+if adb_sh shell "dumpsys activity services $PACKAGE" 2>/dev/null \
     | grep -qE "isForeground=true.*types=(0x)?0*20\b"; then
   pass "录屏服务前台运行（已获 MediaProjection 授权）"
 else
@@ -83,7 +116,7 @@ else
   hint "模拟器重启会回收录屏权限：进 App「我的 → 移动被控」点「去授权」并确认系统弹窗"
 fi
 
-if "$ADB" shell settings get secure enabled_accessibility_services 2>/dev/null \
+if adb_sh shell settings get secure enabled_accessibility_services 2>/dev/null \
     | grep -q "$PACKAGE"; then
   pass "无障碍服务已启用（远程操控可下发）"
 else
@@ -190,7 +223,7 @@ else
     #   Media Projection:
     #   null                       ← 会话为空时值单独占一行
     # 去掉首行标题并压掉空白后得到 "MediaProjection:<值>"，取冒号后的值判断。
-    PROJECTION="$("$ADB" shell dumpsys media_projection 2>/dev/null \
+    PROJECTION="$(adb_sh shell dumpsys media_projection 2>/dev/null \
       | tr -d '\r' | sed -n '2,$p' | tr -d '[:space:]')"
     PROJECTION_VALUE="${PROJECTION#*MediaProjection:}"
     if [[ -z "$PROJECTION_VALUE" || "$PROJECTION_VALUE" == "null" ]]; then
