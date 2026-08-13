@@ -19,8 +19,16 @@
 - [x] 授权录屏（`ScreenCaptureService` 前台运行，`types=0x00000020`）与无障碍
       （`accessibility_enabled=1`）
 - [x] 加入电池优化白名单（`cmd deviceidle whitelist +com.qsw.rdesk`）
-- [x] `./scripts/check_review_host.sh` 全绿，退出码 0
-- [ ] 从**真机 iPhone** 实测连接一次（这一条还没做，发回复前必须补）
+- [ ] `./scripts/check_review_host.sh` 全绿，退出码 0
+      —— 2026-08-13 重装 APK（versionCode 11）并重新授权录屏后**尚未重跑**，
+      之前那次结论已过期。发回复前必须再跑一次：
+      `RDESK_REVIEW_DEVICE_ID=660725198 RDESK_REVIEW_PASSWORD='<密码>' ./scripts/check_review_host.sh`
+- [x] 从**真机 iPhone** 实测连接一次 —— 2026-08-13 用 iPhone 17 Pro Max 装
+      build 11 连 `660725198` 实测通过：画面、返回/主页/任务、长按、仅观看、
+      指针模式、画面旋转均由操作者在屏幕上确认可用；被控端日志侧确认整段会话
+      无崩溃、无 `STOP_REASON`、投屏未中断。
+      注：单个手势是否逐一到达无法从日志证实（Android 不记录无障碍手势注入），
+      该结论来自操作者观察。
 - [x] **移除「隐私屏」与「录屏」两个空开关**（见第四节「界面上的空开关」）——
       已于 `0b0ecc9` 从移动端「操作」面板、桌面端侧栏、旧 `RemoteToolbar` 三处
       及 `SessionProvider` 中删除，并出 **build 11**。
