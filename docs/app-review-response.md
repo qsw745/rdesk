@@ -334,8 +334,8 @@ the system screen-recording menu. The app cannot begin capture without the
 user's knowledge.
 
 Note that due to iOS platform limits, an iOS host can only share its screen and
-cannot accept remote touch input. Remote control applies to Windows, macOS, and
-Android hosts only. The "iOS 被控" (iOS Host) screen states this limit to users.
+cannot accept remote touch input. Remote control applies to macOS and Android
+hosts only. The "iOS 被控" (iOS Host) screen states this limit to users.
 
 PHOTO LIBRARY PERMISSION
 

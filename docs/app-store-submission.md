@@ -16,7 +16,9 @@
 
 **提交前必须准备：一台常开的演示被控端。**
 
-- 在一台 Windows / macOS 上运行 RDesk 被控端，保持开机联网
+- 在一台 macOS 或安卓真机上运行 RDesk 被控端，保持开机联网
+  （**不要写 Windows**：Rust 侧 `create_input_simulator()` 返回的是 `NoopInputSimulator`，
+  Flutter 桌面被控端每一处都是 `if (Platform.isMacOS)`，Windows 被控端并未实现）
 - 设置一个**永久密码**（不要用一次性临时密码，审核可能跨越数天、多次尝试）
 - 将「设备 ID + 永久密码」写入下方审核备注
 
@@ -39,7 +41,7 @@
 
 ### 演示环境的硬性要求
 
-- **必须是真实物理设备**（真机 Android / 真实 Windows / 真实 macOS），
+- **必须是真实物理设备**（真机 Android / 真实 macOS），
   不能是模拟器、虚拟机或云主机
 - 审核备注里对设备的每一句描述，都必须与审核员实际看到的标识符一致 ——
   跑 `./scripts/check_review_host.sh`，它会打印服务端返回的
@@ -290,7 +292,7 @@ RDesk 是一款安全、高效的跨平台远程桌面控制工具，让你随�
 跨网络时通过中继服务器转发。
 
 【跨平台】
-支持 Windows、macOS、Android、iOS 之间互控。
+iOS、macOS、Android 之间互联；iOS 作为被控端仅共享画面，不接受远程操作。
 
 注意：使用本 App 需要在被控设备上安装并启动 RDesk 被控端，
 且仅可用于连接你本人拥有或已获得明确授权的设备。
@@ -318,6 +320,8 @@ RDesk 是一款安全、高效的跨平台远程桌面控制工具，让你随�
 | 生物识别 | ✅ 有 | `local_auth` |
 | P2P NAT 穿透 | ❌ 无 | 无 STUN/ICE/打洞实现 |
 | 局域网直连 | ✅ 有 | `remote_assist_screen.dart` 直连地址 |
+| Windows 被控端 | ❌ 无 | `create_input_simulator()` 返回 `NoopInputSimulator`（注释自称「平台后端尚未实现」）；`desktop_host_service.dart` 全是 `if (Platform.isMacOS)`，无 Windows 分支 |
+| 真实按键（方向键/修饰键/快捷键） | ⚠️ 仅 macOS 被控端 | macOS 走 `_macKeyPress` 发 CGEvent；安卓被控端靠无障碍服务，拿不到 `INJECT_EVENTS`，只能整段写入文本 |
 | Linux 支持 | ⚠️ 未验证 | 存在 `linux/` 目录可构建，但未实测运行 |
 
 > 已从文案中移除：端到端加密、前向保密、会话聊天、断点续传、
