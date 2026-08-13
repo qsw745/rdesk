@@ -247,6 +247,19 @@ class _GuardModeCard extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ),
+          if (!isIos)
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: host.keepScreenAwakeEnabled,
+              onChanged: host.busy ? null : host.setKeepScreenAwakeEnabled,
+              title: const Text('托管期间保持屏幕常亮'),
+              subtitle: Text(
+                host.keepScreenAwakeEnabled
+                    ? '已启用：屏幕不会熄灭，避免部分系统在锁屏时终止投屏。耗电增加，长期使用注意烧屏。'
+                    : '部分系统锁屏后会直接终止投屏，需要回到本机重新授权。若本机专职当被控端，建议开启。',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ),
           const SizedBox(height: 8),
           Text(
             isIos
@@ -293,9 +306,7 @@ class _AndroidPermissionChecklist extends StatelessWidget {
   List<_PermissionItem> get _required => [
         _PermissionItem(
           label: '录屏权限',
-          description: host.state.hasPermission
-              ? '已授予；守护模式可直接恢复前台服务。'
-              : '首次必须手动确认系统录屏弹窗。',
+          description: host.state.captureDescription,
           done: host.state.hasPermission,
           actionLabel: '去授权',
           onPressed: host.busy ? null : host.requestPermission,

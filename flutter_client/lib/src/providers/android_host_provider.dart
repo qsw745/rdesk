@@ -17,6 +17,7 @@ class AndroidHostProvider extends ChangeNotifier {
   final _service = AndroidHostService.instance;
 
   static const _guardModeEnabledKey = 'android_guard_mode_enabled';
+  static const _keepScreenAwakeKey = 'android_keep_screen_awake';
   static const _previewPollInterval = Duration(milliseconds: 80);
   static const _relayCommandPollInterval = Duration(milliseconds: 60);
 
@@ -87,6 +88,7 @@ class AndroidHostProvider extends ChangeNotifier {
   DeviceInfo? _localDevice;
   String? _relayHostToken;
   bool _guardModeEnabled = false;
+  bool _keepScreenAwakeEnabled = false;
   bool _relayCommandBusy = false;
   bool _relayUploadBusy = false;
   int? _lastUploadedFrameTimestampMs;
@@ -128,6 +130,7 @@ class AndroidHostProvider extends ChangeNotifier {
   String? get error => _error;
   bool get canDisconnectViewers => _state.isRunning && _localDevice != null;
   bool get guardModeEnabled => _guardModeEnabled;
+  bool get keepScreenAwakeEnabled => _keepScreenAwakeEnabled;
   bool get isReadyForRemoteRequests =>
       _state.hasPermission &&
       _state.accessibilityEnabled &&
@@ -172,6 +175,10 @@ class AndroidHostProvider extends ChangeNotifier {
       _localDevice = await _bridge.getLocalDeviceInfo();
       final prefs = await SharedPreferences.getInstance();
       _guardModeEnabled = prefs.getBool(_guardModeEnabledKey) ?? false;
+      _keepScreenAwakeEnabled = prefs.getBool(_keepScreenAwakeKey) ?? false;
+      // 必须回灌给原生：进程重启后 ScreenCaptureStore 的标记是默认值，
+      // 只读本地偏好会让开关显示为开、实际没生效。
+      await _service.setHostKeepScreenAwake(enabled: _keepScreenAwakeEnabled);
       _state = await _service.getState();
       if (_guardModeEnabled && _state.hasPermission && !_state.isRunning) {
         _state = await _service.startHosting();
@@ -236,6 +243,19 @@ class AndroidHostProvider extends ChangeNotifier {
 
   Future<void> openAccessibilitySettings() =>
       _service.openAccessibilitySettings();
+
+  /// 托管期间保持屏幕常亮。
+  ///
+  /// 部分 ROM 在锁屏出现时直接终止投屏（日志理由 STOP_REASON_KEYGUARD），而
+  /// Android 不允许静默重新授权，被终止后必须用户再确认一次系统弹窗——无人值守
+  /// 的被控端就此失联。屏幕不灭则锁屏不出现。默认关闭：代价是耗电与烧屏风险。
+  Future<void> setKeepScreenAwakeEnabled(bool enabled) async {
+    _keepScreenAwakeEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keepScreenAwakeKey, enabled);
+    await _service.setHostKeepScreenAwake(enabled: enabled);
+    notifyListeners();
+  }
 
   Future<void> setGuardModeEnabled(bool enabled) async {
     _guardModeEnabled = enabled;
@@ -977,8 +997,9 @@ class AndroidHostProvider extends ChangeNotifier {
   /// 长期富余再升回去，上限不超过观看端明确要求的画质。
   void _noteUploadDuration(int uploadMs) {
     final previous = _uploadMsAverage;
-    _uploadMsAverage =
-        previous == null ? uploadMs.toDouble() : previous * 0.7 + uploadMs * 0.3;
+    _uploadMsAverage = previous == null
+        ? uploadMs.toDouble()
+        : previous * 0.7 + uploadMs * 0.3;
     final average = _uploadMsAverage!;
 
     final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -992,7 +1013,8 @@ class AndroidHostProvider extends ChangeNotifier {
     double? next;
     if (average > _uploadSlowThresholdMs) {
       next = _lowerQualityTier(current);
-    } else if (average < _uploadFastThresholdMs && current < _requestedQuality) {
+    } else if (average < _uploadFastThresholdMs &&
+        current < _requestedQuality) {
       next = _raiseQualityTier(current, ceiling: _requestedQuality);
     }
     if (next == null || next == current) {

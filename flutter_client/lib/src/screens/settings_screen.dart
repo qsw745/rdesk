@@ -932,9 +932,7 @@ class AndroidHostCard extends StatelessWidget {
               const SizedBox(height: 14),
               _ChecklistTile(
                 label: '录屏权限',
-                description: host.state.hasPermission
-                    ? '已授予；守护模式可直接恢复前台服务。'
-                    : '首次必须手动确认系统录屏弹窗。',
+                description: host.state.captureDescription,
                 done: host.state.hasPermission,
                 actionLabel: '去授权',
                 onPressed: host.busy ? null : host.requestPermission,
