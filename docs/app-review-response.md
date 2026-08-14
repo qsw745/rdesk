@@ -8,12 +8,20 @@
 > | 2026-08-06 | 2.1.0 (6) | 08-07 被拒（根因：备注把 Android 模拟器说成实体手机） |
 > | 2026-08-13 | 2.1.0 (11) | 08-14 再次被拒，措辞相同 |
 >
-> **二拒后的复查结论：备注里还有三条声明与 build 11 的实际行为不符**（见第四节
-> 「二拒复查」）。也就是说，上一轮回复在纠正一处不实描述的同时，又带进了三处新的
-> 不实描述——这与第一次被拒的性质完全相同。
+> **二拒复查结论**（见第四节，2026-08-14 修订）：
 >
-> ⚠️ **因此不能在 build 11 上继续申辩，必须先出 build 12。** 本文第二、三节的文案
-> 已按 build 12 改写，在 build 12 上传并完成第一节全部核对之前，一个字都不要发出去。
+> 1. 备注**没有提供测试账号**，而云设备页与「我的-我的设备」挡在登录后，
+>    审核员看不到这部分功能；备注却写着「没有随账号变化的行为」「每个界面
+>    首次启动即可从标签栏到达，无前置条件」。这两句不成立。
+> 2. build 11 的包里带着一整套**没有任何代码调用、界面上也没有入口**的相册库
+>    与相册权限声明。App 有能力、界面无入口——这是对 5.6 措辞最贴合的解释，
+>    也是唯一在二进制层面确证的问题。
+>
+> ⚠️ 复查过程中一度得出「备注还有三条声明与 build 11 不符」的结论，**其中两条
+> 是错的**（详见第四节「一次错误的复查」）。教训见文末，比结论本身更值得记住。
+>
+> 本文第二、三节的文案已按 build 12 改写；在 build 12 上传、测试账号建好、
+> 第一节全部核对完成之前，一个字都不要发出去。
 
 ---
 
@@ -46,34 +54,45 @@
 
 ### 二拒之后新增的阻塞项
 
-- [x] **相册权限已彻底撤除**（2026-08-14）。`file_picker` 在 `pubspec.yaml` 里声明了，
-      但 `lib/` 全量搜索**没有任何调用**；文件传输用的是自建的本地文件浏览器
-      （[file_manager_screen.dart](../flutter_client/lib/src/screens/file_manager_screen.dart)），
-      App 根本不会弹相册授权。已按「不声明用不上的权限」处理：
+- [x] **移除界面上够不到的相册能力**（2026-08-14）。这是二拒复查中唯一确证的
+      二进制层面问题，也是目前对 5.6 措辞最贴合的解释：
+      > build 11 的包里带着 `file_picker`、`DKImagePickerController`、
+      > `DKPhotoGallery`、`SDWebImage`、`SwiftyGif` 五个 framework 和
+      > `NSPhotoLibraryUsageDescription`，其中 `DKImagePickerController` 就是
+      > 一整套相册选择界面。而 `lib/` 全量搜索**没有任何一行调用**它们，
+      > 文件传输走的是自建的沙盒目录浏览器
+      > （[file_manager_screen.dart](../flutter_client/lib/src/screens/file_manager_screen.dart)）。
+      > 即：**App 具备访问相册的能力，界面上却没有任何入口**——这正是
+      > 「features that appear to have been intentionally hidden」所描述的形态，
+      > 且静态扫描很容易发现。
+      处理（整套移除，而不是补声明）：
       - 删除 `ios/Runner/Info.plist` 的 `NSPhotoLibraryUsageDescription`
-        （`plutil -lint` 通过；该文件因此回到 HEAD 状态，不再是改动文件）
-      - 从 `pubspec.yaml` 移除 `file_picker: ^8.0.0`，`flutter pub get`
-        连带移除 `cross_file`
-      - 三端 `GeneratedPluginRegistrant`（iOS / macOS / Android）自动摘掉
-        `FilePickerPlugin` 注册，iOS 与 macOS 的 `Podfile.lock` 已用
-        `pod install` 同步，两处 `file_picker` 条目均已消失
-      - `flutter analyze`：0 error、0 warning
-      - 另核对 `AndroidManifest.xml`：无 `READ_MEDIA_*` / `READ_EXTERNAL_STORAGE`
-        声明，安卓端无残留
-      > 若 `pod install` 报 `String#unicode_normalize` 错，是本机 Ruby 的 locale
-      > 问题，加 `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` 前缀即可。
-- [ ] **出 build 12 并上传**。build 11 还缺以下两项，导致第三节备注的声明不成立
-      （详见第四节「二拒复查」）。这些改动目前**只在工作区，没有提交，也没有打进
-      build 11**：
-      - `constants.dart`：默认服务器 `qisw.top:80` → `https://qisw.top`。
-        build 11 没有 scheme，`_normalizeApiBaseUri` 会补成 `http://`
-        （[rdesk_bridge_service.dart:2286](../flutter_client/lib/src/services/rdesk_bridge_service.dart:2286)），
-        WebSocket 随之走 `ws://`——**登录密码与屏幕画面全程明文**，
-        而备注写着 normal use is HTTPS / WSS。这一条审核员抓包就能验证。
-      - `profile_screen.dart` + `auth_provider.dart`：应用内「注销账号」入口。
-        build 11 没有，单独违反 **Guideline 5.1.1(v)**（提供账号注册就必须提供
-        应用内注销）。
-      > 打包前记得把 `pubspec.yaml` 的 `version:` 从 `2.1.0+11` 改成 `2.1.0+12`。
+        （`plutil -lint` 通过）
+      - 从 `pubspec.yaml` 移除 `file_picker: ^8.0.0`，连带移除 `cross_file`
+      - 三端 `GeneratedPluginRegistrant` 自动摘掉 `FilePickerPlugin` 注册，
+        两个 `Podfile.lock` 用 `pod install` 同步，`file_picker` 条目归零
+      - `flutter analyze` 0 error 0 warning；`AndroidManifest.xml` 也无
+        `READ_MEDIA_*` / `READ_EXTERNAL_STORAGE` 残留
+      > 注：当初 build 4 被 **ITMS-90683** 退回（缺 `NSPhotoLibraryUsageDescription`）
+      > 正是这套依赖引起的。依赖移除后二进制不再链接相册 API，不会再触发该错误。
+      > 若 `pod install` 报 `String#unicode_normalize`，是本机 Ruby 的 locale 问题，
+      > 加 `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8` 前缀即可。
+- [x] **build 12 已打包**（2026-08-14，`flutter build ipa`，exit 0，21.9MB，
+      比 build 11 的 23.1MB 小 1.2MB——正是那五个 framework 的体积）。产物实测：
+
+      | 项 | 结果 |
+      |---|---|
+      | 主 App `CFBundleVersion` | 12 |
+      | 扩展版本 | 12 / 2.1.0（已跟随主 App） |
+      | `NSPhotoLibraryUsageDescription` | 无 |
+      | 相册相关 framework | 0 个 |
+      | `PrivacyInfo.xcprivacy` | 主 App 与扩展均已进包 |
+
+      > ⚠️ `flutter build ipa` 会覆盖 `build/ios/ipa/RDesk.ipa`，build 11 的产物
+      > 已经没了。日后要留证，打包前先把旧 IPA 另存。
+- [ ] **上传 build 12 到 ASC**，并补出口合规
+      （`./scripts/asc.py compliance 12`，见 app-store-submission.md 第七节——
+      未回答出口合规的构建无法提交审核）
 - [ ] **建一个测试账号并填进备注**。云设备页与「我的-我的设备」在未登录时只有
       登录墙（[cloud_devices_screen.dart:86](../flutter_client/lib/src/screens/cloud_devices_screen.dart:86)、
       [my_devices_screen.dart:207](../flutter_client/lib/src/screens/my_devices_screen.dart:207)），
@@ -133,75 +152,68 @@
 
 > 位置：App Store Connect → App 审核 → 该提交 → 「回复 App 审核」
 >
-> 长度：3743 字符（含占位符，填入真实值后基本不变），在 4000 以内。
+> 长度：3400 字符（含占位符，填入真实值后基本不变），在 4000 以内。
 > 回复框上限未实测，按已实测的备注上限 4000 控制。
 >
-> **写法说明**：这一轮不辩解，改为主动把自己上一封回复里三条不准确的声明逐条列出
-> 并更正。理由是——第一次被拒就是因为「声明与事实不符」被查了出来，二拒时那三条
-> 声明同样经不起核对。与其等审核员第三次发现，不如自己先说。
+> **写法说明**：只写两条，且两条都能拿证据落地——
+> 第一条是二进制里确证的问题（相册库有能力、界面无入口，build 12 已整套移除），
+> 第二条是备注自身的疏漏（没给测试账号，还写了两句与实际不符的话）。
+> 不辩解，也不再对 build 11 的其他行为下断言：复查中那些「看起来不符」的结论
+> 有一半是验证方法错误造成的（见第四节「一次错误的复查」），而向 Apple 递交
+> 一条捏造的「自我更正」，比不回复更糟。
 >
-> ⚠️ **发送前提**：build 12 已上传，且第一节的新增阻塞项全部完成。
-> 下文第 3 条与「removed the unused file_picker dependency」一句，已对应
-> 2026-08-14 实际做的改动（撤 `NSPhotoLibraryUsageDescription` + 移除依赖），
-> 属实；但它同样要打进 build 12 才算数。
+> ⚠️ **发送前提**：build 12 已上传并补完出口合规，测试账号已建好并填入，
+> 第一节阻塞项全部完成。
 
 ```
 Thank you for the second review.
 
-We take a 5.6 finding seriously. Rather than argue, we went back and checked our
-own previous reply line by line against the binary you reviewed, 2.1.0 (11).
-Three of the statements we made in it were wrong. We are correcting them here.
+We audited our previous reply and our review notes against the binary you
+reviewed, 2.1.0 (11). We found two things: one problem in the binary that we
+believe matches your finding and have now removed, and one inaccuracy in our
+notes.
 
-CORRECTIONS TO OUR PREVIOUS REPLY
+1. A CAPABILITY THE INTERFACE GAVE NO WAY TO REACH
 
-1. Account-gated features. We wrote that no behavior varies by account and that
-every screen is reachable from the tab bar on first launch with no
-preconditions. That was not true. Two areas - the "Cloud Devices" tab and "My
-Devices" under the "Me" tab - show a sign-in prompt until the user signs in, and
-only then list the devices synced to that account. Our notes gave you a host
-device ID and password but no account, so you had no way to reach those screens.
-We should have given you an account. One is included below and in our notes.
+Build 11 shipped five frameworks - file_picker, DKImagePickerController,
+DKPhotoGallery, SDWebImage, SwiftyGif - along with
+NSPhotoLibraryUsageDescription. DKImagePickerController is a complete photo
+picker interface. No line of our code calls any of them: file transfer browses
+only the app's own sandbox directories, through a browser we wrote ourselves.
 
-2. Transport. We wrote that normal use is HTTPS/WSS. In build 11 the default
-server address is "qisw.top:80", which carries no URL scheme, so the app
-prepends "http://" and the WebSocket follows as "ws://". The default
-configuration in that build is plaintext. Our statement described what we
-intended, not what the build does.
+So the binary carried the ability to reach the photo library while the interface
+offered no way to get there. This was not deliberate. file_picker was added early
+on, the feature it was intended for ended up implemented differently, and the
+dependency was never removed. But we understand how that looks under Guideline
+5.6, and we are not going to argue about it.
 
-3. Photo library. We wrote that a photo library prompt is raised by the file
-picker. The app never raises one. The file transfer screen browses the app's own
-sandbox directories, and the file_picker package, though listed in pubspec.yaml,
-is not called anywhere in our code. Build 11 does not declare
-NSPhotoLibraryUsageDescription and the app does not access the photo library.
+Build 2.1.0 (12) removes it entirely: all five frameworks are gone, the app
+declares no photo library permission, and the IPA is 1.2 MB smaller. The app has
+no ability to access the photo library.
 
-None of these were attempts to conceal anything, but all three were inaccurate,
-and we understand that inaccurate statements are exactly what Guideline 5.6
-addresses.
+2. OUR NOTES GAVE YOU NO ACCOUNT, AND DESCRIBED THE APP AS IF NONE WAS NEEDED
 
-WHAT BUILD 2.1.0 (12) CHANGES
+We wrote that no behavior varies by account, and that every screen is reachable
+from the tab bar on first launch with no preconditions. That was not accurate.
+The "Cloud Devices" tab and "My Devices" under the "Me" tab show a sign-in prompt
+while signed out, and list the devices synced to that account once signed in. We
+gave you a host device ID and password but no account, so you had no way to reach
+those screens. A test account is below and in our updated notes.
 
-- The default server is now https://qisw.top, so sign-in, screen data and input
-  events travel over HTTPS/WSS by default.
-- We added an in-app account deletion entry under "Me", as required by
-  Guideline 5.1.1(v). Build 11 did not have one.
-- We removed the unused file_picker dependency, so the app declares no photo
-  library permission and requests none.
-
-WHAT WE STATE, HAVING RE-VERIFIED IT AGAINST THE SOURCE
+WHAT WE RE-VERIFIED, AGAINST BOTH THE SOURCE AND THE SHIPPED BINARY
 
 - No embedded browser or web view; nothing loads remote HTML or scripts.
 - No remote configuration and no feature flags. Our server exposes only account,
-  device-presence, screen-frame, input, clipboard and file endpoints; no
-  response from it enables, unlocks or alters any part of the UI.
+  device-presence, screen-frame, input, clipboard and file endpoints; no response
+  from it enables, unlocks or alters any part of the UI.
 - No debug menu, no tap-count or long-press unlock, no behavior that varies by
   region or date.
 - No dynamic code loading, no custom URL schemes, no background modes.
-- Every control in the session screen does what its label says. In build 11 we
-  removed two switches ("privacy screen" and "record") that showed a success
-  message without acting; they no longer exist.
-
-The only functionality not visible without credentials is the account-based
-device sync described in correction 1, and the account below opens it.
+- Two switches that reported success without doing anything ("privacy screen" and
+  "record") were removed in build 11. We confirmed their strings are absent from
+  both binaries.
+- Apart from the two account-gated screens described above, every screen is
+  reachable from the tab bar on first launch.
 
 TEST ACCOUNT AND DEMO HOST
 
@@ -214,15 +226,15 @@ TEST ACCOUNT AND DEMO HOST
   Password:  <填入被控端密码>
 
 The host stays powered on, charging and online for the review. Step-by-step
-connection instructions and a complete list of every control are in our App
-Review notes.
+connection instructions and a complete list of every control in the session
+screen are in our App Review notes.
 
 IF SOMETHING ELSE WAS MEANT
 
-Your message describes the finding in general terms, and the corrections above
-are what we found by auditing ourselves. If your finding refers to a specific
-feature or screen we have not addressed, please tell us which one and we will
-answer it directly. We would also welcome a phone call if that is faster.
+Your message describes the finding in general terms, and the two items above are
+what we found by auditing ourselves. If your finding refers to a specific feature
+or screen we have not addressed, please tell us which one and we will answer it
+directly. We would also welcome a phone call if that is faster.
 
 Thank you for your time.
 ```
@@ -450,8 +462,7 @@ CONNECTION SECURITY
   supply the correct password to connect.
 - In this build the default server is https://qisw.top, so traffic between the
   app and our server (sign-in, screen data, input events) travels over
-  HTTPS / WSS. Earlier builds defaulted to a plaintext address; 2.1.0 (12)
-  changed it.
+  HTTPS / WSS.
 - When relayed through our server, screen data is readable on the server. This
   app does not implement end-to-end encryption, and our privacy policy states
   this limitation explicitly.
@@ -553,21 +564,65 @@ ro.kernel.qemu              1
 
 ### 二拒复查（2026-08-14）
 
-第二次被拒后，把上一封回复与上一版备注里的**每一条声明**拿回 build 11 的源码逐条
-核对。结果：先前那张「客户端不含隐藏功能」的表仍然成立（下方「复核仍然成立的部分」），
-但**另有三条声明不成立**。第一次被拒是因为一句不实描述被查出来，二拒时我们又送去了
-三条——性质相同。
+第二次被拒后做了两轮复查。**第一轮的结论有一半是错的**，先记结论，再记怎么错的。
 
-| # | 上一轮的声明 | build 11 的实际情况 | 依据 |
-|---|---|---|---|
-| 1 | 「no behavior that varies by user, account…」「Every screen is reachable from the tab bar on first launch, with no preconditions」 | 云设备 tab 与「我的-我的设备」未登录时只有登录墙，登录后才列出账号下同步的设备。而备注只给了设备 ID + 密码，**没给账号**，审核员根本看不到这块 | [cloud_devices_screen.dart:86](../flutter_client/lib/src/screens/cloud_devices_screen.dart:86)、[my_devices_screen.dart:207](../flutter_client/lib/src/screens/my_devices_screen.dart:207) |
-| 2 | 「normal use is HTTPS / WSS」「All traffic … travels over HTTPS / WSS」 | 默认服务器是 `qisw.top:80`，**不带 scheme**，被补成 `http://`，WebSocket 随之 `ws://`。默认配置全程明文 | [constants.dart](../flutter_client/lib/src/utils/constants.dart)（build 11 版本）、[rdesk_bridge_service.dart:2286](../flutter_client/lib/src/services/rdesk_bridge_service.dart:2286)、`wsScheme = scheme == 'https' ? 'wss' : 'ws'`（同文件 537 行） |
-| 3 | 「Info.plist declares NSPhotoLibraryUsageDescription」「The photo library prompt is raised by the file picker after 文件传输」 | build 11 的 Info.plist **没有**该键；`file_picker` 虽在 `pubspec.yaml` 里，但 `lib/` 全量搜索**无任何调用**；文件传输用的是自建的沙盒目录浏览器 | `grep -rn "file_picker\|FilePicker" lib/` 无结果、[file_manager_screen.dart](../flutter_client/lib/src/screens/file_manager_screen.dart) |
+#### 确证的两个问题
 
-第 2 条最危险：审核员抓一次包就能验证，而它恰好落在「说的和做的不一致」上。
+**一、build 11 带着界面上够不到的相册能力。**
 
-另外 build 11 还**缺少应用内注销账号入口**，单独违反 Guideline 5.1.1(v)——即使
-5.6 谈妥，这条也会让它再被拒一次。
+| 项 | 证据 |
+|---|---|
+| 包内 framework | `file_picker`、`DKImagePickerController`、`DKPhotoGallery`、`SDWebImage`、`SwiftyGif`——`DKImagePickerController` 是整套相册选择界面 |
+| `Info.plist` | 含 `NSPhotoLibraryUsageDescription` |
+| 代码调用 | `grep -rn "file_picker\|FilePicker" lib/` **无任何结果** |
+| 实际的文件传输 | 自建沙盒目录浏览器（[file_manager_screen.dart](../flutter_client/lib/src/screens/file_manager_screen.dart)），不碰相册 |
+
+App 有能力、界面无入口，这是对 "features that appear to have been intentionally
+hidden during the review process" 最贴合的解释，且静态扫描很容易发现。
+build 12 已整套移除，IPA 从 23.1MB 降到 21.9MB。
+
+**二、备注没给测试账号，还写了两句与实际不符的话。**
+云设备页与「我的-我的设备」未登录时只有登录墙
+（[cloud_devices_screen.dart:86](../flutter_client/lib/src/screens/cloud_devices_screen.dart:86)、
+[my_devices_screen.dart:207](../flutter_client/lib/src/screens/my_devices_screen.dart:207)），
+备注却称「没有随账号变化的行为」「每个界面首次启动即可从标签栏到达，无前置条件」。
+审核员拿不到账号，这块功能对他不存在。
+
+#### 一次错误的复查——两个验证方法都是错的
+
+第一轮曾得出「备注还有三条声明与 build 11 不符」，其中**两条纯属误判**，
+若照那版文案发出去，等于向 Apple 递交两条捏造的「自我更正」。成因是两个
+看起来都很合理、实则都不成立的验证方法：
+
+**错误一：拿 `git diff` 当成 build 的内容依据。**
+当时 `constants.dart`（https）、`profile_screen.dart`（注销账号）、
+`Info.plist`（相册键）都是未提交的工作区改动，于是判定 build 11 不含它们。
+**但打包读的是工作区文件，不是 HEAD。** 实测 build 11 的 IPA 里，
+相册键在、注销账号在、https 也在——那批改动早就打进去了。
+
+**错误二：用 UTF-8 的 grep 在 Dart AOT 快照里搜中文字符串。**
+`grep -a '注销账号' App.framework/App` 返回 0，据此判定 build 11 缺注销入口。
+实际上 Dart 的 `String` 分 OneByteString（Latin-1）与 TwoByteString，
+**中文走 TwoByteString，在快照里按 UTF-16 存**，UTF-8 的 grep 永远搜不到。
+换成 UTF-16LE 重查，build 11 与 build 12 的计数逐项相同：
+
+```python
+data = open('App.framework/App','rb').read()
+data.count('注销账号'.encode('utf-16-le'))   # 两个包都是 1
+data.count('隐私屏'.encode('utf-16-le'))     # 两个包都是 0（空开关确已删除）
+```
+
+两个包的 Dart 二进制大小完全相同（7573 KB），所有字符串计数一致——
+**build 11 与 build 12 的 Dart 代码本就相同**，差异只在原生依赖与版本号。
+
+**另一个到现在也没能验证的问题**：默认服务器是 `qisw.top:80` 还是
+`https://qisw.top`，无法从二进制区分。因为 `_legacyServerSettings` 那个迁移用的
+旧值集合本身就同时含这两个字符串，Dart 又会把相同字符串常量合并去重。
+**所以回复稿里不对 build 11 的传输方式下任何断言**——这类查不出来的事，
+就不要写进给 Apple 的文字里。
+
+> ⚠️ `flutter build ipa` 会覆盖 `build/ios/ipa/RDesk.ipa`。build 11 的产物在
+> 打 build 12 时被覆盖掉了，上面的证据是覆盖前取出的。以后打包前先另存旧 IPA。
 
 #### 复核仍然成立的部分（不必改口）
 
@@ -577,16 +632,22 @@ ro.kernel.qemu              1
 | 自定义 URL scheme、后台模式 | 无 | `Runner/Info.plist` 无 `CFBundleURLTypes`、无 `UIBackgroundModes` |
 | WebView、动态代码加载 | 无 | 依赖表无 `webview_flutter` / `url_launcher`；Rust + Flutter AOT |
 | 面板控件与被控端实现对得上 | 是 | `back/home/recents/scroll_up/scroll_down/delete/enter` 见 [RdeskAccessibilityService.kt:44](../flutter_client/android/app/src/main/kotlin/com/qsw/rdesk/RdeskAccessibilityService.kt:44)；`wake_screen` 见 [android_host_provider.dart:622](../flutter_client/lib/src/providers/android_host_provider.dart:622) |
-| 空开关 | 已清除 | `0b0ecc9`，build 11 起不再存在 |
+| 空开关 | 已清除 | `0b0ecc9`；UTF-16LE 检索确认「隐私屏」「录屏已开始」在 build 11 与 12 中均为 0 次 |
 
-#### 教训（比第一次那条更根本）
+#### 教训
 
-第一次的教训写的是「演示环境的描述要与审核员看到的标识符核对」。范围太窄了。
-真正的规则是：
+**一、声明的依据必须来自「即将提交的那个包」，不是源码，更不是 diff。**
+第一次被拒是备注与演示环境对不上，二拒复查又栽在拿 diff 推断包内容。
+能解压 IPA 就解压 IPA：`Info.plist`、`Frameworks/` 列表、`App.framework/App`
+里的字符串，都是可直接读的事实。
 
-> **备注和回复里的每一条声明，都必须能在即将提交的那个 build 的源码里找到依据；
-> 找不到依据的话不要写。** 尤其不要写 "no…"、"every…"、"all…" 这种全称判断——
-> 上面三条全是栽在全称判断上。写之前先 grep 一遍，grep 不出来就改成有保留的表述。
+**二、验证方法本身也要验证。**
+一个返回 0 的搜索，先确认它在「应该有」的样本上能返回非 0，再拿它下结论。
+若当初先用 build 12（明确含注销账号）验一下 grep，立刻就能发现编码问题。
 
-还有一条流程性的：**声明所依据的代码必须已经打进那个 build**。第 2、3 条之所以
-不成立，是因为修复它们的改动当时还留在工作区里，没提交、也没进 build 11。
+**三、查不出来的事，不要写进给 Apple 的文字里。**
+默认服务器那条查不动，就不写。写全称判断（no… / every… / all…）之前先
+grep 一遍，grep 不动就改成有保留的表述。
+
+**四、不要用一次错误的自我更正去补一次错误的声明。**
+5.6 本就是冲着「说的和做的不一致」来的，主动认错只有在认的确实是错的时候才有用。
