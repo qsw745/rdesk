@@ -16,10 +16,12 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_TYPE)</string>
+	<!-- 版本号必须与主 App 一致，否则 App Store 上传会被拒。
+	     通过 Generated.xcconfig 自动跟随 flutter 的构建版本。 -->
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
