@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RDesk 技术支持</title>
+<style>
+  :root {
+    --text: #1a1a1a;
+    --muted: #666;
+    --line: #e5e5e5;
+    --accent: #1a73e8;
+    --bg: #fff;
+    --card: #f7f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --text:#e8e8e8; --muted:#a0a0a0; --line:#333; --accent:#6ba7f5; --bg:#141414; --card:#1e1e1e; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 3rem 1.25rem 5rem; max-width: 46rem;
+    font: 16px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--text); background: var(--bg);
+  }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing: -.01em; }
+  h2 { font-size: 1.2rem; margin: 2.4rem 0 .8rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 1.6rem 0 .4rem; }
+  .meta { color: var(--muted); font-size: .9rem; margin-bottom: 2rem; }
+  ul, ol { padding-left: 1.3rem; }
+  li { margin: .4rem 0; }
+  a { color: var(--accent); }
+  .card { background: var(--card); border-radius: 10px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .card p:last-child { margin-bottom: 0; }
+  .card p:first-child { margin-top: 0; }
+  code { background: rgba(127,127,127,.14); padding: .12em .4em; border-radius: 3px; font-size: .9em; }
+  .contact { border-left: 3px solid var(--accent); padding: .4rem 0 .4rem 1rem; margin: 1.2rem 0; }
+</style>
+</head>
+<body>
+
+<h1>RDesk 技术支持</h1>
+<p class="meta">远程桌面工具 · 支持 Windows、macOS、Android、iOS</p>
+
+<div class="contact">
+  <p><strong>需要帮助？</strong>发邮件到 <a href="mailto:641742030@qq.com">641742030@qq.com</a>，
+  我们会尽快回复。为便于排查，请附上你的设备型号、系统版本，以及问题出现时的截图。</p>
+</div>
+
+<h2>快速开始</h2>
+
+<p>RDesk 需要<strong>两台设备</strong>：一台作为被控端（被查看和操作的设备），
+另一台作为主控端（发起连接的设备）。</p>
+
+<ol>
+  <li>在<strong>被控设备</strong>上安装并打开 RDesk，进入「远程连接」页，
+      记下页面下方显示的「本机设备 ID」与验证码</li>
+  <li>在<strong>主控设备</strong>上打开 RDesk，进入「远程连接」页</li>
+  <li>在「设备代码」填入被控设备的 ID，在「验证码」填入其密码</li>
+  <li>点击「密码连接」即可看到远程画面</li>
+</ol>
+
+<h2>常见问题</h2>
+
+<h3>提示「未找到在线设备」</h3>
+<div class="card">
+  <p>说明被控端当前不在线。请检查：</p>
+  <ul>
+    <li>被控设备上的 RDesk 是否正在运行（不能只是装了但没打开）</li>
+    <li>被控设备是否联网</li>
+    <li>设备 ID 是否输入正确（9 位数字）</li>
+  </ul>
+</div>
+
+<h3>连接成功但画面是黑的（macOS 被控端）</h3>
+<div class="card">
+  <p>macOS 需要手动授予屏幕录制权限：</p>
+  <p>打开「系统设置 → 隐私与安全性 → 屏幕录制」，找到 RDesk 并打开开关。
+  授权后需要重新启动 RDesk 才会生效。</p>
+  <p>如果还需要用鼠标键盘操作对方电脑，同一位置的「辅助功能」也要一并授予。</p>
+</div>
+
+<h3>iOS 设备能被别人看到，但对方操作不了</h3>
+<div class="card">
+  <p>这是 iOS 系统的限制，不是故障。iOS 上的 RDesk 可以共享屏幕画面，
+  但系统不允许第三方 App 接收远程触控指令。</p>
+  <p>如果需要完整的远程操控，请把 Windows 或 macOS 设备作为被控端。</p>
+</div>
+
+<h3>画面卡顿或延迟高</h3>
+<div class="card">
+  <ul>
+    <li><strong>优先使用局域网直连</strong>：两台设备在同一网络时，
+        在被控端「远程连接」页找到直连地址，主控端直接填该地址，
+        数据不经过服务器，延迟明显更低</li>
+    <li>在连接设置中降低画质，可以换取更流畅的画面</li>
+    <li>画面静止时界面上的延迟数值会自然增大，这反映的是「当前画面的新鲜度」，
+        不代表网络变慢；开始操作后会立即回落</li>
+  </ul>
+</div>
+
+<h3>忘记被控端密码</h3>
+<div class="card">
+  <p>在被控设备的「远程连接」页，点击验证码右侧的刷新图标可重新生成临时密码。
+  如需固定不变的密码，可在「我的 → 无人值守设置」中设置。</p>
+</div>
+
+<h3>如何注销账号</h3>
+<div class="card">
+  <p>打开「我的 → 安全中心 → 注销账号」，输入密码确认即可。
+  注销会永久删除账号、云端设备列表与全部登录状态，且<strong>不可撤销</strong>。</p>
+</div>
+
+<h2>关于安全</h2>
+
+<p>我们倾向于如实说明能力边界：</p>
+
+<ul>
+  <li>App 与服务器之间的通信（含登录、画面、控制指令）经 HTTPS / WSS 加密传输</li>
+  <li>跨网络连接需经服务器中转，此时服务器在技术上可以访问画面内容。
+      <strong>目前尚未实现端到端加密</strong>，我们不读取、不留存这些内容</li>
+  <li>对画面机密性有严格要求的场景，建议使用<strong>局域网直连</strong>，
+      此时数据不经过我们的服务器</li>
+  <li>被控端必须主动开启共享并设置密码，他人无法在你不知情的情况下连入</li>
+</ul>
+
+<p>详见<a href="/rdesk/privacy">隐私政策</a>。</p>
+
+<h2>联系我们</h2>
+
+<ul>
+  <li>邮箱：<a href="mailto:641742030@qq.com">641742030@qq.com</a></li>
+  <li>反馈问题时请说明：设备型号、系统版本、问题现象、复现步骤</li>
+</ul>
+
+</body>
+</html>

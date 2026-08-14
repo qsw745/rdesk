@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RDesk 隐私政策</title>
+<style>
+  :root {
+    --text: #1a1a1a;
+    --muted: #666;
+    --line: #e5e5e5;
+    --accent: #1a73e8;
+    --bg: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --text:#e8e8e8; --muted:#a0a0a0; --line:#333; --accent:#6ba7f5; --bg:#141414; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 3rem 1.25rem 5rem; max-width: 46rem;
+    font: 16px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--text); background: var(--bg);
+  }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; letter-spacing: -.01em; }
+  h2 { font-size: 1.2rem; margin: 2.4rem 0 .8rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+  .meta { color: var(--muted); font-size: .9rem; margin-bottom: 2rem; }
+  ul { padding-left: 1.3rem; }
+  li { margin: .4rem 0; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+  th, td { text-align: left; padding: .6rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; }
+  code { background: rgba(127,127,127,.14); padding: .12em .4em; border-radius: 3px; font-size: .9em; }
+  a { color: var(--accent); }
+  .note { border-left: 3px solid var(--accent); padding: .1rem 0 .1rem 1rem; margin: 1.2rem 0; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<h1>RDesk 隐私政策</h1>
+<p class="meta">最后更新：2026 年 7 月 31 日</p>
+
+<p>RDesk（以下简称「本应用」）是一款远程桌面工具，用于在你自己的设备之间建立远程连接。本政策说明我们收集哪些信息、如何使用，以及你拥有哪些权利。</p>
+
+<div class="note">
+远程会话数据通过 HTTPS 加密通道传输。为完成设备间的画面中转，
+中转服务器在转发过程中<strong>技术上可以访问画面内容</strong>；我们不会读取、
+分析或留存这些内容。详见「远程会话的安全性」一节。
+</div>
+
+<h2>一、我们收集的信息</h2>
+
+<p>本应用的账号功能是<strong>可选的</strong>。不注册账号时，你可以直接输入设备代码建立连接，此时我们不会收集任何账号信息。</p>
+
+<table>
+  <tr><th>信息</th><th>收集场景</th><th>用途</th></tr>
+  <tr><td>账号用户名</td><td>你主动注册或登录时</td><td>标识你的账号</td></tr>
+  <tr><td>账号密码</td><td>你主动注册或登录时</td><td>身份验证，以不可逆方式存储</td></tr>
+  <tr><td>显示名称</td><td>你主动填写时</td><td>在设备列表中展示</td></tr>
+  <tr><td>设备标识与设备名</td><td>登录后启用设备同步时</td><td>让你在不同设备间看到自己的在线设备</td></tr>
+  <tr><td>连接所需的网络地址</td><td>建立连接时</td><td>完成信令交换与数据转发</td></tr>
+</table>
+
+<h2>二、仅保存在你设备上的信息</h2>
+
+<p>以下数据<strong>不会上传</strong>到我们的服务器：</p>
+<ul>
+  <li>连接历史记录与最近连接列表</li>
+  <li>受信任的设备列表</li>
+  <li>本机设备的连接密码</li>
+  <li>账号凭据（存储于系统安全区域，iOS/macOS 为钥匙串 Keychain）</li>
+</ul>
+
+<h2>三、我们不收集的信息</h2>
+
+<ul>
+  <li>不收集位置信息</li>
+  <li>不读取通讯录、日历、健康数据</li>
+  <li>不在后台读取相册；仅当你主动使用文件传输并选取图片时才访问</li>
+  <li>不采集远程会话的画面内容、按键内容或剪贴板内容</li>
+  <li>不集成任何广告、行为分析或数据经纪类第三方组件</li>
+</ul>
+
+<h2>四、远程会话的安全性</h2>
+
+<p>我们认为如实说明安全边界，比使用模糊的宣传措辞更重要：</p>
+
+<ul>
+  <li><strong>传输加密</strong>：App 与服务器之间的全部通信（含账号登录、画面数据、
+      控制指令）均通过 HTTPS / WSS 加密通道传输，可防止网络中间人窃听</li>
+  <li><strong>中转服务器的可见性</strong>：当两台设备无法直连而经服务器中转时，
+      画面数据在服务器上是可解析的。<strong>目前尚未实现端到端加密</strong>，
+      因此服务器在技术上可以访问画面内容。我们不读取、不分析、不留存这些内容，
+      转发完成后即从内存中丢弃</li>
+  <li><strong>局域网直连</strong>：同一局域网内可使用直连地址建立连接，
+      此时画面数据不经过我们的服务器</li>
+  <li><strong>访问控制</strong>：被控端必须由使用者主动启动共享并设置密码，
+      主控端需提供正确密码方可连接；任何一方均可随时断开会话</li>
+</ul>
+
+<p>如果你的使用场景对画面机密性有严格要求，建议优先使用局域网直连，
+或在受信任的网络环境中使用本应用。</p>
+
+<h2>五、信息共享</h2>
+
+<p>我们不会出售你的个人信息，也不会将其用于广告或跨应用追踪。仅在下列情形下可能共享：</p>
+<ul>
+  <li>获得你的明确同意</li>
+  <li>依据法律法规或有权机关的强制要求</li>
+</ul>
+
+<h2>六、数据保留与删除</h2>
+
+<p>你可以随时在应用内注销账号：进入「我的 → 安全中心 → 注销账号」，输入密码确认即可。</p>
+
+<ul>
+  <li>注销后立即永久删除：账号与登录凭据、云端保存的设备列表与在线状态、全部设备上的登录状态</li>
+  <li>注销不可撤销，账号无法恢复</li>
+  <li>仅存于本地的数据（连接历史、信任设备列表）可通过卸载应用或在应用内清除连接历史来删除</li>
+  <li>若无法通过应用内入口完成注销，也可通过下方邮箱联系我们协助处理</li>
+</ul>
+
+<h2>七、儿童隐私</h2>
+
+<p>本应用不面向 13 周岁以下儿童，也不会有意收集其个人信息。</p>
+
+<h2>八、政策变更</h2>
+
+<p>本政策如有更新，将在本页面公布并更新顶部的「最后更新」日期。重大变更会在应用内提示。</p>
+
+<h2>九、联系我们</h2>
+
+<p>如对本政策有任何疑问，或需要行使数据相关权利，请联系：</p>
+<ul>
+  <li>邮箱：<a href="mailto:641742030@qq.com">641742030@qq.com</a></li>
+</ul>
+
+</body>
+</html>

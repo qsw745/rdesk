@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>下载 RDesk</title>
+<style>
+  :root {
+    --text: #16181d;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #1a73e8;
+    --accent-dark: #1557b0;
+    --bg: #fff;
+    --card: #f7f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --text:#e8e8e8; --muted:#9ca3af; --line:#2e2e2e; --accent:#6ba7f5; --accent-dark:#4b8de0; --bg:#141414; --card:#1c1c1e; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; padding: 3.5rem 1.25rem 5rem; max-width: 44rem;
+    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--text); background: var(--bg);
+  }
+  .brand { display: flex; align-items: center; gap: .9rem; margin-bottom: .5rem; }
+  .brand svg { width: 60px; height: 60px; border-radius: 13px; flex-shrink: 0; }
+  h1 { font-size: 1.85rem; margin: 0; letter-spacing: -.02em; }
+  .tagline { color: var(--muted); margin: .1rem 0 2.6rem; font-size: 1.02rem; }
+  h2 { font-size: 1.15rem; margin: 2.8rem 0 .9rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+
+  .dl { background: var(--card); border-radius: 14px; padding: 1.5rem; margin: 0 0 1rem; }
+  .dl-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .3rem; }
+  .dl-os { font-size: 1.1rem; font-weight: 650; margin: 0; }
+  .dl-meta { color: var(--muted); font-size: .87rem; }
+  .btn {
+    display: inline-block; margin-top: 1rem; padding: .7rem 1.7rem;
+    background: var(--accent); color: #fff; text-decoration: none;
+    border-radius: 9px; font-weight: 600; font-size: .97rem;
+    transition: background .15s ease;
+  }
+  .btn:hover { background: var(--accent-dark); }
+  .hash { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          font-size: .74rem; color: var(--muted); word-break: break-all;
+          margin-top: .9rem; line-height: 1.5; }
+
+  .soon { background: transparent; border: 1px dashed var(--line); border-radius: 14px;
+          padding: 1.2rem 1.5rem; margin-bottom: 1rem; }
+  .soon .dl-os { color: var(--muted); }
+
+  ol, ul { padding-left: 1.35rem; }
+  li { margin: .45rem 0; }
+  code { background: rgba(127,127,127,.14); padding: .12em .42em; border-radius: 3px; font-size: .9em; }
+  a { color: var(--accent); }
+  .foot { margin-top: 3.5rem; padding-top: 1.4rem; border-top: 1px solid var(--line);
+          color: var(--muted); font-size: .9rem; }
+  .foot a { margin-right: 1.2rem; }
+  .warn { border-left: 3px solid #e8a13a; padding: .5rem 0 .5rem 1rem; margin: 1.2rem 0; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-label="RDesk 图标">
+    <defs><linearGradient id="ic" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5BB0F7"/><stop offset="1" stop-color="#0B4DA6"/></linearGradient></defs>
+    <rect width="1024" height="1024" fill="url(#ic)"/>
+    <rect x="200" y="248" width="624" height="448" rx="52" fill="none" stroke="#fff" stroke-width="58"/>
+    <rect x="452" y="736" width="120" height="46" rx="23" fill="#fff"/>
+    <g fill="none" stroke="#fff" stroke-width="48" stroke-linecap="round">
+      <circle cx="312" cy="600" r="7"/>
+      <path d="M312 505 a95 95 0 0 1 95 95"/>
+      <path d="M312 410 a190 190 0 0 1 190 190"/>
+    </g>
+  </svg>
+  <h1>RDesk 远程桌面</h1>
+</div>
+<p class="tagline">在自己的设备之间建立远程连接</p>
+
+<div class="dl">
+  <div class="dl-head">
+    <p class="dl-os">macOS</p>
+    <span class="dl-meta">版本 2.1.0 · 22 MB</span>
+  </div>
+  <p class="dl-meta">需要 macOS 10.15 或更高版本 · 支持 Apple 芯片与 Intel</p>
+  <a class="btn" href="/rdesk/dl/RDesk-2.1.0.dmg">下载 .dmg</a>
+  <p class="hash">SHA-256: <span id="sha">d63c5fcba2bdc5bde22ba5f94350c68a5251d05ccf29a7917d39c1fd01d24756</span></p>
+</div>
+
+<div class="dl">
+  <div class="dl-head">
+    <p class="dl-os">Android</p>
+    <span class="dl-meta">版本 2.1.0 · 53 MB</span>
+  </div>
+  <p class="dl-meta">需要 Android 7.0 或更高版本 · 可作为被控端与主控端</p>
+  <a class="btn" href="/rdesk/dl/RDesk-2.1.0.apk">下载 .apk</a>
+  <p class="hash">SHA-256: <span>a530882d9d7d13e832c165cf1eea05e169f8694c0b7987ea5f9fe5f7fa84e7d5</span></p>
+</div>
+
+<div class="soon">
+  <div class="dl-head"><p class="dl-os">Windows</p><span class="dl-meta">仅主控端</span></div>
+  <p class="dl-meta" style="margin:.3rem 0 0">
+    可用于连接并操作其他设备；作为被控端共享自身屏幕的功能尚未实现，暂不提供下载。
+  </p>
+</div>
+
+<div class="soon">
+  <div class="dl-head"><p class="dl-os">iOS / iPadOS</p><span class="dl-meta">审核中</span></div>
+  <p class="dl-meta" style="margin:.3rem 0 0">即将在 App Store 上架。</p>
+</div>
+
+<h2>安装与首次运行</h2>
+
+<ol>
+  <li>下载 <code>.dmg</code> 后双击打开，把 RDesk 拖入「应用程序」</li>
+  <li>首次打开时，macOS 会询问是否允许运行——本应用已经过 Apple 公证，正常打开即可</li>
+  <li>若要把这台 Mac 作为<strong>被控端</strong>（让别的设备连过来），还需要授予两项系统权限</li>
+</ol>
+
+<div class="warn">
+  <p style="margin:.2rem 0"><strong>权限授予路径</strong>：系统设置 → 隐私与安全性</p>
+  <ul style="margin:.4rem 0 .2rem">
+    <li><strong>屏幕录制</strong> —— 采集屏幕画面，必需。授权后需重新启动 RDesk 才生效</li>
+    <li><strong>辅助功能</strong> —— 接收远程的鼠标与键盘操作。只看画面不操作可以不授予</li>
+  </ul>
+</div>
+
+<h2>开始使用</h2>
+
+<ol>
+  <li>在<strong>被控设备</strong>上打开 RDesk，进入「远程连接」页，记下「本机设备 ID」与验证码</li>
+  <li>在<strong>主控设备</strong>上填入该 ID 与验证码，点击「密码连接」</li>
+</ol>
+
+<p>同一局域网内可改用直连地址，数据不经过服务器，延迟更低。
+遇到问题见<a href="/rdesk/support">技术支持</a>。</p>
+
+<div class="foot">
+  <a href="/rdesk/support">技术支持</a>
+  <a href="/rdesk/privacy">隐私政策</a>
+  <a href="mailto:641742030@qq.com">联系我们</a>
+</div>
+
+</body>
+</html>
