@@ -171,6 +171,15 @@ class ProfileScreen extends StatelessWidget {
                       title: '退出登录',
                       onTap: auth.logout,
                     ),
+                  // App Store 审核指南 5.1.1(v) 要求提供应用内注销账号入口。
+                  if (session != null)
+                    _MenuItem(
+                      icon: Icons.person_remove_rounded,
+                      iconColor: AppTheme.errorRed,
+                      title: '注销账号',
+                      subtitle: '永久删除账号及云端设备记录',
+                      onTap: () => _confirmDeleteAccount(context, auth),
+                    ),
                 ],
               ),
 
@@ -567,10 +576,158 @@ class _MenuGroup extends StatelessWidget {
   }
 }
 
+/// 注销账号确认流程：先展示后果，再要求输入密码二次确认。
+///
+/// 删除不可逆，因此不使用「一键删除」，必须让用户明确看到会失去什么。
+Future<void> _confirmDeleteAccount(
+  BuildContext context,
+  AuthProvider auth,
+) async {
+  final deleted = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => _DeleteAccountDialog(auth: auth),
+  );
+  if (deleted != true || !context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('账号已注销'),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
+
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog({required this.auth});
+
+  final AuthProvider auth;
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  final _passwordController = TextEditingController();
+  bool _obscure = true;
+  bool _submitting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final password = _passwordController.text.trim();
+    if (password.isEmpty) {
+      setState(() => _error = '请输入密码以确认身份');
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    final ok = await widget.auth.deleteAccount(password);
+    if (!mounted) return;
+
+    if (ok) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      _submitting = false;
+      _error = widget.auth.error ?? '注销失败，请稍后重试';
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = widget.auth.session;
+    return AlertDialog(
+      title: const Text('注销账号'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (session != null)
+              Text(
+                '账号：${session.username}',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
+            const SizedBox(height: 10),
+            const Text(
+              '注销后将永久删除：',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '· 你的账号与登录凭据\n'
+              '· 云端保存的设备列表与在线状态\n'
+              '· 全部已登录设备的登录状态',
+              style: TextStyle(fontSize: 12.5, height: 1.6),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              '此操作不可撤销，账号无法恢复。本机的连接历史需另行清除。',
+              style: TextStyle(fontSize: 12.5, color: AppTheme.errorRed),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _passwordController,
+              obscureText: _obscure,
+              enabled: !_submitting,
+              autofocus: true,
+              onSubmitted: (_) => _submitting ? null : _submit(),
+              decoration: InputDecoration(
+                labelText: '请输入密码确认',
+                isDense: true,
+                border: const OutlineInputBorder(),
+                errorText: _error,
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _obscure
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
+                    size: 20,
+                  ),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _submitting ? null : _submit,
+          style: FilledButton.styleFrom(backgroundColor: AppTheme.errorRed),
+          child: _submitting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('确认注销'),
+        ),
+      ],
+    );
+  }
+}
+
 class _MenuItem extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String title;
+  final String? subtitle;
   final Widget? trailing;
   final VoidCallback? onTap;
 
@@ -579,6 +736,7 @@ class _MenuItem extends StatelessWidget {
     required this.iconColor,
     required this.title,
     required this.onTap,
+    this.subtitle,
     this.trailing,
   });
 
@@ -599,6 +757,15 @@ class _MenuItem extends StatelessWidget {
         child: Icon(icon, color: iconColor, size: 18),
       ),
       title: Text(title, style: const TextStyle(fontSize: 14)),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle!,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Theme.of(context).textTheme.bodySmall?.color,
+              ),
+            ),
       trailing: trailing ?? const Icon(Icons.chevron_right_rounded, size: 20),
     );
   }

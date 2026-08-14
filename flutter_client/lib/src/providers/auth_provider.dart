@@ -108,6 +108,47 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 永久注销账号：先请求服务端删除，成功后再清空本机的一切账号痕迹。
+  ///
+  /// 顺序不能颠倒——若先清本地再请求，删除失败时用户会失去登录态却仍留有账号。
+  /// 返回 true 表示删除成功；失败时 [error] 中带有原因，账号保持可用。
+  Future<bool> deleteAccount(String password) async {
+    if (_session == null) {
+      _error = '当前未登录';
+      notifyListeners();
+      return false;
+    }
+
+    _busy = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _bridge.deleteAccount(password: password);
+    } catch (err) {
+      _busy = false;
+      _error = err.toString().replaceFirst('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+
+    _session = null;
+    _devices = const [];
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    await _bridge.clearSavedAccountSession();
+    await _clearCredentials();
+    // 注销后生物识别会话必须一并清除，否则下次仍可凭指纹「登录」到已删除的账号。
+    await _clearBiometricSession();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_biometricEnabledKey, false);
+    _biometricEnabled = false;
+
+    _busy = false;
+    notifyListeners();
+    return true;
+  }
+
   Future<void> refreshDevices({bool notifyOnStart = true}) async {
     if (_session == null) {
       _devices = const [];
