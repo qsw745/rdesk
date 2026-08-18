@@ -170,7 +170,6 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                     context.go('/');
                   },
                   onFileManager: () => context.go('/files/${widget.sessionId}'),
-                  onChat: () => context.go('/chat/${widget.sessionId}'),
                   onToggleToolbar: () => setState(() => _showToolbar = false),
                 ),
               ),

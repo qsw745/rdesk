@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../screens/remote_desktop_screen.dart';
 import '../screens/file_manager_screen.dart';
-import '../screens/chat_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/connection_settings_screen.dart';
 import '../screens/gesture_guide_screen.dart';
-import '../screens/shortcut_guide_screen.dart';
 import '../screens/connection_log_screen.dart';
 import '../screens/my_devices_screen.dart';
 import '../screens/cloud_devices_screen.dart';
@@ -96,13 +94,6 @@ final appRouter = GoRouter(
       ),
     ),
     GoRoute(
-      path: '/chat/:sessionId',
-      parentNavigatorKey: rootNavigatorKey,
-      builder: (context, state) => ChatScreen(
-        sessionId: state.pathParameters['sessionId']!,
-      ),
-    ),
-    GoRoute(
       path: '/settings',
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const SettingsScreen(),
@@ -137,11 +128,6 @@ final appRouter = GoRouter(
       path: '/gesture-guide',
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const GestureGuideScreen(),
-    ),
-    GoRoute(
-      path: '/shortcut-guide',
-      parentNavigatorKey: rootNavigatorKey,
-      builder: (context, state) => const ShortcutGuideScreen(),
     ),
     GoRoute(
       path: '/logs',

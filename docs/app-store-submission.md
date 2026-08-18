@@ -4,8 +4,12 @@
 
 - **Bundle ID**：`com.qsw.rdesk`
 - **Team ID**：`6N5T3G6H33`
-- **版本 / 构建号**：**2.1.0 (6)** —— 提交时必须选此构建
-  （由 `flutter_client/pubspec.yaml` 的 `version: 2.1.0+6` 统一管理）
+- **版本 / 构建号**：**2.1.0 (13)** —— 当前整改候选，尚未上传或重新提交
+  （由 `flutter_client/pubspec.yaml` 的 `version: 2.1.0+13` 统一管理）
+
+> **当前状态（2026-08-18）**：build 12 已于 2026-08-17 提交，并于
+> 2026-08-18 再次被 Guideline 5.6 拒绝。不要再选 build 6、11 或 12；
+> build 13 必须完成本地验证、真机安装和审核材料同步后，才能上传并选择。
 
 ---
 
@@ -49,26 +53,20 @@
 - 永久密码，审核期间不改
 - 开启无人值守，免去被控端手动确认
 
-**维持该环境需要注意：**
+**维持当前物理演示机需要注意：**
 
 提交后**每天跑一次**下面的检查脚本。它覆盖审核员实际走的完整链路
-（模拟器在线 → 录屏/无障碍授权 → 服务端解析鉴权 → 画面推送 → 隐私/支持页可访问），
+（物理设备在线 → 录屏/无障碍授权 → 服务端解析鉴权 → 画面推送 → 隐私/支持页可访问），
 任一环节断掉都会直接输出修复命令；退出码 0 表示审核员可正常连接。
 
 ```bash
-./scripts/check_review_host.sh
+RDESK_REVIEW_DEVICE_ID=660725198 RDESK_REVIEW_PASSWORD='<密码>' \
+  RDESK_REVIEW_SERIAL='<adb 序列号>' ./scripts/check_review_host.sh
 ```
 
-```bash
-# 若模拟器已关闭，重新启动（审核期间须保持运行）
-~/Library/Android/sdk/emulator/emulator -avd RDeskDemo -no-audio -no-boot-anim &
-```
-
-- **Mac 必须保持开机且不休眠**（系统设置 → 锁定屏幕 → 显示器关闭后 → 永不），
-  否则模拟器掉线，审核员连不上会直接以 Guideline 2.1 打回
-- 模拟器重启后设备 ID 不变，但**录屏授权会被系统回收**，需重新进入
-  「我的 → 移动被控」点一次「去授权」并确认系统弹窗
-- 审核通过后建议删除该 AVD 或至少改掉永久密码
+- 物理演示机必须保持充电、联网，并停留在安装 RDesk 的独立 Android 用户中
+- 重启或切换 Android 用户后，重新确认 MediaProjection、无障碍服务和前台托管状态
+- 审核通过后删除独立 Android 用户或至少更换永久密码
 - 审核期间（提交后约 1–7 天）**不要关机、不要改密码**
 
 > 若无法提供常开主机，替代方案是录制一段完整操作视频上传到可公开访问的链接
@@ -84,7 +82,7 @@
 > 是 2026-08-07 触发 Guideline 5.6 的直接原因。
 >
 > **改用 [app-review-response.md](app-review-response.md) 第三节的英文备注**，
-> 那一版已改为真实 Windows 主机，并补充了「无隐藏功能」的逐条声明。
+> 那一版已改为真实物理 Android 手机，并按当前实现列出审核路径与能力边界。
 > 以下内容仅作历史记录保留。
 
 <details>
@@ -271,6 +269,10 @@ Info.plist doesn't match the key value of the app's export compliance documentat
 
 ### 描述草稿
 
+> **提交前必须把 ASC 线上旧描述整段替换为下文。** 2026-08-18 复查时，ASC
+> 仍显示「支持 Windows、macOS、Android、iOS 之间互控」和「多点触控手势」；
+> 这两项与实际能力不符，不能只更新仓库文档而不更新 ASC。
+
 ```
 RDesk 是一款安全、高效的跨平台远程桌面控制工具，让你随时随地访问自己的电脑。
 
@@ -295,7 +297,8 @@ RDesk 是一款安全、高效的跨平台远程桌面控制工具，让你随�
 跨网络时通过中继服务器转发。
 
 【跨平台】
-iOS、macOS、Android 之间互联；iOS 作为被控端仅共享画面，不接受远程操作。
+Windows 与 iOS 当前可作为主控端；Android 与 macOS 可作为接受远程操作的被控端；
+iOS 作为被控端时仅共享画面，不接受远程操作。
 
 注意：使用本 App 需要在被控设备上安装并启动 RDesk 被控端，
 且仅可用于连接你本人拥有或已获得明确授权的设备。
@@ -315,7 +318,7 @@ iOS、macOS、Android 之间互联；iOS 作为被控端仅共享画面，不接
 | 文件断点续传 | ❌ 无 | 无 Range/offset/resume 相关实现 |
 | 剪贴板同步（文本） | ✅ 有 | `session_provider.dart` `sendClipboard()` |
 | 剪贴板同步（图片） | ❌ 无 | 仅处理 `text/plain` |
-| 会话聊天 | ❌ 形同虚设 | `sendChatMessage()` 只写本地存储，从不发往对端 |
+| 会话聊天 | ❌ 已从 build 13 移除 | build 12 只写本地存储、从不发往对端；build 13 删除入口、路由、Provider、模型与持久化代码 |
 | 端到端加密 | ❌ 无 | Flutter 端无任何 noise/chacha/x25519 调用 |
 | 前向保密 | ❌ 无 | 无密钥协商实现 |
 | 传输加密 | ✅ 有 | 默认 `https://qisw.top`，WS 自动切 `wss` |
@@ -392,7 +395,10 @@ iOS、macOS、Android 之间互联；iOS 作为被控端仅共享画面，不接
 | 2.1.0 (4) | 上传成功，但被 Apple 邮件退回：**ITMS-90683** 缺少 `NSPhotoLibraryUsageDescription` |
 | 2.1.0 (5) | 上传成功，已补相册用途说明 |
 | 2.1.0 (6) | 上传成功。默认服务器改为 HTTPS、新增应用内注销账号、更换 App 图标。以此版本提交后被 **Guideline 5.6** 拒绝 |
-| 2.1.0 (7) | 上传成功。**应提交此版本**：修复静止画面停止推流 / 投屏被回收后推送死图、重做远控控制面板 |
+| 2.1.0 (7) | 历史上传：修复静止画面停止推流 / 投屏被回收后推送死图、重做远控控制面板；已过期，不再提交 |
+| 2.1.0 (11) | 2026-08-13 提交；移除「隐私屏」「录屏」空开关，2026-08-14 再次被 **Guideline 5.6** 拒绝 |
+| 2.1.0 (12) | 2026-08-17 提交；移除未使用的相册依赖并提供测试账号，2026-08-18 第三次被 **Guideline 5.6** 拒绝 |
+| 2.1.0 (13) | 当前本地整改候选；移除伪聊天与虚假快捷键入口，修正商店/审核/支持文案；**尚未上传或提交** |
 
 ### ⚠️ 每次上传新构建后必做：补出口合规
 
@@ -468,7 +474,32 @@ Flutter 工具链目前不为其生成 dSYM。所有 CocoaPods 依赖的 dSYM �
 影响：仅该 framework 的崩溃日志无法符号化。不影响审核与上架，
 非项目配置问题，无需处理。
 
-## 九、提交前检查清单
+## 九、build 13 提交前检查清单（当前）
+
+- [x] 主 App 与 Broadcast Extension 均包含自有 `PrivacyInfo.xcprivacy`
+- [x] 扩展版本设置跟随 `FLUTTER_BUILD_NAME` / `FLUTTER_BUILD_NUMBER`
+- [x] 应用内注销账号入口和服务端删除链路保持可用
+- [x] 默认服务器为 HTTPS/WSS，隐私政策如实披露中转边界
+- [x] build 13 移除只写本地、不发往对端的「会话聊天」全部 Flutter 代码
+- [x] build 13 移除没有活动实现的「快捷键」入口、路由和静态说明页
+- [x] 仓库中的 ASC 描述源稿不再宣称 Windows 被控、iOS 可受控或多点触控透传
+- [x] `deploy/support.html` 改为 Android/macOS 可受控、iOS 仅共享、Windows 仅主控
+- [x] `flutter test` 定向回归 30 项全部通过
+- [x] `flutter analyze` 无错误或警告（仅 27 条既有 `info`）
+- [x] `flutter build ipa --release` 成功，主 App 与扩展均为 2.1.0 (13)；
+      主 App/扩展自有隐私清单与签名 `objective_c.framework` 均已核验进包
+- [ ] 真机 iPhone 安装 build 13，并复查我的页和会话操作面板
+- [ ] `./scripts/check_review_host.sh` 复查物理演示机与公开页面
+- [x] 公开支持页已部署并从 `https://qisw.top/rdesk/support` 回读验证；线上文件与
+      本地 SHA-256 一致，旧文件备份为 `support.html.bak-build13-20260818`
+- [ ] 上传 build 13，完成出口合规并确认 TestFlight 分发状态
+- [ ] ASC 版本页选择 build 13，替换旧描述、审核备注和登录凭据
+- [ ] 在用户最终确认后回复 Apple 并重新提交
+
+> 当前只允许把状态写成「build 13 本地整改候选」。在 ASC live 状态确认前，
+> 不得写成已上传、已回复、已重新提交、已批准或公开可用。
+
+## 九-A、历史 build 6 提交检查清单（勿复用）
 
 - [x] 自有 `PrivacyInfo.xcprivacy`（主 App + 录屏扩展）
 - [x] 扩展与主 App 的 CFBundleVersion 一致

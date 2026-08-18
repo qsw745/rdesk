@@ -18,7 +18,6 @@ class RemoteControlBar extends StatelessWidget {
     required this.sessionId,
     required this.onDisconnect,
     required this.onFileManager,
-    required this.onChat,
     required this.onToggleToolbar,
     required this.onRemoteAction,
     required this.onRemoteTextInput,
@@ -29,7 +28,6 @@ class RemoteControlBar extends StatelessWidget {
   final String sessionId;
   final VoidCallback onDisconnect;
   final VoidCallback onFileManager;
-  final VoidCallback onChat;
   final VoidCallback onToggleToolbar;
   final Future<void> Function(String action) onRemoteAction;
   final Future<void> Function() onRemoteTextInput;
@@ -112,7 +110,6 @@ class RemoteControlBar extends StatelessWidget {
         sessionId: sessionId,
         onDisconnect: onDisconnect,
         onFileManager: onFileManager,
-        onChat: onChat,
         onToggleToolbar: onToggleToolbar,
         onRemoteAction: onRemoteAction,
         onPushClipboard: onPushClipboard,
@@ -168,7 +165,6 @@ class RemoteActionSheet extends StatelessWidget {
     required this.sessionId,
     required this.onDisconnect,
     required this.onFileManager,
-    required this.onChat,
     required this.onToggleToolbar,
     required this.onRemoteAction,
     required this.onPushClipboard,
@@ -178,7 +174,6 @@ class RemoteActionSheet extends StatelessWidget {
   final String sessionId;
   final VoidCallback onDisconnect;
   final VoidCallback onFileManager;
-  final VoidCallback onChat;
   final VoidCallback onToggleToolbar;
   final Future<void> Function(String action) onRemoteAction;
   final Future<void> Function() onPushClipboard;
@@ -295,16 +290,6 @@ class RemoteActionSheet extends StatelessWidget {
                     onTap: () {
                       Navigator.pop(context);
                       onFileManager();
-                    },
-                  ),
-                  const _GroupDivider(),
-                  _ActionRow(
-                    icon: Icons.chat_bubble_outline_rounded,
-                    title: '会话聊天',
-                    chevron: true,
-                    onTap: () {
-                      Navigator.pop(context);
-                      onChat();
                     },
                   ),
                 ],

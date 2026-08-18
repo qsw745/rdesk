@@ -12,7 +12,6 @@ class DesktopViewerSidebar extends StatefulWidget {
   final String sessionId;
   final VoidCallback onDisconnect;
   final VoidCallback onFileManager;
-  final VoidCallback onChat;
   final Future<void> Function(String action) onRemoteAction;
   final Future<void> Function() onRemoteTextInput;
   final Future<void> Function() onPushClipboard;
@@ -23,7 +22,6 @@ class DesktopViewerSidebar extends StatefulWidget {
     required this.sessionId,
     required this.onDisconnect,
     required this.onFileManager,
-    required this.onChat,
     required this.onRemoteAction,
     required this.onRemoteTextInput,
     required this.onPushClipboard,
@@ -334,12 +332,6 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
             label: '文件管理',
             isDark: isDark,
             onTap: widget.onFileManager,
-          ),
-          _SidebarActionTile(
-            icon: Icons.chat_bubble_outline_rounded,
-            label: '聊天',
-            isDark: isDark,
-            onTap: widget.onChat,
           ),
           const SizedBox(height: 4),
           // Remote navigation actions as a compact grid

@@ -403,8 +403,6 @@ class _QuickFunctionGrid extends StatelessWidget {
           () => context.push('/connection-settings')),
       _QuickItem(Icons.touch_app_rounded, '操作手势', const Color(0xFFE8823A),
           () => context.push('/gesture-guide')),
-      _QuickItem(Icons.keyboard_rounded, '快捷键', const Color(0xFF6C5CE7),
-          () => context.push('/shortcut-guide')),
       _QuickItem(Icons.folder_rounded, '我的文件', const Color(0xFF2BBFA0),
           () => context.push('/logs')),
       _QuickItem(Icons.settings_remote_rounded, '无人值守', const Color(0xFFE05B6E),

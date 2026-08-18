@@ -1,27 +1,33 @@
-# Guideline 5.6 被拒后的回复草稿
+# 第三次 Guideline 5.6 拒绝后的 build 13 整改与回复草稿
 
-> **两次被拒**，同一条 Guideline 5.6 – Developer Code of Conduct，Apple 两次发来
-> 的是同一段模板文字（「App 包含在审核过程中似乎被刻意隐藏的功能」），不指明具体功能。
+> **三次被拒**，同一条 Guideline 5.6 – Developer Code of Conduct。Apple 三次
+> 发来的都是同一段模板文字（「App 包含在审核过程中似乎被刻意隐藏的功能」），
+> 没有指明具体功能、页面、复现步骤或附件。
 >
 > | 时间 | 提交 | 结果 |
 > |---|---|---|
-> | 2026-08-06 | 2.1.0 (6) | 08-07 被拒（根因：备注把 Android 模拟器说成实体手机） |
+> | 2026-08-06 | 2.1.0 (6) | 08-07 被拒；备注把 Android 模拟器说成实体手机，是当时已确认的不一致 |
 > | 2026-08-13 | 2.1.0 (11) | 08-14 再次被拒，措辞相同 |
+> | 2026-08-17 | 2.1.0 (12) | 08-18 第三次被拒，措辞相同；测试账号与真机演示环境均已提供 |
 >
-> **二拒复查结论**（见第四节，2026-08-14 修订）：
+> **三拒复查结论（2026-08-18）**：
 >
-> 1. 备注**没有提供测试账号**，而云设备页与「我的-我的设备」挡在登录后，
->    审核员看不到这部分功能；备注却写着「没有随账号变化的行为」「每个界面
->    首次启动即可从标签栏到达，无前置条件」。这两句不成立。
-> 2. build 11 的包里带着一整套**没有任何代码调用、界面上也没有入口**的相册库
->    与相册权限声明。App 有能力、界面无入口——这是对 5.6 措辞最贴合的解释，
->    也是唯一在二进制层面确证的问题。
+> 1. build 12 已移除未使用的相册依赖并补齐测试账号，却仍收到同一条 5.6；
+>    因而「相册依赖就是主因」只能保留为历史假设，不能再作为已确认根因。
+> 2. ASC 线上描述仍宣称「Windows、macOS、Android、iOS 之间互控」和
+>    「多点触控手势」。实际 Windows 被控输入未实现，iOS 被控端只能共享画面，
+>    移动端也不透传多点触控；这是审核员直接可见的误导性元数据。
+> 3. build 12 的会话页仍显示「会话聊天」，但消息只写本机存储、从不发给对端；
+>    审核备注还把它列为功能，并写了「每个控件都按标签工作」。这是本轮最直接、
+>    最可复现的 5.6 风险。build 13 已删除入口、路由、Provider、模型和持久化代码。
+> 4. 「我的 → 快捷键」只有一张静态说明页，却宣称移动端会把 Cmd/Ctrl 组合键
+>    映射到 Mac 与 Windows。活动链路没有对应发送入口，build 13 已整页移除。
 >
-> ⚠️ 复查过程中一度得出「备注还有三条声明与 build 11 不符」的结论，**其中两条
-> 是错的**（详见第四节「一次错误的复查」）。教训见文末，比结论本身更值得记住。
+> Apple 并未确认以上哪一项触发拒绝，因此回复必须写成「我们自己确认并修复的
+> 不一致」，不能声称 Apple 指出了某个具体功能。
 >
-> 本文第二、三节的文案已按 build 12 改写；在 build 12 上传、测试账号建好、
-> 第一节全部核对完成之前，一个字都不要发出去。
+> 本文第二、三节是 build 13 的当前稿。在 build 13 本地测试、真机安装、IPA
+> 核验、审核主机复查、ASC 旧描述替换全部完成之前，一个字都不要发出去。
 
 ---
 
@@ -54,8 +60,9 @@
 
 ### 二拒之后新增的阻塞项
 
-- [x] **移除界面上够不到的相册能力**（2026-08-14）。这是二拒复查中唯一确证的
-      二进制层面问题，也是目前对 5.6 措辞最贴合的解释：
+- [x] **移除界面上够不到的相册能力**（2026-08-14）。这是二拒时确认存在的
+      二进制与界面不一致；build 12 移除后仍被同一条 5.6 拒绝，因此它不能再被
+      单独视为已确认根因。以下保留当时的证据与处理记录：
       > build 11 的包里带着 `file_picker`、`DKImagePickerController`、
       > `DKPhotoGallery`、`SDWebImage`、`SwiftyGif` 五个 framework 和
       > `NSPhotoLibraryUsageDescription`，其中 `DKImagePickerController` 就是
@@ -90,21 +97,36 @@
 
       > ⚠️ `flutter build ipa` 会覆盖 `build/ios/ipa/RDesk.ipa`，build 11 的产物
       > 已经没了。日后要留证，打包前先把旧 IPA 另存。
-- [ ] **上传 build 12 到 ASC**，并补出口合规
-      （`./scripts/asc.py compliance 12`，见 app-store-submission.md 第七节——
-      未回答出口合规的构建无法提交审核）
-- [ ] **建一个测试账号并填进备注**。云设备页与「我的-我的设备」在未登录时只有
+- [x] **build 12 已上传、补出口合规并提交**；2026-08-18 再次被 5.6 拒绝。
+- [x] **测试账号已创建并填进 ASC 的登录信息与审核备注**。云设备页与「我的-我的设备」在未登录时只有
       登录墙（[cloud_devices_screen.dart:86](../flutter_client/lib/src/screens/cloud_devices_screen.dart:86)、
       [my_devices_screen.dart:207](../flutter_client/lib/src/screens/my_devices_screen.dart:207)），
       而上一轮备注声称「没有随账号变化的行为」「每个界面首次启动即可从标签栏到达，
       无前置条件」。审核员看不到这块功能，正好落在 5.6 的模板措辞上。
-      账号可在 App 内「我的 → 注册」自助创建，无邀请码；建好后填入第二、三节的
-      `<填入测试账号>` / `<填入测试账号密码>`。
+      账号可在 App 内「我的 → 注册」自助创建，无邀请码；真实账号和密码只保存在 ASC，
+      仓库统一写作 `[REDACTED_IN_REPOSITORY]`。
       > 该账号下**不要**绑定任何私人设备，审核结束后删除。
-- [ ] 用真实值替换下方所有 `<...>` 占位符
-- [ ] 重跑 `./scripts/check_review_host.sh`（build 12 上传后、发送回复前）
-- [ ] 用装有 **build 12** 的真机 iPhone 再实测一次：登录测试账号 → 云设备页
-      能看到设备 → 退出登录 → 用设备 ID + 密码连接被控端
+
+### 三拒之后 build 13 新增阻塞项
+
+- [x] 从移动端操作面板、桌面侧栏、路由、Provider、模型和桥接持久化中完整移除
+      只写本地、不发往对端的「会话聊天」。
+- [x] 移除「我的 → 快捷键」入口、路由和静态说明页；不再宣称活动链路没有的
+      Cmd/Ctrl、方向键、Tab、Esc 透传。
+- [x] 修正仓库中的 ASC 描述源稿与 `deploy/support.html`：Android/macOS 可作
+      受控端，iOS 只共享画面，Windows 当前仅作主控端；不宣称多点触控透传。
+- [x] build 13 定向测试 30 项全部通过；`flutter analyze` 0 error / 0 warning
+      （27 条既有 `info`）；签名 IPA 构建成功，主 App 与扩展均为 2.1.0 (13)，
+      自有隐私清单与签名 `objective_c.framework` 均已核验进包。
+- [ ] 用装有 **build 13** 的真机 iPhone 实测：我的页无快捷键入口；连接演示机后
+      操作面板无会话聊天；文件、剪贴板、画质和显示器入口仍可见。
+      2026-08-18 Release App 已构建，但安装时 Apple CoreDevice 隧道为
+      `disconnected`，两次均返回 `CoreDeviceError 4 / RemotePairingError 4`；
+      必须在 iPhone 解锁、重新插拔并确认信任后复测，当前不得标记完成。
+- [ ] 重跑 `./scripts/check_review_host.sh`，确认物理演示机、MediaProjection、
+      Accessibility、画面推送与公开页面仍然有效。
+- [ ] 上传 build 13、补出口合规、替换 ASC 旧描述和审核备注。以上均需用户在
+      外部操作前最终确认；当前状态不得写成已上传或已重新提交。
 
 **实测得到的真实值（下方文案已按此填写）：**
 
@@ -113,7 +135,7 @@
 | hostname（审核员看到的） | `PLU110` |
 | platform | `android` |
 | 设备 ID | `660725198` |
-| 密码 | `<见 ASC 审核备注>` |
+| 密码 | `[REDACTED_IN_REPOSITORY]`（仅见 ASC 审核备注） |
 
 > ⚠️ **本仓库是公开的，演示机密码一律不得写入文档。**
 > 该被控端为真实手机且开启了无人值守 + 无障碍服务，拿到设备 ID 与密码
@@ -148,7 +170,69 @@
 
 ---
 
-## 二、回复 App 审核（英文，直接粘贴）
+## 二、第三次拒绝后的回复 App 审核（build 13，英文草稿）
+
+> **不要现在发送。** 只有在 build 13 上传、出口合规完成、ASC 选择 build 13、
+> 旧商店描述与审核备注已替换、真机和审核主机复查完成后，才能发送。
+>
+> 这版只陈述本轮已由源码与 live ASC 交叉确认的三组不一致，不再把 Apple 没有
+> 指明的某个功能写成「根因」。测试账号密码和被控端密码继续只填在 ASC，
+> 不进入仓库。
+
+```
+Thank you for the third review.
+
+The notice does not identify a specific screen, control, reproduction path or
+attachment. We therefore audited every review-visible control and every claim in
+the submitted metadata against the active Flutter HTTP implementation. We found
+and corrected the following inconsistencies in build 2.1.0 (13).
+
+1. REMOVED TWO USER-REACHABLE PLACEHOLDER SURFACES
+
+Build 12 displayed an in-session "Chat" entry. Messages entered there were stored
+only on the viewing device and were never delivered to the host. Build 12 also
+displayed a static "Keyboard Shortcuts" guide that claimed mobile Cmd/Ctrl,
+arrow-key, Tab and Escape forwarding which the active connection path did not
+provide.
+
+Build 13 removes both surfaces completely, including their routes, provider,
+model and local chat persistence. They are not hidden behind another entry point.
+
+2. CORRECTED THE PLATFORM AND INPUT CLAIMS
+
+The submitted App Store description incorrectly said Windows, macOS, Android and
+iOS could control one another and referred to multi-touch remote gestures. The
+actual boundary is narrower: Android and macOS hosts accept remote control; an
+iOS host shares its screen only; Windows is controller-only in the current
+release material. Mobile remote input supports tap, long press and single-pointer
+drag. Pinch zoom and 90-degree rotation affect only the viewer display and are not
+sent as multi-touch input to the host.
+
+We replaced those claims in the App Store description, App Review notes and
+public support page.
+
+3. RETAINED THE PREVIOUS BINARY CLEANUP
+
+Build 12 already removed the unused photo-picker dependency and photo-library
+permission that were present in build 11. Build 13 retains that removal. The app
+does not declare or access the photo library; file transfer browses only app
+sandbox files.
+
+The App Review login fields contain a working test account. The updated review
+notes contain a physical Android demo host, its credentials, exact connection
+steps and the remaining session controls. The host is kept powered on and online.
+
+We have described what we independently found without assuming which item your
+general notice referred to. If your finding concerns any other specific screen or
+behavior, please provide its name, navigation path, screenshot or reproduction
+steps so we can address it directly.
+
+Thank you for your time.
+```
+
+---
+
+## 二-A、历史 build 12 回复（勿发送，仅保留复盘）
 
 > 位置：App Store Connect → App 审核 → 该提交 → 「回复 App 审核」
 >
@@ -241,42 +325,41 @@ Thank you for your time.
 
 ---
 
-## 三、替换后的 App 审核备注（英文，覆盖原备注）
+## 三、build 13 App 审核备注（英文，覆盖 ASC 现有备注）
 
 > ⚠️ **ASC 备注上限 4000 字符**。实测依据：2026-08-13 在 ASC 页面读取该 textarea，
 > `maxLength` 属性为 -1（无硬限制），但现有备注 1429 字符时计数器显示剩余 2,571，
 > 1429 + 2571 = 4000。
 >
-> 本节下方的「完整版」有 7883 字符，**装不进去**，只作为素材保留。
-> **实际粘贴用下面的压缩版**（3936 字符，填入三个占位符后约 3940，余量约 60——
-> 余量很窄，再往里加任何一句都要先数字符）。
+> 本节下方的「完整版」是历史素材，**不要粘贴**。
+> **实际使用下面的压缩版**；发送前重新数字符并把真实凭据只填到 ASC。
 >
-> 压缩时保留了回应 Guideline 5.6 所必需的三块：测试账号与账号门控的如实说明、
-> 会话页全部控件清单、「无隐藏功能」逐条声明。被压掉的是重复表述。
+> 压缩版保留测试账号边界、演示主机、会话页可达控件和平台限制；不再使用
+> 「所有控件都会发请求」或「每个控件都有效」这类范围过大的绝对声明。
 
 ### 三之一、压缩版（粘贴这份）
 
 ```
-Build under review: 2.1.0 (12).
+Build under review: 2.1.0 (13).
 
 TEST ACCOUNT
 
-  Account:   <填入测试账号>
-  Password:  <填入测试账号密码>
+  Account:   [REDACTED_IN_REPOSITORY]
+  Password:  [REDACTED_IN_REPOSITORY]
 
-Sign in under the "我的" (Me) tab. The "云设备" (Cloud Devices) tab and "我的设备" (My Devices) show a sign-in prompt while signed out, and list the account's synced devices once signed in. They are the only functionality needing credentials; everything else works signed out.
+Sign in under "我的" (Me). "云设备" (Cloud Devices) and "我的设备" (My Devices) require this account; direct Device ID connection does not.
 
 DEMO HOST
 
-A physical Android phone we own, kept powered on and online for the review:
+A physical Android phone we own and keep online:
 
   Host:        OnePlus PLU110, Android 16 — a real phone, not an emulator or a VM
   Host name shown in the app: PLU110
   Screen:      661 x 1440
   Device ID:   660725198
-  Password:    <填入被控端密码>
+  Password:    [REDACTED_IN_REPOSITORY]
 
-RDesk is installed in a separate Android user profile holding no personal data. Unattended access is on, so nobody approves on the host side.
+RDesk is in a separate Android user with no personal data. Unattended access is on; no host-side approval is needed.
 
 TO CONNECT
 
@@ -284,9 +367,9 @@ TO CONNECT
 2. Enter the Device ID in "设备代码" and the Password in "验证码", keep the default mode "远程控制" (Remote Control), tap "密码连接".
 3. The remote screen appears. Tap = tap, long press = long press, drag = swipe on the host; a two-finger pinch zooms this device's view only.
 
-EVERY CONTROL IN THE SESSION SCREEN
+SESSION CONTROLS USED IN THE REVIEW FLOW
 
-There is no other menu, gesture or entry point in this screen.
+The controls relevant to the review flow are listed below.
 
 Bottom bar: 返回 Back | 主页 Home | 任务 Recents | 键盘 types text into the focused field on the host | 操作 opens the sheet below.
 
@@ -296,32 +379,33 @@ Sheet, 操作 group: 滚动 上滑/下滑 swipe up or down | 删除 deletes one 
 
 Sheet, 剪贴板 group: 发送到远端 and 从远端获取 exchange clipboard text.
 
-Sheet, 更多 group: 画质设置 requests quality and frame rate | 显示器 switches monitor | 文件传输 | 会话聊天.
+Sheet, 更多 group: 画质设置 requests quality and frame rate | 显示器 switches among monitors reported by the host | 文件传输 opens the local/remote file browser.
 
-仅观看, 指针模式, 旋转画面, 全屏 and 隐藏工具栏 change only what this device shows or sends; every other control results in a request to the host. Every control does what its label says: no switch reports success without acting.
+仅观看, 指针模式, 旋转画面, 全屏 and 隐藏工具栏 are viewer-side modes. The navigation, text, clipboard, display, quality and file controls use the active host session. Build 13 contains no chat or keyboard-shortcut-guide entry.
 
-NO HIDDEN OR REMOTELY ENABLED FUNCTIONALITY
+CAPABILITY BOUNDARIES
 
-No web view; nothing loads remote HTML or scripts. No remote configuration and no feature flags: our server exposes only account, device-presence, screen-frame, input, clipboard and file endpoints; no response from it alters the UI. No debug menu, no tap-count unlock, no behavior varying by region or date. No dynamic code loading, no custom URL schemes, no background modes. Apart from the two account-gated screens above, every screen is reachable from the tab bar on first launch.
+No WebView, remote HTML/scripts, remote configuration, feature flags, debug or tap-count unlock menu, dynamic code loading, custom URL schemes, or region/date-dependent behavior. The server does not alter the UI. The account-gated screens are identified above.
 
 GUIDELINE 4.2.7
 
-The app connects only to devices the user owns or is authorized to access. It does not provide, host or resell any virtual machine, cloud desktop or remote computer, and offers no app store on the host. All displayed content comes from the user's own host. Remote control applies to macOS and Android hosts; an iOS host can only share its screen, as the app states.
+The app connects only to user-owned or authorized devices. It does not provide, host or resell a virtual machine, cloud desktop or remote computer, and offers no host app store. Android and macOS hosts accept remote control. An iOS host shares its screen only. Windows is controller-only in this release.
 
 PERMISSIONS AND TRANSPORT
 
-Screen capture on iOS uses a ReplayKit Broadcast Extension and starts only when the user selects RDesk in the system screen-recording menu. The app declares no photo library permission and never accesses it; file transfer browses only its own sandbox directories. The default server is https://qisw.top, so sign-in, screen data and input events travel over HTTPS/WSS. Info.plist sets NSAllowsArbitraryLoads because users may point the app at their own self-hosted server or a LAN IP, which cannot be enumerated in advance. Screen data relayed through our server is readable there; we do not claim end-to-end encryption, and our privacy policy says so.
+iOS capture uses a ReplayKit Broadcast Extension and starts only when the user selects RDesk in the system recording menu. The app declares no photo-library permission; file transfer browses only its sandbox. The default server is https://qisw.top, so sign-in, screen data and input use HTTPS/WSS. NSAllowsArbitraryLoads permits user-entered self-hosted or LAN servers. Relayed screen data is readable on our server; we do not claim end-to-end encryption, and our privacy policy says so.
 
 Account deletion is in-app under "我的" (Me) → "注销账号".
 
 If the app reports no online device, the host is briefly offline — contact us at 641742030@qq.com and we will restore it.
 ```
 
-### 三之二、完整版（素材，勿直接粘贴——超出 4000 字符）
+### 三之二、历史 build 12 完整版（勿复用；仅保留复盘证据）
 
 
-> 原备注是中文且包含「该演示设备为 Android 手机」这句错误表述，**必须整段替换**。
-> 改用英文是为了让审核员无歧义地读到设备信息。
+> 下方保留的是第三次拒绝时 ASC 曾使用的历史稿，包含已确认不实的「会话聊天」
+> 与绝对化声明。它只用于解释 build 12 为什么仍有 5.6 风险，任何段落都不要复制
+> 到 build 13 的 ASC 备注或回复中。
 
 ```
 TEST ENVIRONMENT

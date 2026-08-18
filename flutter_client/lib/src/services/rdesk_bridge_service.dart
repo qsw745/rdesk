@@ -13,7 +13,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/io.dart';
 
 import '../models/account.dart';
-import '../models/chat_message.dart';
 import '../models/connection_info.dart';
 import '../models/device.dart';
 import '../models/file_entry.dart';
@@ -165,7 +164,6 @@ class RdeskBridgeService {
   static const _accountUserIdKey = 'rdesk.account_user_id';
   static const _accountUsernameKey = 'rdesk.account_username';
   static const _accountDisplayNameKey = 'rdesk.account_display_name';
-  static const _chatPrefix = 'rdesk.chat.';
   static const _legacyServerSettings = <String>{
     'https://qisw.top',
     'http://qisw.top',
@@ -1147,50 +1145,6 @@ class RdeskBridgeService {
     }
   }
 
-  Future<List<ChatMessage>> listChatMessages(String sessionId) async {
-    final prefs = await _prefs;
-    final raw = prefs.getString('$_chatPrefix$sessionId');
-    if (raw == null || raw.isEmpty) return [];
-    final data =
-        (jsonDecode(raw) as List<dynamic>).cast<Map<String, dynamic>>();
-    return data
-        .map(
-          (item) => ChatMessage(
-            sender: item['sender'] as String,
-            content: item['content'] as String,
-            timestamp: DateTime.parse(item['timestamp'] as String),
-            isLocal: item['isLocal'] as bool,
-          ),
-        )
-        .toList();
-  }
-
-  Future<ChatMessage> sendChatMessage(String sessionId, String content) async {
-    final messages = await listChatMessages(sessionId);
-    final message = ChatMessage(
-      sender: '我',
-      content: content,
-      timestamp: DateTime.now(),
-      isLocal: true,
-    );
-    messages.add(message);
-    await _saveChatMessages(sessionId, messages);
-    return message;
-  }
-
-  Future<void> injectRemoteMessage(String sessionId, String content) async {
-    final messages = await listChatMessages(sessionId);
-    messages.add(
-      ChatMessage(
-        sender: '远程端',
-        content: content,
-        timestamp: DateTime.now(),
-        isLocal: false,
-      ),
-    );
-    await _saveChatMessages(sessionId, messages);
-  }
-
   Future<List<FileEntry>> listLocalDirectory(String path) async {
     final directory = Directory(path);
     if (!await directory.exists()) return [];
@@ -1840,22 +1794,6 @@ class RdeskBridgeService {
         )
         .toList();
     await prefs.setString(_connectionsKey, jsonEncode(payload));
-  }
-
-  Future<void> _saveChatMessages(
-      String sessionId, List<ChatMessage> messages) async {
-    final prefs = await _prefs;
-    final payload = messages
-        .map(
-          (message) => <String, dynamic>{
-            'sender': message.sender,
-            'content': message.content,
-            'timestamp': message.timestamp.toIso8601String(),
-            'isLocal': message.isLocal,
-          },
-        )
-        .toList();
-    await prefs.setString('$_chatPrefix$sessionId', jsonEncode(payload));
   }
 
   String _generateDigits(int length) {

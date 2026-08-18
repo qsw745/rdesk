@@ -92,8 +92,6 @@ class _DesktopViewerLayoutState extends State<DesktopViewerLayout> {
                           onDisconnect: () => _disconnect(context),
                           onFileManager: () =>
                               context.go('/files/${widget.sessionId}'),
-                          onChat: () =>
-                              context.go('/chat/${widget.sessionId}'),
                           onRemoteAction: (action) async {
                             HapticFeedback.selectionClick();
                             await context

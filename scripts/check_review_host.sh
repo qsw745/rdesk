@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # 审核期间的演示被控端健康检查。
-# 覆盖审核员实际会走的完整链路：模拟器在线 → 录屏/无障碍授权 → 服务端可解析
+# 覆盖审核员实际会走的完整链路：物理设备在线 → 录屏/无障碍授权 → 服务端可解析
 # → 画面确实在推送。任一环节断掉，审核员会看到「未找到在线设备」并以
 # Guideline 2.1 打回，因此提交后每天跑一次。
 #
@@ -41,7 +41,7 @@ Usage:
 
 检查 App Store 审核用的演示被控端是否可被审核员连接。
 
-环境变量（均有默认值）：
+环境变量：
   RDESK_REVIEW_DEVICE_ID   设备 ID（必填）
   RDESK_REVIEW_PASSWORD    连接密码（必填，勿写入文件）
   RDESK_REVIEW_SERVER      服务器地址，默认 https://qisw.top
@@ -83,8 +83,8 @@ if [[ ! -x "$ADB_BIN" ]]; then
 fi
 
 if ! "$ADB_BIN" devices 2>/dev/null | awk 'NR>1 && $2=="device"{found=1} END{exit !found}'; then
-  fail "没有在线的 Android 设备"
-  hint "启动模拟器：~/Library/Android/sdk/emulator/emulator -avd RDeskDemo -no-audio -no-boot-anim &"
+  fail "没有在线的 Android 物理设备"
+  hint "连接并解锁审核用物理手机，确认 adb devices 显示为 device"
   echo
   echo "结论：审核员当前连不上，必须先恢复演示设备。"
   exit 1
@@ -125,7 +125,7 @@ if adb_sh shell "dumpsys activity services $PACKAGE" 2>/dev/null \
   pass "录屏服务前台运行（已获 MediaProjection 授权）"
 else
   fail "录屏未授权或服务未运行"
-  hint "模拟器重启会回收录屏权限：进 App「我的 → 移动被控」点「去授权」并确认系统弹窗"
+  hint "重启或切换 Android 用户会回收录屏权限：进 App「我的 → 移动被控」点「去授权」并确认系统弹窗"
 fi
 
 if adb_sh shell settings get secure enabled_accessibility_services 2>/dev/null \

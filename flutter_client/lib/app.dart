@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 import 'src/providers/connection_provider.dart';
 import 'src/providers/session_provider.dart';
 import 'src/providers/settings_provider.dart';
-import 'src/providers/chat_provider.dart';
 import 'src/providers/file_transfer_provider.dart';
 import 'src/providers/android_host_provider.dart';
 import 'src/providers/auth_provider.dart';
@@ -43,7 +42,6 @@ class RDeskApp extends StatelessWidget {
         ChangeNotifierProvider(
             create: (_) => SettingsProvider()..loadSettings()),
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
-        ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => FileTransferProvider()),
         ChangeNotifierProvider(create: (_) => AddressBookProvider()..load()),
         ChangeNotifierProvider(
