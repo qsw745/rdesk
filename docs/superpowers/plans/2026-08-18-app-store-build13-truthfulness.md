@@ -43,7 +43,7 @@
 - Consumes: existing `RemoteActionSheet`, `ProfileScreen`, `RDeskApp`, `SessionProvider`, and `appRouter`.
 - Produces: a remote action sheet with only implemented actions and a profile quick grid with no unsupported shortcut guide.
 
-- [ ] **Step 1: Write the failing widget tests**
+- [x] **Step 1: Write the failing widget tests**
 
 ```dart
 testWidgets('远控操作面板不显示仅本地保存的会话聊天', (tester) async {
@@ -82,27 +82,27 @@ testWidgets('我的页不显示未实现的快捷键入口', (tester) async {
 });
 ```
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run: `cd flutter_client && flutter test test/review_truthfulness_test.dart`
 
 Expected: both tests fail because `会话聊天` and `快捷键` are currently visible.
 
-- [ ] **Step 3: Make the minimal UI removal**
+- [x] **Step 3: Make the minimal UI removal**
 
 Remove the `会话聊天` action row and the profile `快捷键` quick item without changing implemented controls.
 
-- [ ] **Step 4: Run the tests and verify GREEN**
+- [x] **Step 4: Run the tests and verify GREEN**
 
 Run: `cd flutter_client && flutter test test/review_truthfulness_test.dart`
 
 Expected: 2 tests pass.
 
-- [ ] **Step 5: Refactor away dead chat/shortcut code**
+- [x] **Step 5: Refactor away dead chat/shortcut code**
 
 Remove `onChat` constructor parameters and route callbacks, remove the two routes/imports, remove `ChatProvider` from `MultiProvider`, remove chat persistence methods/imports from `RdeskBridgeService`, and delete the four orphan files. Update the test fixture to omit `onChat` after the production interface no longer accepts it.
 
-- [ ] **Step 6: Verify the refactor stays GREEN**
+- [x] **Step 6: Verify the refactor stays GREEN**
 
 Run: `cd flutter_client && flutter test test/review_truthfulness_test.dart test/widget_test.dart`
 
@@ -121,7 +121,7 @@ Expected: all tests pass and `rg -n "ChatProvider|ChatMessage|ChatScreen|onChat|
 - Consumes: the shipped behavior established by Task 1 and existing truthful-description draft in `docs/app-store-submission.md`.
 - Produces: one consistent capability boundary for the public support page, future ASC description, and build 13 review response/notes.
 
-- [ ] **Step 1: Correct the public support page**
+- [x] **Step 1: Correct the public support page**
 
 Replace the Windows-host instruction with this exact supported-host guidance:
 
@@ -129,11 +129,11 @@ Replace the Windows-host instruction with this exact supported-host guidance:
 <p>如果需要完整的远程操控，请把 Android 或 macOS 设备作为被控端。Windows 当前仅支持作为主控端。</p>
 ```
 
-- [ ] **Step 2: Make the submission document current**
+- [x] **Step 2: Make the submission document current**
 
 Set the source-of-truth candidate to `2.1.0 (13)`, add build 11/12 rejection history, record build 13 as prepared but not uploaded, keep the corrected description that says iOS is screen-share-only, and mark chat/shortcut claims as removed rather than implemented.
 
-- [ ] **Step 3: Rewrite the active review response and note sections**
+- [x] **Step 3: Rewrite the active review response and note sections**
 
 Record the 2026-08-18 third rejection, explain the confirmed mismatches without claiming Apple named a specific trigger, remove `会话聊天` from the control list, remove the sentence that every remaining control necessarily sends a host request, and limit platform claims to:
 
@@ -143,7 +143,7 @@ Android and macOS hosts accept remote control. An iOS host shares its screen onl
 
 Use `[REDACTED_IN_REPOSITORY]` for any credential that exists only in ASC.
 
-- [ ] **Step 4: Review the prose diff and forbidden claims**
+- [x] **Step 4: Review the prose diff and forbidden claims**
 
 Run:
 
@@ -166,11 +166,11 @@ Expected: `git diff --check` succeeds; any remaining matches are clearly labeled
 - Consumes: the Flutter tree from Tasks 1-2.
 - Produces: a locally verified `2.1.0 (13)` IPA candidate; no ASC upload.
 
-- [ ] **Step 1: Bump the build number**
+- [x] **Step 1: Bump the build number**
 
 Change `version: 2.1.0+12` to `version: 2.1.0+13`, then run `cd flutter_client && flutter pub get` so generated configuration records build 13.
 
-- [ ] **Step 2: Format and run focused tests**
+- [x] **Step 2: Format and run focused tests**
 
 Run:
 
@@ -182,20 +182,20 @@ flutter test test/review_truthfulness_test.dart test/widget_test.dart test/canva
 
 Expected: all focused tests pass.
 
-- [ ] **Step 3: Run static analysis**
+- [x] **Step 3: Run static analysis**
 
 Run: `cd flutter_client && flutter analyze --no-fatal-infos`
 
 Expected: exit 0 with no errors or warnings. Existing informational lints may still be listed;
 plain `flutter analyze` treats those infos as fatal in the current toolchain.
 
-- [ ] **Step 4: Build the signed IPA candidate**
+- [x] **Step 4: Build the signed IPA candidate**
 
 Run: `cd flutter_client && flutter build ipa --release`
 
 Expected: exit 0, `build/ios/ipa/RDesk.ipa` exists, and both Runner and Broadcast Extension report `CFBundleShortVersionString=2.1.0` and `CFBundleVersion=13` when inspected from the archive/IPA.
 
-- [ ] **Step 5: Install on an available iPhone and smoke test**
+- [x] **Step 5: Install on an available iPhone and smoke test**
 
 Use `scripts/reinstall_ios.sh [device-id]` when an iPhone is connected. Verify the app opens, `我的` has no `快捷键`, a connected remote session's `操作` sheet has no `会话聊天`, and existing control/file/clipboard entries remain visible. If no iPhone is available, report this as an explicit unresolved verification boundary instead of substituting an emulator claim.
 
@@ -211,15 +211,15 @@ Use `scripts/reinstall_ios.sh [device-id]` when an iPhone is connected. Verify t
 - Consumes: corrected static HTML from Task 2.
 - Produces: the live support URL used by ASC, with recoverable server backup.
 
-- [ ] **Step 1: Validate local HTML and inspect the current remote file**
+- [x] **Step 1: Validate local HTML and inspect the current remote file**
 
 Run `tidy` if available, otherwise parse locally with a standard HTML parser; then read the remote target metadata and checksum without modifying it.
 
-- [ ] **Step 2: Back up and deploy only the support page**
+- [x] **Step 2: Back up and deploy only the support page**
 
 Create a timestamped sibling backup on the server, copy only `deploy/support.html` to the production target, and do not restart unrelated services.
 
-- [ ] **Step 3: Verify the live URL**
+- [x] **Step 3: Verify the live URL**
 
 Run `curl -fsS https://qisw.top/rdesk/support` and confirm it says Android/macOS are controllable hosts, Windows is controller-only, and it no longer recommends Windows as a controlled host.
 
@@ -234,22 +234,22 @@ Run `curl -fsS https://qisw.top/rdesk/support` and confirm it says Android/macOS
 - Consumes: verified build 13 source, tests, IPA evidence, and live support-page readback.
 - Produces: committed and pushed repository state; ASC remains untouched.
 
-- [ ] **Step 1: Review the complete diff and requirement checklist**
+- [x] **Step 1: Review the complete diff and requirement checklist**
 
 Run `git status --short`, `git diff --stat`, `git diff --check`, and inspect the full diff for removed functionality, truthful copy, version 13, credential leakage, and unrelated edits.
 
-- [ ] **Step 2: Re-run the final verification suite**
+- [x] **Step 2: Re-run the final verification suite**
 
 Freshly run the focused Flutter tests, `flutter analyze --no-fatal-infos`, build/IPA metadata checks, public support-page readback, and `git diff --check` immediately before committing.
 
-- [ ] **Step 3: Commit the verified change**
+- [x] **Step 3: Commit the verified change**
 
 Stage only the plan, Flutter removals/tests/version files, submission/review docs, and support page. Use a conventional Chinese commit message describing the App Review truthfulness remediation.
 
-- [ ] **Step 4: Push to `origin master`**
+- [x] **Step 4: Push to `origin master`**
 
 Push only after the commit is verified and confirm the remote branch contains the new commit.
 
-- [ ] **Step 5: Stop at the external-review gate**
+- [x] **Step 5: Stop at the external-review gate**
 
 Report the exact state as `build 13 local candidate prepared` or `build 13 installed/verified` according to evidence. Do not call it uploaded, submitted, approved, or public. Ask for final confirmation before editing ASC, replying to Apple, uploading, or resubmitting.

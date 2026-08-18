@@ -118,13 +118,17 @@
 - [x] build 13 定向测试 30 项全部通过；`flutter analyze` 0 error / 0 warning
       （27 条既有 `info`）；签名 IPA 构建成功，主 App 与扩展均为 2.1.0 (13)，
       自有隐私清单与签名 `objective_c.framework` 均已核验进包。
-- [ ] 用装有 **build 13** 的真机 iPhone 实测：我的页无快捷键入口；连接演示机后
-      操作面板无会话聊天；文件、剪贴板、画质和显示器入口仍可见。
-      2026-08-18 Release App 已构建，但安装时 Apple CoreDevice 隧道为
-      `disconnected`，两次均返回 `CoreDeviceError 4 / RemotePairingError 4`；
-      必须在 iPhone 解锁、重新插拔并确认信任后复测，当前不得标记完成。
-- [ ] 重跑 `./scripts/check_review_host.sh`，确认物理演示机、MediaProjection、
-      Accessibility、画面推送与公开页面仍然有效。
+- [x] 用装有 **build 13** 的真机 iPhone 实测（2026-08-18）：iPhone 17 Pro Max
+      （iOS 26.6）安装并启动开发签名的 Release 2.1.0 (13)，Xcode 设备窗口也
+      明确列出 `RDesk / 13 / com.qsw.rdesk`。通过 iPhone 镜像逐页确认：我的页
+      有「操作手势」但无「快捷键」；连接 `PLU110` 后操作面板无「会话聊天」，
+      剪贴板、画质设置、显示器和文件传输仍可见。会话画面正常，实测延迟
+      约 107–133 ms，核验后已主动退出测试会话。
+- [x] 复查物理审核机与完整审核链路（2026-08-18）：Android 独立用户 10 下
+      `com.qsw.rdesk` 进程、MediaProjection 和 Accessibility 均存活；从 ASC
+      现有审核备注只读取得凭据后，服务端返回 `found=true`、
+      `authorized=true`、`hostname=PLU110`、`platform=android`，心跳约 1 秒；
+      首次拉帧即为 HTTP 200、34,088 字节、661×1440，隐私页和支持页均为 200。
 - [ ] 上传 build 13、补出口合规、替换 ASC 旧描述和审核备注。以上均需用户在
       外部操作前最终确认；当前状态不得写成已上传或已重新提交。
 
