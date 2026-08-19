@@ -49,7 +49,12 @@ message PublicKey {
 
 message LoginRequest {
     string username = 1;
-    bytes password_hash = 2;
+    // The password itself, not a hash. The host verifies it against the Argon2
+    // hash in its own config, which requires the plaintext. This field only
+    // ever travels inside the Noise-encrypted channel established over QUIC.
+    // (Was `bytes password_hash`; renamed because it never carried a hash on
+    // any implemented path. Same field number, so the wire format is unchanged.)
+    string password = 2;
     string client_version = 3;
     repeated string supported_codecs = 4;
     string os_type = 5;

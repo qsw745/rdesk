@@ -5,8 +5,12 @@
 //! message framing.
 
 use anyhow::{anyhow, Context, Result};
-use quinn::{Connection, RecvStream, SendStream};
+use quinn::Connection;
 use tracing::{debug, trace};
+
+// Re-exported so downstream crates can name the halves of a stream without
+// taking their own `quinn` dependency (and risking a version skew with ours).
+pub use quinn::{RecvStream, SendStream};
 
 /// Maximum message size: 16 MB. Prevents allocating unbounded buffers.
 const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
