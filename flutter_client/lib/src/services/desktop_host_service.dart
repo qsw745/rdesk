@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../utils/remote_key_action.dart';
 import 'android_host_service.dart'; // Reuse AndroidHostState / AndroidHostFrame
 
 class DesktopPermissionState {
@@ -358,6 +359,10 @@ class DesktopHostService {
 
   Future<bool> performRemoteAction(String action) async {
     if (!Platform.isMacOS) return false;
+    final remoteKey = macRemoteKeyStrokeForAction(action);
+    if (remoteKey != null) {
+      return _macKeyPress(remoteKey.keyCode, remoteKey.modifiers);
+    }
     // Desktop doesn't have Android-style back/home/recents.
     // Map to reasonable keyboard shortcuts.
     switch (action) {
@@ -366,18 +371,27 @@ class DesktopHostService {
       case 'scroll_down':
         return _macScroll(-3);
       case 'delete':
-        return _macKeyPress(51, 0); // keycode 51 = Delete
+        return _macKeyPress(51); // keycode 51 = Delete
       case 'enter':
-        return _macKeyPress(36, 0); // keycode 36 = Return
+        return _macKeyPress(36); // keycode 36 = Return
       case 'back':
         // Cmd+[ as "back" on macOS
-        return _macKeyPress(33, 'command'); // keycode 33 = [
+        return _macKeyPress(
+          33,
+          const {MacRemoteModifier.command},
+        ); // keycode 33 = [
       case 'home':
         // Cmd+H = hide current app (closest to "home")
-        return _macKeyPress(4, 'command'); // keycode 4 = H
+        return _macKeyPress(
+          4,
+          const {MacRemoteModifier.command},
+        ); // keycode 4 = H
       case 'recents':
         // Mission Control: Ctrl+Up
-        return _macKeyPress(126, 'control'); // keycode 126 = UpArrow
+        return _macKeyPress(
+          126,
+          const {MacRemoteModifier.control},
+        ); // keycode 126 = UpArrow
       case 'wake_screen':
         return _macWakeScreen();
       default:
@@ -574,14 +588,33 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Q
     return result.exitCode == 0;
   }
 
-  Future<bool> _macKeyPress(int keyCode, [dynamic modifier]) async {
+  Future<bool> _macKeyPress(
+    int keyCode, [
+    Set<MacRemoteModifier> modifiers = const {},
+  ]) async {
+    final flagParts = <String>[
+      if (modifiers.contains(MacRemoteModifier.command))
+        'Quartz.kCGEventFlagMaskCommand',
+      if (modifiers.contains(MacRemoteModifier.control))
+        'Quartz.kCGEventFlagMaskControl',
+      if (modifiers.contains(MacRemoteModifier.option))
+        'Quartz.kCGEventFlagMaskAlternate',
+      if (modifiers.contains(MacRemoteModifier.shift))
+        'Quartz.kCGEventFlagMaskShift',
+    ];
+    final setDownFlags = flagParts.isEmpty
+        ? ''
+        : 'Quartz.CGEventSetFlags(e, ${flagParts.join(' | ')})';
+    final setUpFlags = flagParts.isEmpty
+        ? ''
+        : 'Quartz.CGEventSetFlags(e2, ${flagParts.join(' | ')})';
     final script = '''
 import Quartz
 e = Quartz.CGEventCreateKeyboardEvent(None, $keyCode, True)
-${modifier == 'command' ? 'Quartz.CGEventSetFlags(e, Quartz.kCGEventFlagMaskCommand)' : modifier == 'control' ? 'Quartz.CGEventSetFlags(e, Quartz.kCGEventFlagMaskControl)' : ''}
+$setDownFlags
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
 e2 = Quartz.CGEventCreateKeyboardEvent(None, $keyCode, False)
-${modifier == 'command' ? 'Quartz.CGEventSetFlags(e2, Quartz.kCGEventFlagMaskCommand)' : modifier == 'control' ? 'Quartz.CGEventSetFlags(e2, Quartz.kCGEventFlagMaskControl)' : ''}
+$setUpFlags
 Quartz.CGEventPost(Quartz.kCGHIDEventTap, e2)
 ''';
     final result = await Process.run(

@@ -10,6 +10,7 @@ import '../providers/connection_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/platform_util.dart';
+import '../utils/remote_toolbar_controller.dart';
 import '../widgets/desktop_viewer_layout.dart';
 import '../widgets/remote_canvas.dart';
 import '../widgets/remote_control_panel.dart';
@@ -33,7 +34,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
     systemNavigationBarContrastEnforced: false,
   );
 
-  bool _showToolbar = true;
+  late final RemoteToolbarController _toolbarController;
   bool _showHint = true;
   bool? _lastAutoClipboardSync;
   bool _handledRemoteTermination = false;
@@ -41,9 +42,25 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
   @override
   void initState() {
     super.initState();
+    _toolbarController = RemoteToolbarController()
+      ..addListener(_handleToolbarChanged);
     Future<void>.delayed(const Duration(seconds: 4), () {
       if (mounted) setState(() => _showHint = false);
     });
+  }
+
+  bool get _showToolbar => _toolbarController.visible;
+
+  void _handleToolbarChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _toolbarController
+      ..removeListener(_handleToolbarChanged)
+      ..dispose();
+    super.dispose();
   }
 
   @override
@@ -93,6 +110,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                 sessionId: widget.sessionId,
                 enableZoom: true,
                 onRemoteTap: (normalizedPosition) async {
+                  _toolbarController.markInteraction();
                   if (viewOnly) return;
                   HapticFeedback.lightImpact();
                   await context.read<SessionProvider>().sendNormalizedTap(
@@ -101,6 +119,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                       );
                 },
                 onRemoteLongPress: (normalizedPosition) async {
+                  _toolbarController.markInteraction();
                   if (viewOnly) return;
                   HapticFeedback.mediumImpact();
                   await context.read<SessionProvider>().sendNormalizedLongPress(
@@ -109,6 +128,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                       );
                 },
                 onRemoteDrag: (start, end) async {
+                  _toolbarController.markInteraction();
                   if (viewOnly) return;
                   HapticFeedback.selectionClick();
                   await context.read<SessionProvider>().sendNormalizedDrag(
@@ -118,6 +138,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                       );
                 },
                 onRemoteDragPath: (points) async {
+                  _toolbarController.markInteraction();
                   if (viewOnly) return;
                   HapticFeedback.selectionClick();
                   await context.read<SessionProvider>().sendNormalizedDragPath(
@@ -170,7 +191,11 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                     context.go('/');
                   },
                   onFileManager: () => context.go('/files/${widget.sessionId}'),
-                  onToggleToolbar: () => setState(() => _showToolbar = false),
+                  onToggleToolbar: _toolbarController.hide,
+                  autoHideToolbar: _toolbarController.autoHide,
+                  onAutoHideToolbarChanged: _toolbarController.setAutoHide,
+                  onActionSheetClosed: _toolbarController.markInteraction,
+                  onUserInteraction: _toolbarController.markInteraction,
                 ),
               ),
 
@@ -181,7 +206,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                 top: topPadding + 12,
                 right: 12,
                 child: GestureDetector(
-                  onTap: () => setState(() => _showToolbar = true),
+                  onTap: _toolbarController.show,
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(

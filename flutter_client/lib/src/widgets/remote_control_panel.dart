@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../providers/session_provider.dart';
 import '../utils/theme.dart';
 import 'quality_settings.dart' show QualitySettingsContent;
+import 'remote_session_tools.dart';
 
 /// 远控会话的底部控制栏。
 ///
@@ -23,6 +24,10 @@ class RemoteControlBar extends StatelessWidget {
     required this.onRemoteTextInput,
     required this.onPushClipboard,
     required this.onPullClipboard,
+    required this.autoHideToolbar,
+    required this.onAutoHideToolbarChanged,
+    required this.onActionSheetClosed,
+    required this.onUserInteraction,
   });
 
   final String sessionId;
@@ -33,6 +38,10 @@ class RemoteControlBar extends StatelessWidget {
   final Future<void> Function() onRemoteTextInput;
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
+  final bool autoHideToolbar;
+  final ValueChanged<bool> onAutoHideToolbarChanged;
+  final VoidCallback onActionSheetClosed;
+  final VoidCallback onUserInteraction;
 
   /// 内容区固定高度，用于让远程画布精确内缩相同距离。
   static const double _contentHeight = 56;
@@ -71,27 +80,42 @@ class RemoteControlBar extends StatelessWidget {
               _BarItem(
                 icon: Icons.arrow_back_rounded,
                 label: '返回',
-                onTap: () => onRemoteAction('back'),
+                onTap: () {
+                  onUserInteraction();
+                  onRemoteAction('back');
+                },
               ),
               _BarItem(
                 icon: Icons.home_rounded,
                 label: '主页',
-                onTap: () => onRemoteAction('home'),
+                onTap: () {
+                  onUserInteraction();
+                  onRemoteAction('home');
+                },
               ),
               _BarItem(
                 icon: Icons.grid_view_rounded,
                 label: '任务',
-                onTap: () => onRemoteAction('recents'),
+                onTap: () {
+                  onUserInteraction();
+                  onRemoteAction('recents');
+                },
               ),
               _BarItem(
                 icon: Icons.keyboard_alt_outlined,
                 label: '键盘',
-                onTap: onRemoteTextInput,
+                onTap: () {
+                  onUserInteraction();
+                  onRemoteTextInput();
+                },
               ),
               _BarItem(
                 icon: Icons.tune_rounded,
                 label: '操作',
-                onTap: () => _openActionSheet(context),
+                onTap: () {
+                  onUserInteraction();
+                  _openActionSheet(context);
+                },
               ),
             ],
           ),
@@ -112,10 +136,13 @@ class RemoteControlBar extends StatelessWidget {
         onFileManager: onFileManager,
         onToggleToolbar: onToggleToolbar,
         onRemoteAction: onRemoteAction,
+        onRemoteTextInput: onRemoteTextInput,
         onPushClipboard: onPushClipboard,
         onPullClipboard: onPullClipboard,
+        autoHideToolbar: autoHideToolbar,
+        onAutoHideToolbarChanged: onAutoHideToolbarChanged,
       ),
-    );
+    ).whenComplete(onActionSheetClosed);
   }
 }
 
@@ -169,6 +196,9 @@ class RemoteActionSheet extends StatelessWidget {
     required this.onRemoteAction,
     required this.onPushClipboard,
     required this.onPullClipboard,
+    this.onRemoteTextInput,
+    this.autoHideToolbar = false,
+    this.onAutoHideToolbarChanged,
   });
 
   final String sessionId;
@@ -176,16 +206,23 @@ class RemoteActionSheet extends StatelessWidget {
   final VoidCallback onFileManager;
   final VoidCallback onToggleToolbar;
   final Future<void> Function(String action) onRemoteAction;
+  final VoidCallback? onRemoteTextInput;
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
+  final bool autoHideToolbar;
+  final ValueChanged<bool>? onAutoHideToolbarChanged;
 
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SessionProvider>();
-    final maxHeight = MediaQuery.of(context).size.height * 0.82;
+    final mediaQuery = MediaQuery.of(context);
+    final maxHeight = mediaQuery.size.height *
+        (mediaQuery.orientation == Orientation.portrait ? 0.64 : 0.78);
+    final supportsMacDesktopKeys =
+        session.currentSession?.peerOs.toLowerCase().contains('mac') == true;
 
     return Container(
-      constraints: BoxConstraints(maxHeight: maxHeight),
+      height: maxHeight,
       decoration: const BoxDecoration(
         color: Color(0xFF1C1C1E),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -205,14 +242,9 @@ class RemoteActionSheet extends StatelessWidget {
                   Navigator.pop(context);
                   onDisconnect();
                 },
-                onToggleFullscreen: () => _toggleFullscreen(context),
                 onToggleViewOnly: () => _toggleViewOnly(context),
                 onTogglePointerMode: () => _togglePointerMode(context),
                 onRotate: () => _rotateCanvas(context),
-                onHideToolbar: () {
-                  Navigator.pop(context);
-                  onToggleToolbar();
-                },
               ),
               const _SectionLabel('操作'),
               _GroupCard(
@@ -267,6 +299,16 @@ class RemoteActionSheet extends StatelessWidget {
               _GroupCard(
                 children: [
                   _ActionRow(
+                    icon: Icons.keyboard_alt_outlined,
+                    title: '电脑键盘',
+                    subtitle: supportsMacDesktopKeys
+                        ? '文字输入、方向键与桌面组合键'
+                        : '文字输入、删除和回车',
+                    chevron: true,
+                    onTap: () => _showKeyboard(context),
+                  ),
+                  const _GroupDivider(),
+                  _ActionRow(
                     icon: Icons.hd_outlined,
                     title: '画质设置',
                     chevron: true,
@@ -291,6 +333,24 @@ class RemoteActionSheet extends StatelessWidget {
                       Navigator.pop(context);
                       onFileManager();
                     },
+                  ),
+                  const _GroupDivider(),
+                  _ActionRow(
+                    icon: Icons.tune_rounded,
+                    title: '控制设置',
+                    subtitle: '全屏、旋转与工具栏行为',
+                    chevron: true,
+                    onTap: () => _showControlSettings(context),
+                  ),
+                  const _GroupDivider(),
+                  _ActionRow(
+                    icon: Icons.signal_cellular_alt_rounded,
+                    title: '网络状态',
+                    subtitle: session.currentSession?.latencyMs == null
+                        ? session.connectionStatusLabel
+                        : '${session.currentSession!.latencyMs} ms',
+                    chevron: true,
+                    onTap: () => _showNetworkStatus(context),
                   ),
                 ],
               ),
@@ -350,6 +410,48 @@ class RemoteActionSheet extends StatelessWidget {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => const _SheetShell(child: QualitySettingsContent()),
+    );
+  }
+
+  void _showKeyboard(BuildContext context) {
+    final session = context.read<SessionProvider>().currentSession;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => RemoteKeyboardSheet(
+        peerOs: session?.peerOs ?? '',
+        onOpenSystemKeyboard: onRemoteTextInput ?? () {},
+        onRemoteAction: onRemoteAction,
+      ),
+    );
+  }
+
+  void _showControlSettings(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => RemoteControlSettingsSheet(
+        autoHideToolbar: autoHideToolbar,
+        onAutoHideChanged: onAutoHideToolbarChanged ?? (_) {},
+        onToggleFullscreen: () => _toggleFullscreen(context),
+        onHideToolbar: () {
+          Navigator.pop(sheetContext);
+          Navigator.pop(context);
+          onToggleToolbar();
+        },
+        onRotate: () => _rotateCanvas(context),
+      ),
+    );
+  }
+
+  void _showNetworkStatus(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const RemoteNetworkStatusSheet(),
     );
   }
 
@@ -459,64 +561,60 @@ class _QuickChipRow extends StatelessWidget {
     required this.pointerMode,
     required this.rotationQuarterTurns,
     required this.onDisconnect,
-    required this.onToggleFullscreen,
     required this.onToggleViewOnly,
     required this.onTogglePointerMode,
     required this.onRotate,
-    required this.onHideToolbar,
   });
 
   final bool viewOnly;
   final bool pointerMode;
   final int rotationQuarterTurns;
   final VoidCallback onDisconnect;
-  final VoidCallback onToggleFullscreen;
   final VoidCallback onToggleViewOnly;
   final VoidCallback onTogglePointerMode;
   final VoidCallback onRotate;
-  final VoidCallback onHideToolbar;
 
   @override
   Widget build(BuildContext context) {
     final degrees = rotationQuarterTurns * 90;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+    return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       child: Row(
         children: [
-          _Chip(
-            icon: Icons.logout_rounded,
-            label: '退出远控',
-            danger: true,
-            onTap: onDisconnect,
+          Expanded(
+            child: _Chip(
+              icon: Icons.logout_rounded,
+              label: '退出远控',
+              danger: true,
+              onTap: onDisconnect,
+            ),
           ),
-          _Chip(
-            icon: Icons.visibility_outlined,
-            label: '仅观看',
-            active: viewOnly,
-            onTap: onToggleViewOnly,
+          const SizedBox(width: 8),
+          Expanded(
+            child: _Chip(
+              icon: Icons.visibility_outlined,
+              label: '仅观看',
+              active: viewOnly,
+              onTap: onToggleViewOnly,
+            ),
           ),
-          _Chip(
-            icon: Icons.mouse_outlined,
-            label: '指针模式',
-            active: pointerMode,
-            onTap: onTogglePointerMode,
+          const SizedBox(width: 8),
+          Expanded(
+            child: _Chip(
+              icon: Icons.mouse_outlined,
+              label: '指针模式',
+              active: pointerMode,
+              onTap: onTogglePointerMode,
+            ),
           ),
-          _Chip(
-            icon: Icons.screen_rotation_rounded,
-            label: degrees == 0 ? '旋转画面' : '旋转 $degrees°',
-            active: degrees != 0,
-            onTap: onRotate,
-          ),
-          _Chip(
-            icon: Icons.fullscreen_rounded,
-            label: '全屏',
-            onTap: onToggleFullscreen,
-          ),
-          _Chip(
-            icon: Icons.visibility_off_outlined,
-            label: '隐藏工具栏',
-            onTap: onHideToolbar,
+          const SizedBox(width: 8),
+          Expanded(
+            child: _Chip(
+              icon: Icons.screen_rotation_rounded,
+              label: degrees == 0 ? '旋转画面' : '旋转 $degrees°',
+              active: degrees != 0,
+              onTap: onRotate,
+            ),
           ),
         ],
       ),
@@ -554,37 +652,33 @@ class _Chip extends StatelessWidget {
       foreground = Colors.white;
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          onTap();
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          width: 96,
-          height: 84,
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 24, color: foreground),
-              const SizedBox(height: 8),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: foreground,
-                ),
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        height: 76,
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 24, color: foreground),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: foreground,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -4,14 +4,19 @@
 
 - **Bundle ID**：`com.qsw.rdesk`
 - **Team ID**：`6N5T3G6H33`
-- **版本 / 构建号**：**2.1.0 (13)** —— 已重新提交，当前等待审核
-  （由 `flutter_client/pubspec.yaml` 的 `version: 2.1.0+13` 统一管理）
+- **仓库当前本地候选版本 / 构建号**：**2.1.0 (14)** —— 尚未上传、尚未提交
+  （由 `flutter_client/pubspec.yaml` 的 `version: 2.1.0+14` 统一管理）
 
 > **当前状态（2026-08-18）**：build 12 于 2026-08-18 再次被 Guideline 5.6
 > 拒绝。build 13 已完成本地与真机验证、上传、出口合规、ASC 描述和审核备注
 > 替换以及新密码连通复测；英文回复已发送。2026-08-18 14:35 重新提交，
 > ASC 提交 ID `063f45f8-0cb8-4e3e-9dc9-dbed7bc5b151`，live 状态为“等待审核”。
 > 这不代表已批准或已公开发布；不要再选 build 6、11 或 12。
+>
+> **后续本地候选（2026-08-27）**：build 14 在会话内新增真实「电脑键盘」入口，
+> 缩短「操作」弹层，并新增控制设置与基于现有会话数据的网络状态页。该候选尚未
+> 上传、未回答出口合规、未替换 ASC 元数据，也未提交审核；不得与正在审核的
+> build 13 混为一谈。
 
 ---
 
@@ -274,6 +279,9 @@ Info.plist doesn't match the key value of the app's export compliance documentat
 > **提交前必须把 ASC 线上旧描述整段替换为下文。** 2026-08-18 复查时，ASC
 > 仍显示「支持 Windows、macOS、Android、iOS 之间互控」和「多点触控手势」；
 > 这两项与实际能力不符，不能只更新仓库文档而不更新 ASC。
+>
+> 下文已按本地候选 build 14 的实际能力更新，仅供后续上传时使用；当前正在审核的
+> build 13 及其已发送审核备注仍按历史记录处理。
 
 ```
 RDesk 是一款安全、高效的跨平台远程桌面控制工具，让你随时随地访问自己的电脑。
@@ -334,7 +342,7 @@ iOS 作为被控端时仅共享画面，不接受远程操作。
 | 双指捏合缩放 | ⚠️ 仅本机 | `InteractiveViewer`，只放大观看端显示，不改变被控端 |
 | 多点触控透传 | ❌ 无 | 仅单指 tap / long press / drag，`TouchEvent` 未接入实时链路 |
 | Windows 被控端 | ❌ 无 | `create_input_simulator()` 返回 `NoopInputSimulator`（注释自称「平台后端尚未实现」）；`desktop_host_service.dart` 全是 `if (Platform.isMacOS)`，无 Windows 分支 |
-| 真实按键（方向键/修饰键/快捷键） | ⚠️ 仅 macOS 被控端 | macOS 走 `_macKeyPress` 发 CGEvent；安卓被控端靠无障碍服务，拿不到 `INJECT_EVENTS`，只能整段写入文本 |
+| 真实按键（Esc / Tab / 方向键 / 空格 / Cmd 组合键） | ⚠️ 仅 macOS 被控端 | build 14 会话内 `RemoteKeyboardSheet` 只在识别到 macOS 时启用，`remote_key_action.dart` 映射为 CGEvent；安卓及未知系统只保留文字、删除和回车 |
 | Linux 支持 | ⚠️ 未验证 | 存在 `linux/` 目录可构建，但未实测运行 |
 
 > 已从文案中移除：端到端加密、前向保密、会话聊天、断点续传、
@@ -361,7 +369,7 @@ iOS 作为被控端时仅共享画面，不接受远程操作。
   （备份 `site.conf.bak-support-20260804`）。
 
   内容涵盖：快速开始、常见问题（设备离线、macOS 黑屏需授权、
-  iOS 只能共享不能被控、延迟指标的含义、忘记密码、注销账号）、
+  iOS 只能共享不能被控、会话电脑键盘的真实平台边界、延迟指标的含义、忘记密码、注销账号）、
   安全边界说明、联系邮箱。
 
   > 部署后立即 curl 可能返回 404 —— `nginx -s reload` 是异步的，
@@ -401,6 +409,7 @@ iOS 作为被控端时仅共享画面，不接受远程操作。
 | 2.1.0 (11) | 2026-08-13 提交；移除「隐私屏」「录屏」空开关，2026-08-14 再次被 **Guideline 5.6** 拒绝 |
 | 2.1.0 (12) | 2026-08-17 提交；移除未使用的相册依赖并提供测试账号，2026-08-18 第三次被 **Guideline 5.6** 拒绝 |
 | 2.1.0 (13) | 2026-08-18 上传并完成出口合规；移除伪聊天与虚假快捷键入口，修正商店/审核/支持文案；14:35 重新提交，当前等待审核 |
+| 2.1.0 (14) | 2026-08-27 本地候选；尚未上传、尚未完成出口合规、尚未提交。缩短操作弹层，新增真实会话键盘、控制设置与网络状态 |
 
 ### ⚠️ 每次上传新构建后必做：补出口合规
 
@@ -476,7 +485,24 @@ Flutter 工具链目前不为其生成 dSYM。所有 CocoaPods 依赖的 dSYM �
 影响：仅该 framework 的崩溃日志无法符号化。不影响审核与上架，
 非项目配置问题，无需处理。
 
-## 九、build 13 提交前检查清单（当前）
+## 九、本地候选 build 14 检查清单（尚未上传、尚未提交）
+
+- [x] `flutter_client/pubspec.yaml` 已切到 2.1.0 (14)，Runner 与 Broadcast Extension
+      均继续跟随 `FLUTTER_BUILD_NAME` / `FLUTTER_BUILD_NUMBER`
+- [x] 操作弹层竖屏高度不超过屏幕三分之二；真实键盘、控制设置、网络状态和工具栏
+      自动隐藏均有定向回归
+- [x] Android 与未知系统会停用 Esc、Tab、方向键、空格和 Cmd 组合键；macOS 映射
+      由纯函数测试覆盖，且不恢复「我的 → 快捷键」静态说明页
+- [x] 相关回归共 42 项通过；`flutter analyze` 无 error / warning，仍为 27 条既有 `info`
+- [x] 390 × 844 同视口视觉对照通过，报告见 `design-qa.md`
+- [x] 2026-08-27 在 iPhone 17 Pro Max（iOS 26.6）构建、安装并启动 Release 成功；
+      本地产物主 App 与 Broadcast Extension 均核验为 2.1.0 (14)
+- [ ] 尚未构建签名 IPA、上传 ASC、回答出口合规、替换线上元数据或提交审核
+
+> 上述最后一项保持未完成是有意的：本次只完成本地实现、验证和真机安装，未获得
+> App Store 上传、审核回复或重新提交授权。
+
+## 九-A、build 13 提交前检查清单（历史已完成）
 
 - [x] 主 App 与 Broadcast Extension 均包含自有 `PrivacyInfo.xcprivacy`
 - [x] 扩展版本设置跟随 `FLUTTER_BUILD_NAME` / `FLUTTER_BUILD_NUMBER`
@@ -505,7 +531,7 @@ Flutter 工具链目前不为其生成 dSYM。所有 CocoaPods 依赖的 dSYM �
 > 当前只允许把状态写成「build 13 已重新提交，正在等待审核」。在 ASC live 状态
 > 发生变化前，不得写成已批准或公开可用。
 
-## 九-A、历史 build 6 提交检查清单（勿复用）
+## 九-B、历史 build 6 提交检查清单（勿复用）
 
 - [x] 自有 `PrivacyInfo.xcprivacy`（主 App + 录屏扩展）
 - [x] 扩展与主 App 的 CFBundleVersion 一致
