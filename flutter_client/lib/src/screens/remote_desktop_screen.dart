@@ -173,7 +173,6 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                 bottom: 0,
                 child: RemoteControlBar(
                   sessionId: widget.sessionId,
-                  onRemoteTextInput: () => _showTextInputDialog(context),
                   onPushClipboard: () => _pushClipboard(context),
                   onPullClipboard: () => _pullClipboard(context),
                   onRemoteAction: (action) async {
@@ -291,50 +290,6 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
       const SnackBar(
         content: Text('已拉取远端剪贴板到本机'),
         duration: Duration(milliseconds: 900),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  Future<void> _showTextInputDialog(BuildContext context) async {
-    final controller = TextEditingController();
-    final submitted = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('发送文本到远程端'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLines: 3,
-          decoration: const InputDecoration(
-            labelText: '文本内容',
-            hintText: '会写入当前聚焦的远程输入框',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('发送'),
-          ),
-        ],
-      ),
-    );
-
-    if (!context.mounted || submitted == null || submitted.isEmpty) return;
-
-    final ok = await context.read<SessionProvider>().sendTextInput(
-          widget.sessionId,
-          submitted,
-        );
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok ? '已发送文本' : '文本未写入'),
-        duration: const Duration(milliseconds: 900),
         behavior: SnackBarBehavior.floating,
       ),
     );

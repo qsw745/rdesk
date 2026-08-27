@@ -87,7 +87,7 @@ void main() {
           home: Scaffold(
             body: RemoteKeyboardSheet(
               peerOs: 'macOS',
-              onOpenSystemKeyboard: () {},
+              onSendText: (_) async {},
               onRemoteAction: (action) async => actions.add(action),
             ),
           ),
@@ -96,11 +96,130 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('打开系统输入法'), findsOneWidget);
+    expect(find.text('输入法'), findsOneWidget);
     expect(find.text('Esc'), findsOneWidget);
     await tester.tap(find.text('Esc'));
     await tester.pump();
     expect(actions, contains('key_escape'));
+  });
+
+  testWidgets('电脑键盘界面提供输入法切换和完整主键区', (tester) async {
+    final session = SessionProvider();
+    addTearDown(session.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: session,
+        child: MaterialApp(
+          home: Scaffold(
+            body: RemoteKeyboardSheet(
+              peerOs: 'macOS',
+              onSendText: (_) async {},
+              onRemoteAction: (_) async {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('输入法'), findsOneWidget);
+    expect(find.text('电脑键盘'), findsOneWidget);
+    expect(find.text('Q'), findsOneWidget);
+    expect(find.text('Space'), findsOneWidget);
+    expect(find.text('Enter'), findsOneWidget);
+  });
+
+  testWidgets('底部键盘入口先打开电脑键盘界面而不是旧文本输入框', (tester) async {
+    final session = SessionProvider();
+    addTearDown(session.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: session,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: RemoteControlBar(
+                sessionId: 'test-session',
+                onDisconnect: () {},
+                onFileManager: () {},
+                onToggleToolbar: () {},
+                onRemoteAction: (_) async {},
+                onPushClipboard: () async {},
+                onPullClipboard: () async {},
+                autoHideToolbar: false,
+                onAutoHideToolbarChanged: (_) {},
+                onActionSheetClosed: () {},
+                onUserInteraction: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('键盘'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('电脑键盘'), findsOneWidget);
+    expect(find.text('Q'), findsOneWidget);
+  });
+
+  testWidgets('电脑键盘文字键通过真实文字输入回调发送', (tester) async {
+    final sentTexts = <String>[];
+    final session = SessionProvider();
+    addTearDown(session.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: session,
+        child: MaterialApp(
+          home: Scaffold(
+            body: RemoteKeyboardSheet(
+              peerOs: 'macOS',
+              onSendText: (text) async => sentTexts.add(text),
+              onRemoteAction: (_) async {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Q'));
+    await tester.tap(find.text('Space'));
+    await tester.pump();
+    expect(sentTexts, ['q', ' ']);
+  });
+
+  testWidgets('输入法页可发送一段文字而不返回旧弹窗', (tester) async {
+    final sentTexts = <String>[];
+    final session = SessionProvider();
+    addTearDown(session.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: session,
+        child: MaterialApp(
+          home: Scaffold(
+            body: RemoteKeyboardSheet(
+              peerOs: 'android',
+              onSendText: (text) async => sentTexts.add(text),
+              onRemoteAction: (_) async {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('输入法'));
+    await tester.pumpAndSettle();
+    expect(find.text('输入远端文字'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '测试文本');
+    await tester.tap(find.text('发送到远端'));
+    await tester.pump();
+    expect(sentTexts, ['测试文本']);
   });
 
   testWidgets('网络状态只展示当前能够取得的会话指标', (tester) async {

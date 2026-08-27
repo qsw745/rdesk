@@ -21,7 +21,6 @@ class RemoteControlBar extends StatelessWidget {
     required this.onFileManager,
     required this.onToggleToolbar,
     required this.onRemoteAction,
-    required this.onRemoteTextInput,
     required this.onPushClipboard,
     required this.onPullClipboard,
     required this.autoHideToolbar,
@@ -35,7 +34,6 @@ class RemoteControlBar extends StatelessWidget {
   final VoidCallback onFileManager;
   final VoidCallback onToggleToolbar;
   final Future<void> Function(String action) onRemoteAction;
-  final Future<void> Function() onRemoteTextInput;
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
   final bool autoHideToolbar;
@@ -106,7 +104,7 @@ class RemoteControlBar extends StatelessWidget {
                 label: '键盘',
                 onTap: () {
                   onUserInteraction();
-                  onRemoteTextInput();
+                  _openKeyboardSheet(context);
                 },
               ),
               _BarItem(
@@ -136,11 +134,26 @@ class RemoteControlBar extends StatelessWidget {
         onFileManager: onFileManager,
         onToggleToolbar: onToggleToolbar,
         onRemoteAction: onRemoteAction,
-        onRemoteTextInput: onRemoteTextInput,
         onPushClipboard: onPushClipboard,
         onPullClipboard: onPullClipboard,
         autoHideToolbar: autoHideToolbar,
         onAutoHideToolbarChanged: onAutoHideToolbarChanged,
+      ),
+    ).whenComplete(onActionSheetClosed);
+  }
+
+  void _openKeyboardSheet(BuildContext context) {
+    final peerOs = context.read<SessionProvider>().currentSession?.peerOs ?? '';
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => RemoteKeyboardSheet(
+        peerOs: peerOs,
+        onSendText: (text) async {
+          await context.read<SessionProvider>().sendTextInput(sessionId, text);
+        },
+        onRemoteAction: onRemoteAction,
       ),
     ).whenComplete(onActionSheetClosed);
   }
@@ -196,7 +209,6 @@ class RemoteActionSheet extends StatelessWidget {
     required this.onRemoteAction,
     required this.onPushClipboard,
     required this.onPullClipboard,
-    this.onRemoteTextInput,
     this.autoHideToolbar = false,
     this.onAutoHideToolbarChanged,
   });
@@ -206,7 +218,6 @@ class RemoteActionSheet extends StatelessWidget {
   final VoidCallback onFileManager;
   final VoidCallback onToggleToolbar;
   final Future<void> Function(String action) onRemoteAction;
-  final VoidCallback? onRemoteTextInput;
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
   final bool autoHideToolbar;
@@ -302,8 +313,8 @@ class RemoteActionSheet extends StatelessWidget {
                     icon: Icons.keyboard_alt_outlined,
                     title: '电脑键盘',
                     subtitle: supportsMacDesktopKeys
-                        ? '文字输入、方向键与桌面组合键'
-                        : '文字输入、删除和回车',
+                        ? '完整主键区、方向键与快捷组合'
+                        : '文字主键区、删除和回车',
                     chevron: true,
                     onTap: () => _showKeyboard(context),
                   ),
@@ -421,7 +432,9 @@ class RemoteActionSheet extends StatelessWidget {
       isScrollControlled: true,
       builder: (_) => RemoteKeyboardSheet(
         peerOs: session?.peerOs ?? '',
-        onOpenSystemKeyboard: onRemoteTextInput ?? () {},
+        onSendText: (text) async {
+          await context.read<SessionProvider>().sendTextInput(sessionId, text);
+        },
         onRemoteAction: onRemoteAction,
       ),
     );

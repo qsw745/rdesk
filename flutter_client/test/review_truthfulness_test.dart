@@ -42,8 +42,8 @@ void main() {
 
     expect(find.text('文件传输'), findsOneWidget);
     expect(find.text('电脑键盘'), findsOneWidget);
-    expect(find.text('文字输入、删除和回车'), findsOneWidget);
-    expect(find.text('文字输入、方向键与桌面组合键'), findsNothing);
+    expect(find.text('文字主键区、删除和回车'), findsOneWidget);
+    expect(find.text('完整主键区、方向键与快捷组合'), findsNothing);
     expect(find.text('会话聊天'), findsNothing);
   });
 
@@ -59,7 +59,7 @@ void main() {
             home: Scaffold(
               body: RemoteKeyboardSheet(
                 peerOs: peerOs,
-                onOpenSystemKeyboard: () {},
+                onSendText: (_) async {},
                 onRemoteAction: (_) async {},
               ),
             ),

@@ -8,157 +8,490 @@ import '../providers/session_provider.dart';
 import '../utils/theme.dart';
 
 typedef RemoteActionCallback = Future<void> Function(String action);
+typedef RemoteTextCallback = Future<void> Function(String text);
 
-class RemoteKeyboardSheet extends StatelessWidget {
+class RemoteKeyboardSheet extends StatefulWidget {
   const RemoteKeyboardSheet({
     super.key,
     required this.peerOs,
-    required this.onOpenSystemKeyboard,
+    required this.onSendText,
     required this.onRemoteAction,
   });
 
   final String peerOs;
-  final VoidCallback onOpenSystemKeyboard;
+  final RemoteTextCallback onSendText;
   final RemoteActionCallback onRemoteAction;
 
-  bool get _supportsDesktopKeys => peerOs.toLowerCase().contains('mac');
+  @override
+  State<RemoteKeyboardSheet> createState() => _RemoteKeyboardSheetState();
+}
 
-  bool get _knownAndroid => peerOs.toLowerCase().contains('android');
+class _RemoteKeyboardSheetState extends State<RemoteKeyboardSheet> {
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _textFocusNode = FocusNode();
+  int _selectedTab = 1;
+  bool _shiftEnabled = false;
+
+  bool get _supportsDesktopKeys => widget.peerOs.toLowerCase().contains('mac');
+
+  bool get _knownAndroid => widget.peerOs.toLowerCase().contains('android');
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _textFocusNode.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final advancedEnabled = _supportsDesktopKeys;
-    return _ToolSheet(
-      title: '电脑键盘',
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+    final mediaQuery = MediaQuery.of(context);
+    final heightFactor =
+        mediaQuery.orientation == Orientation.portrait ? 0.50 : 0.76;
+    return Container(
+      height: mediaQuery.size.height * heightFactor,
+      decoration: const BoxDecoration(
+        color: Color(0xFF1C1C1E),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: SafeArea(
+        top: false,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            FilledButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                onOpenSystemKeyboard();
-              },
-              icon: const Icon(Icons.keyboard_alt_outlined),
-              label: const Text('打开系统输入法'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _KeyboardTabBar(
+                      selectedIndex: _selectedTab,
+                      onSelected: _selectTab,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: '关闭',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            const _ToolSectionLabel('常用按键'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _KeyButton(
-                  label: 'Esc',
-                  enabled: advancedEnabled,
-                  onTap: () => onRemoteAction('key_escape'),
-                ),
-                _KeyButton(
-                  label: 'Tab',
-                  enabled: advancedEnabled,
-                  onTap: () => onRemoteAction('key_tab'),
-                ),
-                _KeyButton(
-                  label: '←',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '左方向键',
-                  onTap: () => onRemoteAction('key_arrow_left'),
-                ),
-                _KeyButton(
-                  label: '↑',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '上方向键',
-                  onTap: () => onRemoteAction('key_arrow_up'),
-                ),
-                _KeyButton(
-                  label: '↓',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '下方向键',
-                  onTap: () => onRemoteAction('key_arrow_down'),
-                ),
-                _KeyButton(
-                  label: '→',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '右方向键',
-                  onTap: () => onRemoteAction('key_arrow_right'),
-                ),
-                _KeyButton(
-                  label: '删除',
-                  onTap: () => onRemoteAction('delete'),
-                ),
-                _KeyButton(
-                  label: '回车',
-                  onTap: () => onRemoteAction('enter'),
-                ),
-                _KeyButton(
-                  label: '空格',
-                  enabled: advancedEnabled,
-                  wide: true,
-                  onTap: () => onRemoteAction('key_space'),
-                ),
-              ],
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: _selectedTab == 0
+                    ? _buildInputMethod(context)
+                    : _buildComputerKeyboard(advancedEnabled),
+              ),
             ),
-            const SizedBox(height: 18),
-            const _ToolSectionLabel('macOS 组合键'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _KeyButton(
-                  label: '⌘ A',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '全选',
-                  onTap: () => onRemoteAction('key_command_a'),
-                ),
-                _KeyButton(
-                  label: '⌘ C',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '复制',
-                  onTap: () => onRemoteAction('key_command_c'),
-                ),
-                _KeyButton(
-                  label: '⌘ V',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '粘贴',
-                  onTap: () => onRemoteAction('key_command_v'),
-                ),
-                _KeyButton(
-                  label: '⌘ X',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '剪切',
-                  onTap: () => onRemoteAction('key_command_x'),
-                ),
-                _KeyButton(
-                  label: '⌘ Z',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '撤销',
-                  onTap: () => onRemoteAction('key_command_z'),
-                ),
-                _KeyButton(
-                  label: '⇧ ⌘ Z',
-                  enabled: advancedEnabled,
-                  semanticsLabel: '重做',
-                  onTap: () => onRemoteAction('key_command_shift_z'),
-                ),
-              ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputMethod(BuildContext context) {
+    return SingleChildScrollView(
+      key: const ValueKey('input-method'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _textController,
+            focusNode: _textFocusNode,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 4,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _submitText(),
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: '输入远端文字',
+              hintText: '支持中文、英文、数字和符号',
+              alignLabelWithHint: true,
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.08),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
             ),
-            if (!advancedEnabled) ...[
-              const SizedBox(height: 14),
-              Text(
-                _knownAndroid
-                    ? '安卓被控端暂只支持文字、删除和回车；不支持的桌面按键已停用。'
-                    : '桌面按键目前仅支持 macOS 被控端；确认远端系统前保持停用。',
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.4,
-                  color: Colors.white.withValues(alpha: 0.52),
-                ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _submitText,
+            icon: const Icon(Icons.send_rounded),
+            label: const Text('发送到远端'),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '文字会直接发送到远端当前输入位置，不会写入剪贴板。',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: Colors.white.withValues(alpha: 0.50),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildComputerKeyboard(bool advancedEnabled) {
+    return SingleChildScrollView(
+      key: const ValueKey('computer-keyboard'),
+      padding: const EdgeInsets.fromLTRB(10, 0, 10, 20),
+      child: Column(
+        children: [
+          _KeyboardRow(
+            children: [
+              _KeyboardKey(
+                label: 'Esc',
+                enabled: advancedEnabled,
+                onTap: () => widget.onRemoteAction('key_escape'),
+              ),
+              _KeyboardKey(
+                label: 'Tab',
+                enabled: advancedEnabled,
+                onTap: () => widget.onRemoteAction('key_tab'),
+              ),
+              _KeyboardKey(
+                label: '←',
+                enabled: advancedEnabled,
+                semanticsLabel: '左方向键',
+                onTap: () => widget.onRemoteAction('key_arrow_left'),
+              ),
+              _KeyboardKey(
+                label: '↑',
+                enabled: advancedEnabled,
+                semanticsLabel: '上方向键',
+                onTap: () => widget.onRemoteAction('key_arrow_up'),
+              ),
+              _KeyboardKey(
+                label: '↓',
+                enabled: advancedEnabled,
+                semanticsLabel: '下方向键',
+                onTap: () => widget.onRemoteAction('key_arrow_down'),
+              ),
+              _KeyboardKey(
+                label: '→',
+                enabled: advancedEnabled,
+                semanticsLabel: '右方向键',
+                onTap: () => widget.onRemoteAction('key_arrow_right'),
+              ),
+              _KeyboardKey(
+                label: '删除',
+                flex: 2,
+                onTap: () => widget.onRemoteAction('delete'),
               ),
             ],
+          ),
+          const SizedBox(height: 5),
+          _textKeyRow('1234567890'),
+          const SizedBox(height: 5),
+          _textKeyRow('QWERTYUIOP'),
+          const SizedBox(height: 5),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: _textKeyRow('ASDFGHJKL'),
+          ),
+          const SizedBox(height: 5),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: _textKeyRow('ZXCVBNM'),
+          ),
+          const SizedBox(height: 5),
+          _KeyboardRow(
+            children: [
+              _KeyboardKey(
+                label: 'Shift',
+                flex: 2,
+                selected: _shiftEnabled,
+                onTap: () => setState(() => _shiftEnabled = !_shiftEnabled),
+              ),
+              _KeyboardKey(
+                label: 'Space',
+                flex: 4,
+                onTap: () => widget.onSendText(' '),
+              ),
+              _KeyboardKey(
+                label: 'Enter',
+                flex: 2,
+                onTap: () => widget.onRemoteAction('enter'),
+              ),
+            ],
+          ),
+          if (advancedEnabled) ...[
+            const SizedBox(height: 10),
+            const _ToolSectionLabel('macOS 快捷组合'),
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _KeyButton(
+                    label: '全选',
+                    width: 55,
+                    semanticsLabel: '全选',
+                    onTap: () => widget.onRemoteAction('key_command_a'),
+                  ),
+                  const SizedBox(width: 7),
+                  _KeyButton(
+                    label: '复制',
+                    width: 55,
+                    semanticsLabel: '复制',
+                    onTap: () => widget.onRemoteAction('key_command_c'),
+                  ),
+                  const SizedBox(width: 7),
+                  _KeyButton(
+                    label: '粘贴',
+                    width: 55,
+                    semanticsLabel: '粘贴',
+                    onTap: () => widget.onRemoteAction('key_command_v'),
+                  ),
+                  const SizedBox(width: 7),
+                  _KeyButton(
+                    label: '剪切',
+                    width: 55,
+                    semanticsLabel: '剪切',
+                    onTap: () => widget.onRemoteAction('key_command_x'),
+                  ),
+                  const SizedBox(width: 7),
+                  _KeyButton(
+                    label: '撤销',
+                    width: 55,
+                    semanticsLabel: '撤销',
+                    onTap: () => widget.onRemoteAction('key_command_z'),
+                  ),
+                  const SizedBox(width: 7),
+                  _KeyButton(
+                    label: '重做',
+                    width: 55,
+                    semanticsLabel: '重做',
+                    onTap: () => widget.onRemoteAction('key_command_shift_z'),
+                  ),
+                ],
+              ),
+            ),
           ],
+          if (!advancedEnabled) ...[
+            const SizedBox(height: 14),
+            Text(
+              _knownAndroid
+                  ? '安卓被控端支持文字、删除和回车；桌面专用按键已停用。'
+                  : '确认远端系统前，桌面专用按键保持停用。',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: Colors.white.withValues(alpha: 0.52),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _textKeyRow(String characters) {
+    return _KeyboardRow(
+      children: characters.split('').map((character) {
+        return _KeyboardKey(
+          label: character,
+          onTap: () {
+            final text = RegExp('[A-Z]').hasMatch(character)
+                ? (_shiftEnabled ? character : character.toLowerCase())
+                : character;
+            widget.onSendText(text);
+            if (_shiftEnabled && RegExp('[A-Z]').hasMatch(character)) {
+              setState(() => _shiftEnabled = false);
+            }
+          },
+        );
+      }).toList(),
+    );
+  }
+
+  void _selectTab(int index) {
+    if (_selectedTab == index) return;
+    setState(() => _selectedTab = index);
+    if (index == 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _textFocusNode.requestFocus();
+      });
+    }
+  }
+
+  void _submitText() {
+    final text = _textController.text;
+    if (text.trim().isEmpty) return;
+    widget.onSendText(text);
+    _textController.clear();
+  }
+}
+
+class _KeyboardTabBar extends StatelessWidget {
+  const _KeyboardTabBar({
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          _KeyboardTab(
+            label: '输入法',
+            selected: selectedIndex == 0,
+            onTap: () => onSelected(0),
+          ),
+          _KeyboardTab(
+            label: '电脑键盘',
+            selected: selectedIndex == 1,
+            onTap: () => onSelected(1),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KeyboardTab extends StatelessWidget {
+  const _KeyboardTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Material(
+        color: selected
+            ? Colors.white.withValues(alpha: 0.14)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(9),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(9),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.white60,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KeyboardRow extends StatelessWidget {
+  const _KeyboardRow({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          if (index > 0) const SizedBox(width: 5),
+          children[index],
+        ],
+      ],
+    );
+  }
+}
+
+class _KeyboardKey extends StatelessWidget {
+  const _KeyboardKey({
+    required this.label,
+    required this.onTap,
+    this.flex = 1,
+    this.enabled = true,
+    this.selected = false,
+    this.semanticsLabel,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final int flex;
+  final bool enabled;
+  final bool selected;
+  final String? semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      flex: flex,
+      child: Semantics(
+        button: true,
+        label: semanticsLabel,
+        enabled: enabled,
+        selected: selected,
+        child: SizedBox(
+          height: 38,
+          child: FilledButton(
+            onPressed: enabled
+                ? () {
+                    HapticFeedback.selectionClick();
+                    onTap();
+                  }
+                : null,
+            style: FilledButton.styleFrom(
+              padding: EdgeInsets.zero,
+              backgroundColor: selected
+                  ? AppTheme.primaryBlue.withValues(alpha: 0.72)
+                  : Colors.white.withValues(alpha: 0.12),
+              foregroundColor: Colors.white,
+              disabledBackgroundColor: Colors.white.withValues(alpha: 0.05),
+              disabledForegroundColor: Colors.white.withValues(alpha: 0.27),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(
+                  color: selected
+                      ? AppTheme.primaryBlue.withValues(alpha: 0.8)
+                      : Colors.white.withValues(alpha: 0.06),
+                ),
+              ),
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -445,15 +778,13 @@ class _KeyButton extends StatelessWidget {
   const _KeyButton({
     required this.label,
     required this.onTap,
-    this.enabled = true,
-    this.wide = false,
+    required this.width,
     this.semanticsLabel,
   });
 
   final String label;
   final VoidCallback onTap;
-  final bool enabled;
-  final bool wide;
+  final double width;
   final String? semanticsLabel;
 
   @override
@@ -461,23 +792,18 @@ class _KeyButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: semanticsLabel,
-      enabled: enabled,
       child: SizedBox(
-        width: wide ? 112 : 68,
+        width: width,
         height: 48,
         child: FilledButton.tonal(
-          onPressed: enabled
-              ? () {
-                  HapticFeedback.selectionClick();
-                  onTap();
-                }
-              : null,
+          onPressed: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
           style: FilledButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             backgroundColor: Colors.white.withValues(alpha: 0.11),
             foregroundColor: Colors.white,
-            disabledBackgroundColor: Colors.white.withValues(alpha: 0.05),
-            disabledForegroundColor: Colors.white.withValues(alpha: 0.28),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
