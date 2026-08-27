@@ -592,35 +592,19 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Q
     int keyCode, [
     Set<MacRemoteModifier> modifiers = const {},
   ]) async {
-    final flagParts = <String>[
-      if (modifiers.contains(MacRemoteModifier.command))
-        'Quartz.kCGEventFlagMaskCommand',
-      if (modifiers.contains(MacRemoteModifier.control))
-        'Quartz.kCGEventFlagMaskControl',
-      if (modifiers.contains(MacRemoteModifier.option))
-        'Quartz.kCGEventFlagMaskAlternate',
-      if (modifiers.contains(MacRemoteModifier.shift))
-        'Quartz.kCGEventFlagMaskShift',
-    ];
-    final setDownFlags = flagParts.isEmpty
-        ? ''
-        : 'Quartz.CGEventSetFlags(e, ${flagParts.join(' | ')})';
-    final setUpFlags = flagParts.isEmpty
-        ? ''
-        : 'Quartz.CGEventSetFlags(e2, ${flagParts.join(' | ')})';
-    final script = '''
-import Quartz
-e = Quartz.CGEventCreateKeyboardEvent(None, $keyCode, True)
-$setDownFlags
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
-e2 = Quartz.CGEventCreateKeyboardEvent(None, $keyCode, False)
-$setUpFlags
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, e2)
-''';
-    final result = await Process.run(
-        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
-        ['-c', script]);
-    return result.exitCode == 0;
+    try {
+      return await _desktopChannel.invokeMethod<bool>(
+            'performKeyPress',
+            <String, Object>{
+              'keyCode': keyCode,
+              'modifiers': modifiers.map((modifier) => modifier.name).toList(),
+            },
+          ) ??
+          false;
+    } catch (error) {
+      debugPrint('[RDesk] performKeyPress native channel failed: $error');
+      return false;
+    }
   }
 
   Future<bool> _macScroll(int amount) async {

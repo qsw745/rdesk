@@ -83,10 +83,69 @@ class DesktopHostPlugin {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.mainWindow?.makeKeyAndOrderFront(nil)
         result(nil)
+      case "performKeyPress":
+        guard
+          let args = call.arguments as? [String: Any],
+          let keyCode = args["keyCode"] as? Int
+        else {
+          result(false)
+          return
+        }
+        let modifiers = args["modifiers"] as? [String] ?? []
+        result(performKeyPress(keyCode: keyCode, modifiers: modifiers))
       default:
         result(FlutterMethodNotImplemented)
       }
     }
+  }
+
+  /// Posts a keyboard event from the signed RDesk process itself.
+  ///
+  /// Spawning Python/Quartz for keyboard actions makes macOS evaluate the
+  /// untrusted child executable instead of the RDesk accessibility grant. The
+  /// child can exit successfully while TCC silently drops every event.
+  private static func performKeyPress(keyCode: Int, modifiers: [String]) -> Bool {
+    guard AXIsProcessTrusted() else {
+      NSLog("[RDesk] performKeyPress blocked: accessibility permission missing")
+      return false
+    }
+    guard
+      let source = CGEventSource(stateID: .hidSystemState),
+      let keyDown = CGEvent(
+        keyboardEventSource: source,
+        virtualKey: CGKeyCode(keyCode),
+        keyDown: true
+      ),
+      let keyUp = CGEvent(
+        keyboardEventSource: source,
+        virtualKey: CGKeyCode(keyCode),
+        keyDown: false
+      )
+    else {
+      return false
+    }
+
+    var flags = CGEventFlags()
+    for modifier in modifiers {
+      switch modifier {
+      case "command":
+        flags.insert(.maskCommand)
+      case "control":
+        flags.insert(.maskControl)
+      case "option":
+        flags.insert(.maskAlternate)
+      case "shift":
+        flags.insert(.maskShift)
+      default:
+        NSLog("[RDesk] performKeyPress ignored modifier: \(modifier)")
+      }
+    }
+
+    keyDown.flags = flags
+    keyUp.flags = flags
+    keyDown.post(tap: .cghidEventTap)
+    keyUp.post(tap: .cghidEventTap)
+    return true
   }
 
   // MARK: Display listing (CG-based, no TCC prompt)
