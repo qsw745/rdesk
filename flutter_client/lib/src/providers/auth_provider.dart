@@ -53,9 +53,11 @@ class AuthProvider extends ChangeNotifier {
     }
     if (_session != null) {
       await refreshDevices(notifyOnStart: false);
-      _ensureAutoRefresh();
-      if (_biometricEnabled) {
-        await _storeBiometricSession(_session!);
+      if (_session != null) {
+        _ensureAutoRefresh();
+        if (_biometricEnabled) {
+          await _storeBiometricSession(_session!);
+        }
       }
     }
     notifyListeners();
@@ -179,6 +181,7 @@ class AuthProvider extends ChangeNotifier {
             _error = msg;
           }
         } else {
+          await _clearInvalidSession();
           _error = msg;
         }
       } else {
@@ -441,6 +444,20 @@ class AuthProvider extends ChangeNotifier {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<void> _clearInvalidSession() async {
+    _session = null;
+    _devices = const [];
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+    await _bridge.clearSavedAccountSession();
+    try {
+      await _secureStorage.delete(key: _biometricSessionKey);
+    } catch (_) {}
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_biometricSessionFallbackKey);
+    _hasBiometricSession = false;
   }
 
   void _ensureAutoRefresh() {
