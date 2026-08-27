@@ -20,6 +20,19 @@
 
 ## 一、构建
 
+本机开发安装优先使用项目脚本：
+
+```bash
+cd flutter_client && ./build_install.sh macos
+```
+
+该脚本会完成 release 构建、Developer ID 重签名、签名校验、备份并替换
+`/Applications/rdesk.app`，最后重新启动应用。保持同一个 Developer ID 与
+TeamIdentifier 很重要；若直接安装 Flutter 的 adhoc 签名产物，每次构建的代码身份
+都可能变化，macOS 会把已有的屏幕录制/辅助功能授权视为属于旧应用，从而再次提示权限。
+
+仅需要生成原始构建产物时可执行：
+
 ```bash
 cd flutter_client && flutter build macos --release
 ```
@@ -49,6 +62,12 @@ codesign --force --sign "$ID" --options runtime --timestamp --entitlements "$ENT
 公证的**硬性要求**，缺任一项公证必被拒。
 
 ### 验证签名
+
+项目提供了与本地安装脚本相同的校验入口：
+
+```bash
+bash scripts/verify_macos_install.sh /Applications/rdesk.app
+```
 
 ```bash
 codesign --verify --deep --strict --verbose=2 "$APP"
