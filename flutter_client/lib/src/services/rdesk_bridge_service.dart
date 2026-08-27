@@ -200,6 +200,7 @@ class RdeskBridgeService {
   };
   final Map<String, Uri> _sessionPreviewEndpoints = <String, Uri>{};
   final Map<String, String> _sessionTokens = <String, String>{};
+  final Map<String, String> _sessionPeerPlatforms = <String, String>{};
   final Set<String> _terminatedSessions = <String>{};
 
   // ── Secure storage for passwords and credentials ──
@@ -395,6 +396,7 @@ class RdeskBridgeService {
       sessionId: sessionId,
       requester: localDevice,
     );
+    _sessionPeerPlatforms[sessionId] = resolved.platform ?? 'unknown';
     final records = await listConnectionHistory();
     final updated = <ConnectionRecord>[
       ConnectionRecord(
@@ -429,6 +431,8 @@ class RdeskBridgeService {
       port = 21116;
     }
 
+    var platform = 'unknown';
+
     // Probe host health endpoint
     final healthUri = Uri.http('$host:$port', '/health');
     debugPrint('[RDesk] connectDirectIp: probing $healthUri');
@@ -444,7 +448,7 @@ class RdeskBridgeService {
       }
       final body = await utf8.decoder.bind(response).join();
       final payload = jsonDecode(body) as Map<String, dynamic>;
-      final platform = payload['platform'] as String? ?? 'unknown';
+      platform = payload['platform'] as String? ?? 'unknown';
       final running = payload['running'] as bool? ?? false;
       debugPrint('[RDesk] connectDirectIp: health OK, platform=$platform, '
           'running=$running');
@@ -478,13 +482,14 @@ class RdeskBridgeService {
       _sessionPreviewEndpoints.remove(sessionId);
       throw Exception('认证失败：密码错误或远程设备拒绝连接');
     }
+    _sessionPeerPlatforms[sessionId] = platform;
 
     final records = await listConnectionHistory();
     final updated = <ConnectionRecord>[
       ConnectionRecord(
         peerId: address,
         peerHostname: '直连 $address',
-        peerOs: 'direct-lan',
+        peerOs: platform,
         connectedAt: DateTime.now(),
         connectionType: 'direct-ip',
         status: 'success',
@@ -495,6 +500,10 @@ class RdeskBridgeService {
     await _saveConnectionHistory(updated);
 
     return sessionId;
+  }
+
+  String? peerPlatformForSession(String sessionId) {
+    return _sessionPeerPlatforms[sessionId];
   }
 
   Stream<RemoteFrameData?> watchSessionFrames(
@@ -713,6 +722,7 @@ class RdeskBridgeService {
     _terminatedSessions.add(sessionId);
     _sessionPreviewEndpoints.remove(sessionId);
     _sessionTokens.remove(sessionId);
+    _sessionPeerPlatforms.remove(sessionId);
     closePersistentClients();
   }
 

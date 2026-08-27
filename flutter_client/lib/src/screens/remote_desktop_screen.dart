@@ -91,6 +91,9 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
     // 仅观看时连震动反馈都不给：输入已在 provider 层丢弃，
     // 再震一下会让人以为点出去了。
     final viewOnly = context.select<SessionProvider, bool>((p) => p.viewOnly);
+    final peerOs = context.select<SessionProvider, String>(
+      (provider) => provider.currentSession?.peerOs ?? '',
+    );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: _mobileOverlayStyle,
@@ -173,6 +176,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                 bottom: 0,
                 child: RemoteControlBar(
                   sessionId: widget.sessionId,
+                  peerOs: peerOs,
                   onPushClipboard: () => _pushClipboard(context),
                   onPullClipboard: () => _pullClipboard(context),
                   onRemoteAction: (action) async {

@@ -71,7 +71,8 @@ class ConnectionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final sessionId = await _bridge.connectDirectIp(address, password: password);
+      final sessionId =
+          await _bridge.connectDirectIp(address, password: password);
       _connectionState = SessionState.active;
       _recentConnections = await _bridge.listConnectionHistory();
       notifyListeners();
@@ -104,6 +105,10 @@ class ConnectionProvider extends ChangeNotifier {
     final peerId = _pendingQuickConnectPeerId;
     _pendingQuickConnectPeerId = null;
     return peerId;
+  }
+
+  String? peerPlatformForSession(String sessionId) {
+    return _bridge.peerPlatformForSession(sessionId);
   }
 
   Future<String?> getTrustedPassword(String peerId) {

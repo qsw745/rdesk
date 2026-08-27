@@ -22,6 +22,16 @@ void main() {
     );
   });
 
+  test('macOS 窗口与桌面动作映射为系统快捷键', () {
+    final showAllWindows = macRemoteKeyStrokeForAction('show_all_windows');
+    final showDesktop = macRemoteKeyStrokeForAction('show_desktop');
+
+    expect(showAllWindows?.keyCode, 126);
+    expect(showAllWindows?.modifiers, {MacRemoteModifier.control});
+    expect(showDesktop?.keyCode, 103);
+    expect(showDesktop?.modifiers, isEmpty);
+  });
+
   test('未知动作不生成键盘事件', () {
     expect(macRemoteKeyStrokeForAction('key_not_supported'), isNull);
     expect(macRemoteKeyStrokeForAction('wake_screen'), isNull);

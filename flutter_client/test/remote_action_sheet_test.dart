@@ -6,6 +6,43 @@ import 'package:rdesk/src/widgets/remote_control_panel.dart';
 import 'package:rdesk/src/widgets/remote_session_tools.dart';
 
 void main() {
+  Future<List<String>> pumpControlBar(
+    WidgetTester tester, {
+    required String peerOs,
+  }) async {
+    final actions = <String>[];
+    final session = SessionProvider();
+    addTearDown(session.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: session,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: RemoteControlBar(
+                sessionId: 'test-session',
+                peerOs: peerOs,
+                onDisconnect: () {},
+                onFileManager: () {},
+                onToggleToolbar: () {},
+                onRemoteAction: (action) async => actions.add(action),
+                onPushClipboard: () async {},
+                onPullClipboard: () async {},
+                autoHideToolbar: false,
+                onAutoHideToolbarChanged: (_) {},
+                onActionSheetClosed: () {},
+                onUserInteraction: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return actions;
+  }
+
   Future<SessionProvider> openActionSheet(
     WidgetTester tester, {
     Size viewport = const Size(390, 844),
@@ -142,6 +179,7 @@ void main() {
               alignment: Alignment.bottomCenter,
               child: RemoteControlBar(
                 sessionId: 'test-session',
+                peerOs: 'macOS',
                 onDisconnect: () {},
                 onFileManager: () {},
                 onToggleToolbar: () {},
@@ -164,6 +202,36 @@ void main() {
 
     expect(find.text('电脑键盘'), findsOneWidget);
     expect(find.text('Q'), findsOneWidget);
+  });
+
+  testWidgets('连接 macOS 时底栏显示电脑动作并发送对应远端指令', (tester) async {
+    final actions = await pumpControlBar(tester, peerOs: 'macOS');
+
+    expect(find.text('展开所有窗口'), findsOneWidget);
+    expect(find.text('显示桌面'), findsOneWidget);
+    expect(find.text('键盘'), findsOneWidget);
+    expect(find.text('操作'), findsOneWidget);
+    expect(find.text('返回'), findsNothing);
+    expect(find.text('主页'), findsNothing);
+    expect(find.text('任务'), findsNothing);
+
+    await tester.tap(find.text('展开所有窗口'));
+    await tester.tap(find.text('显示桌面'));
+    await tester.pump();
+
+    expect(actions, ['show_all_windows', 'show_desktop']);
+  });
+
+  testWidgets('连接 Android 时底栏保留移动端导航动作', (tester) async {
+    await pumpControlBar(tester, peerOs: 'android');
+
+    expect(find.text('返回'), findsOneWidget);
+    expect(find.text('主页'), findsOneWidget);
+    expect(find.text('任务'), findsOneWidget);
+    expect(find.text('键盘'), findsOneWidget);
+    expect(find.text('操作'), findsOneWidget);
+    expect(find.text('展开所有窗口'), findsNothing);
+    expect(find.text('显示桌面'), findsNothing);
   });
 
   testWidgets('电脑键盘文字键通过真实文字输入回调发送', (tester) async {

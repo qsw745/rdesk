@@ -16,6 +16,11 @@ MacRemoteKeyStroke? macRemoteKeyStrokeForAction(String action) {
     'key_arrow_right' => const MacRemoteKeyStroke(124),
     'key_arrow_down' => const MacRemoteKeyStroke(125),
     'key_arrow_up' => const MacRemoteKeyStroke(126),
+    'show_all_windows' => const MacRemoteKeyStroke(
+        126,
+        {MacRemoteModifier.control},
+      ),
+    'show_desktop' => const MacRemoteKeyStroke(103),
     'key_command_a' => const MacRemoteKeyStroke(0, {MacRemoteModifier.command}),
     'key_command_c' => const MacRemoteKeyStroke(8, {MacRemoteModifier.command}),
     'key_command_v' => const MacRemoteKeyStroke(9, {MacRemoteModifier.command}),

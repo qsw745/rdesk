@@ -17,6 +17,7 @@ class RemoteControlBar extends StatelessWidget {
   const RemoteControlBar({
     super.key,
     required this.sessionId,
+    required this.peerOs,
     required this.onDisconnect,
     required this.onFileManager,
     required this.onToggleToolbar,
@@ -30,6 +31,7 @@ class RemoteControlBar extends StatelessWidget {
   });
 
   final String sessionId;
+  final String peerOs;
   final VoidCallback onDisconnect;
   final VoidCallback onFileManager;
   final VoidCallback onToggleToolbar;
@@ -56,6 +58,7 @@ class RemoteControlBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMac = _isMacPlatform(peerOs);
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: BackdropFilter(
@@ -75,30 +78,49 @@ class RemoteControlBar extends StatelessWidget {
           ),
           child: Row(
             children: [
-              _BarItem(
-                icon: Icons.arrow_back_rounded,
-                label: '返回',
-                onTap: () {
-                  onUserInteraction();
-                  onRemoteAction('back');
-                },
-              ),
-              _BarItem(
-                icon: Icons.home_rounded,
-                label: '主页',
-                onTap: () {
-                  onUserInteraction();
-                  onRemoteAction('home');
-                },
-              ),
-              _BarItem(
-                icon: Icons.grid_view_rounded,
-                label: '任务',
-                onTap: () {
-                  onUserInteraction();
-                  onRemoteAction('recents');
-                },
-              ),
+              if (isMac) ...[
+                _BarItem(
+                  icon: Icons.view_carousel_outlined,
+                  label: '展开所有窗口',
+                  onTap: () {
+                    onUserInteraction();
+                    onRemoteAction('show_all_windows');
+                  },
+                ),
+                _BarItem(
+                  icon: Icons.desktop_windows_outlined,
+                  label: '显示桌面',
+                  onTap: () {
+                    onUserInteraction();
+                    onRemoteAction('show_desktop');
+                  },
+                ),
+              ] else ...[
+                _BarItem(
+                  icon: Icons.arrow_back_rounded,
+                  label: '返回',
+                  onTap: () {
+                    onUserInteraction();
+                    onRemoteAction('back');
+                  },
+                ),
+                _BarItem(
+                  icon: Icons.home_rounded,
+                  label: '主页',
+                  onTap: () {
+                    onUserInteraction();
+                    onRemoteAction('home');
+                  },
+                ),
+                _BarItem(
+                  icon: Icons.grid_view_rounded,
+                  label: '任务',
+                  onTap: () {
+                    onUserInteraction();
+                    onRemoteAction('recents');
+                  },
+                ),
+              ],
               _BarItem(
                 icon: Icons.keyboard_alt_outlined,
                 label: '键盘',
@@ -143,7 +165,6 @@ class RemoteControlBar extends StatelessWidget {
   }
 
   void _openKeyboardSheet(BuildContext context) {
-    final peerOs = context.read<SessionProvider>().currentSession?.peerOs ?? '';
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -156,6 +177,11 @@ class RemoteControlBar extends StatelessWidget {
         onRemoteAction: onRemoteAction,
       ),
     ).whenComplete(onActionSheetClosed);
+  }
+
+  bool _isMacPlatform(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.contains('mac') || normalized.contains('darwin');
   }
 }
 
