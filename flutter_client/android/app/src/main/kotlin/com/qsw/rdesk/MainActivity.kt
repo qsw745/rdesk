@@ -25,6 +25,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        com.qsw.rdesk.wake.WakeRelayPlugin.register(this, flutterEngine)
         RdeskApplicationHolder.applicationContext = applicationContext
 
         MethodChannel(

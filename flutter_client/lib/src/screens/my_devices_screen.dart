@@ -76,6 +76,10 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
+              onPressed: () => context.push('/wake'),
+              icon: const Icon(Icons.power_settings_new),
+              tooltip: '远程开机'),
+          IconButton(
             onPressed: () => context.read<AuthProvider>().refreshDevices(),
             icon: const Icon(Icons.refresh_rounded),
             tooltip: '刷新',

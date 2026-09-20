@@ -117,6 +117,15 @@ class WakeApi {
   Future<WakeEnrollment> createAgent(String name) async =>
       WakeEnrollment.fromJson(
           await _send('POST', '/api/wake/agents', body: {'name': name}));
+  Future<WakeEnrollment> enableAgent(String id, String name) async =>
+      WakeEnrollment.fromJson(await _send(
+          'POST', '/api/wake/agents/${Uri.encodeComponent(id)}/enable',
+          body: {'name': name}));
+  Future<void> stopAgent(String id) async {
+    await _send('POST', '/api/wake/agents/${Uri.encodeComponent(id)}/stop',
+        body: {});
+  }
+
   Future<void> revokeAgent(String id) async {
     await _send('DELETE', '/api/wake/agents/${Uri.encodeComponent(id)}');
   }

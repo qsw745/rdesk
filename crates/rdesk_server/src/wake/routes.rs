@@ -24,6 +24,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/wake/agents", get(agents).post(create_agent))
         .route("/api/wake/agents/:id", axum::routing::delete(delete_agent))
         .route("/api/wake/agents/:id/disable", post(disable_agent))
+        .route("/api/wake/agents/:id/stop", post(stop_agent))
+        .route("/api/wake/agents/:id/enable", post(enable_agent))
         .route("/api/wake/agents/:id/poll", post(poll))
         .route("/api/wake/requests", post(create_request).get(history))
         .route("/api/wake/requests/:id", get(request_status))
@@ -304,13 +306,82 @@ async fn delete_agent(
     let u = account(&s, &h)?;
     revoke(&s, &u.user_id, &id).await
 }
+async fn stop_helper(
+    s: &AppState,
+    owner: &str,
+    id: &str,
+    expected_hash: Option<String>,
+) -> WakeResult<Json<Value>> {
+    update_wake(s, owner, |d| {
+        let agent = d
+            .agents
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(WakeError("not_found"))?;
+        // Recheck under the storage lock: a late old stop must not disable a newly rotated token.
+        if expected_hash
+            .as_ref()
+            .is_some_and(|hash| *hash != agent.token_hash || !agent.enabled)
+        {
+            return Err(WakeError("unauthorized"));
+        }
+        agent.enabled = false;
+        agent.token_hash.clear();
+        for r in &mut d.requests {
+            if r.agent_id == id && r.phase.active() {
+                r.phase = WakePhase::Cancelled;
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    s.wake_runtime.agents.lock().unwrap().remove(id);
+    Ok(Json(json!({"ok":true})))
+}
+async fn stop_agent(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+) -> WakeResult<Json<Value>> {
+    let u = account(&s, &h)?;
+    stop_helper(&s, &u.user_id, &id, None).await
+}
 async fn disable_agent(
     State(s): State<AppState>,
     Path(id): Path<String>,
     h: HeaderMap,
 ) -> WakeResult<Json<Value>> {
     let owner = device_owner(&s, &h, &id, true)?;
-    revoke(&s, &owner, &id).await
+    stop_helper(&s, &owner, &id, Some(digest(bearer(&h)?))).await
+}
+async fn enable_agent(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+    Json(b): Json<Named>,
+) -> WakeResult<Json<Value>> {
+    let u = account(&s, &h)?;
+    let name = name(&b.name)?;
+    let (token, hash) = credential();
+    update_wake(&s, &u.user_id, |d| {
+        let a = d
+            .agents
+            .iter_mut()
+            .find(|a| a.id == id)
+            .ok_or(WakeError("not_found"))?;
+        a.name = name;
+        a.enabled = true;
+        a.token_hash = hash;
+        for r in &mut d.requests {
+            if r.agent_id == id && r.phase.active() {
+                r.phase = WakePhase::Cancelled;
+            }
+        }
+        Ok(())
+    })
+    .await?;
+    s.wake_runtime.agents.lock().unwrap().remove(&id);
+    Ok(Json(json!({"id":id,"token":token})))
 }
 #[derive(Deserialize)]
 struct RequestInput {
@@ -561,16 +632,22 @@ async fn result(
 }
 pub async fn cleanup(s: &AppState) {
     let now = now_ms();
+    let mut agents = std::collections::HashSet::new();
+    let mut targets = std::collections::HashSet::new();
+    for user in s.users.iter() {
+        agents.extend(user.wake.agents.iter().map(|a| a.id.clone()));
+        targets.extend(user.wake.targets.iter().map(|t| t.id.clone()));
+    }
     s.wake_runtime
         .agents
         .lock()
         .unwrap()
-        .retain(|_, seen| now.saturating_sub(*seen) < 30_000);
+        .retain(|id, seen| agents.contains(id) && now.saturating_sub(*seen) < 604_800_000);
     s.wake_runtime
         .targets
         .lock()
         .unwrap()
-        .retain(|_, seen| now.saturating_sub(*seen) < 30_000);
+        .retain(|id, seen| targets.contains(id) && now.saturating_sub(*seen) < 604_800_000);
     let owners: Vec<String> = s.users.iter().map(|u| u.user_id.clone()).collect();
     for owner in owners {
         if advance(s, &owner).await.is_err() {

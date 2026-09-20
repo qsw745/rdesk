@@ -1,6 +1,6 @@
 # Windows 远程开机实施计划
 
-> 执行者：按任务使用 `superpowers:executing-plans`，或在用户选择逐任务委派后使用 `superpowers:subagent-driven-development`。本文等待用户审阅并选择执行方式，尚未开始产品实现。复选框用于记录实际完成情况。
+> 执行者：按任务使用 `superpowers:executing-plans`，或在用户选择逐任务委派后使用 `superpowers:subagent-driven-development`。用户已选择当前会话直接实现。下方保留原计划验收条目；实际完成与偏差见本节执行记录及 `docs/validation/remote-wake.md`，不把未实测项标为通过。
 
 **目标：** 手机及电脑通过家中安卓助手，在外网唤醒已配置的 Windows 有线网卡目标，并提供可区分链路阶段的隔夜诊断。
 
@@ -88,8 +88,7 @@ phase = queued | claimed | sent | online | unconfirmed | expired |
 
 账号资源默认上限：20 个目标、5 个助手。每目标活动观察窗口内合并请求；终态之后 30 秒内不接受新的发送批次；每账号每分钟最多创建 10 个新请求，重复查询及幂等复用不计为新请求。
 
-任务 1：持久配置、状态机与删除一致性
-------------------------------------
+### Task 1: 持久配置、状态机与删除一致性
 
 **文件：** 新增 `wake/model.rs`、`wake/store.rs`、`wake/mod.rs`、`wake/tests.rs`；修改 `main.rs` 的 `UserRecord`、`register_account`、`delete_account`、`persist_users`。
 
@@ -164,8 +163,7 @@ Ok(value)
 - [ ] `prune` 同时按 7 天及 50 条限额裁剪，不保留已删除目标的 token；重启将所有非终态任务变为 `interrupted` 并清空在线租约。重启中断状态落盘失败时唤醒服务不启动。
 - [ ] 运行本任务测试及 `cargo check --workspace`；检查 Git 仅暂存本任务片段，提交 `feat(wake): 保存开机配置与有界诊断`，不夹带已有采集修改。
 
-任务 2：鉴权路由、领取回执与上线判定
-----------------------------------
+### Task 2: 鉴权路由、领取回执与上线判定
 
 **文件：** `wake/routes.rs`、`wake/mod.rs`、`wake/tests.rs`；`main.rs` 接入 `wake::routes()` 和运行态。
 
@@ -197,8 +195,7 @@ fn no_app_heartbeat_never_means_online() {
 - [ ] 覆盖双客户端同时点击只产生一个请求、过期不能发送、撤销与在途回执、配置 revision 不匹配、重启不重发、50 条/7 天清理、30 秒冷却及账号速率限制。
 - [ ] 运行 `cargo test -p rdesk_server` 和 `cargo check --workspace`；提交本任务片段 `feat(wake): 增加受控开机请求与状态接口`。
 
-任务 3：Flutter 协议模型与隔离的 HTTP 客户端
-------------------------------------------
+### Task 3: Flutter 协议模型与隔离的 HTTP 客户端
 
 **文件：** `flutter_client/lib/src/models/wake.dart`、`services/wake_api.dart`、`test/wake_api_test.dart`；bridge 增加 API 地址 getter。
 
@@ -243,8 +240,7 @@ request.headers.contentType = ContentType.json;
 - [ ] 模型测试将 `phase=sent` 断言为 `WakePhase.sent`，缺字段或未知状态不映射 `online`；列表独立于临时 account presence。
 - [ ] 跑 API/模型测试和 `flutter analyze`，提交 `feat(wake): 增加跨端开机接口模型`。
 
-任务 4：安卓 WOL 发送与可取消的原生助手
-------------------------------------
+### Task 4: 安卓 WOL 发送与可取消的原生助手
 
 **文件：** Android `wake/` 六个新文件；`MainActivity.kt`、`AndroidManifest.xml`、`build.gradle.kts`；新建对应测试。
 
@@ -297,8 +293,7 @@ class WakeRelayEngine(val transport: WakeTransport, val sender: WakeSender,
 - [ ] 增加 `com.qsw.rdesk/wake_agent` MethodChannel，方法 `start`、`stop`、`status`、`openBatterySettings`。`start` 参数为 HTTPS endpoint、agent ID/token，`status` 返回 enabled、networkReady、lastPollAt、errorCode；绝不返回 token。录屏逻辑保持独立。
 - [ ] 执行 `./gradlew :app:testReleaseUnitTest`（目录 `flutter_client/android`）及 APK 编译；提交 `feat(android): 增加独立远程开机助手`。
 
-任务 5：Windows 网卡发现、注册与心跳
----------------------------------
+### Task 5: Windows 网卡发现、注册与心跳
 
 **文件：** `windows_wake_service.dart`、`test/windows_wake_service_test.dart`。任务 6 再把本服务接入 Provider。
 
@@ -339,8 +334,7 @@ class WindowsWakeService {
 - [ ] 测试旧账号 token 不用于新服务器、停止后不再心跳、App 未运行时服务端不能判 online。重复配置明确更新/轮换，不每次点击都新建目标。
 - [ ] 跑 `flutter test test/windows_wake_service_test.dart` 和 analyze；提交 `feat(windows): 配置开机网卡并报告上线`。
 
-任务 6：账号生命周期与助手控制
-----------------------------
+### Task 6: 账号生命周期与助手控制
 
 **文件：** `wake_agent_channel.dart`、`wake_provider.dart`、`auth_provider.dart`、`app.dart`、`test/wake_provider_test.dart`。
 
@@ -385,8 +379,7 @@ if (generation != _generation || _disposed) {
 - [ ] 页面可见且请求非终态时每 2 秒查询一次，离开页面停止 UI 查询；平台助手仍由 Kotlin 独立运行。App resume 刷新状态，不自动启动被停用服务。
 - [ ] 运行 `flutter test test/wake_provider_test.dart test/auth_session_recovery_test.dart`；提交 `feat(wake): 接入账号隔离与助手生命周期`。
 
-任务 7：操作界面与真实状态文案
-----------------------------
+### Task 7: 操作界面与真实状态文案
 
 **文件：** 新页面/状态组件；设备页、设置页、router 接入；`test/wake_screen_test.dart`、审核真实性测试。
 
@@ -416,8 +409,7 @@ String wakePhaseLabel(WakePhase phase) => switch (phase) {
 - [ ] 把 120 秒无心跳文案写为“未确认上线；电脑可能已到登录界面，但 RDesk 尚未运行”，不显示“电脑不支持开机”。
 - [ ] 运行 widget、账号恢复、审核真实性及现有相关 viewer 回归；提交 `feat(wake): 增加远程开机配置与诊断界面`。
 
-任务 8：端到端验证、文档与发布准备
---------------------------------
+### Task 8: 端到端验证、文档与发布准备
 
 **文件：** `docs/remote-wake.md`、`docs/validation/remote-wake.md`、`deploy/privacy.html`、`deploy/support.html`、`deploy/download.html`、`docs/app-store-submission.md`。
 
@@ -467,3 +459,15 @@ Android 型号/系统/供电：实机接入后记录
 - 审查重点对应的五类失败路径均有明确任务测试；真实手机后台和真实 BIOS 行为仍需实机验证。
 - 撤销边界：本机 stop 可同步取消本机待执行工作；跨网络已发出的短许可无法物理收回，不作绝对保证。
 - 本计划细化了存储位置、资源限额和发送前二次鉴权，保持已确认设计的功能范围。用户审阅后选择当前会话直接执行或逐任务子代理执行。
+
+## 2026-09-20 执行记录
+
+- 任务 1–3：服务端配置、鉴权协议及 Flutter HTTP 模型已实现；后续终审补充助手原 ID 重新启用与凭据轮换。
+- 任务 4–7：独立安卓原生助手、Windows 网卡注册与心跳、账号生命周期、配置/记录页面已实现。
+- 任务 8：自动测试、原生编译、安卓打包与本地真实 HTTP 模拟链路已执行；推送及最终构建信息见验证记录。
+- 保留现有 master 工作区，按原始差异基线单独暂存功能片段，未将其他采集和审核修改混入提交。
+- 随机设备令牌改用 SHA-256 摘要；轮询使用 100 ms 有界检查而非 Notify；30 秒冷却从请求创建算起，活动请求仍去重。
+- 助手停止保留身份与目标绑定，重新启用轮换令牌；显式删除才移除身份。原生存储增加账号身份以校验界面重建后的归属。
+- Windows 网卡介质按官方数值 14 判断；心跳存储按服务器与账号隔离（每本地应用实例一台电脑）。
+- 部分 Provider/UI 测试是在实现后补充；真实异常路径、审查发现的网卡/助手身份/诊断问题均有失败复现与修复验证，不宣称全程测试先行。
+- 当前没有可用安卓 USB 设备，配对 iPhone 不可用；未安装实机，未进行 Windows 原生构建和物理开机、蜂窝、隔夜/24h/48h 验证。服务端与公开页面部署仍是独立待确认步骤。

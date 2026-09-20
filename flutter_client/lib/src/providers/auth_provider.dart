@@ -22,6 +22,9 @@ class AuthProvider extends ChangeNotifier {
   static const _credentialsKey = 'rdesk.account.credentials';
 
   Timer? _refreshTimer;
+  Future<void> Function()? beforeAccountExit;
+  bool _initialized = false;
+  bool get initialized => _initialized;
 
   AccountSession? _session;
   List<AccountDevice> _devices = const [];
@@ -60,6 +63,7 @@ class AuthProvider extends ChangeNotifier {
         }
       }
     }
+    _initialized = true;
     notifyListeners();
   }
 
@@ -94,6 +98,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await beforeAccountExit?.call();
     final existingSession = _session;
     _session = null;
     _devices = const [];
@@ -134,6 +139,12 @@ class AuthProvider extends ChangeNotifier {
       return false;
     }
 
+    try {
+      await beforeAccountExit?.call();
+    } catch (_) {
+      // Server deletion is already committed; never keep a deleted account locally.
+      _error = '账号已删除，本机助手停止状态请在通知栏核对';
+    }
     _session = null;
     _devices = const [];
     _refreshTimer?.cancel();
@@ -447,6 +458,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _clearInvalidSession() async {
+    await beforeAccountExit?.call();
     _session = null;
     _devices = const [];
     _refreshTimer?.cancel();

@@ -28,6 +28,7 @@ flutter_client/linux/flutter/ephemeral/
 
 # Generated
 crates/rdesk_common/src/protos/*.rs
+!crates/rdesk_common/src/protos/mod.rs
 flutter_client/lib/src/bridge/native.dart
 
 # Environment

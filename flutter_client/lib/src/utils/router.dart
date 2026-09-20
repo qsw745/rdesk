@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../screens/remote_desktop_screen.dart';
 import '../screens/file_manager_screen.dart';
 import '../screens/settings_screen.dart';
+import '../screens/wake_screen.dart';
 import '../screens/connection_settings_screen.dart';
 import '../screens/gesture_guide_screen.dart';
 import '../screens/connection_log_screen.dart';
@@ -78,6 +79,14 @@ final appRouter = GoRouter(
       ],
     ),
 
+    GoRoute(
+        path: '/wake',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (_, __) => const WakeScreen()),
+    GoRoute(
+        path: '/wake/setup',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (_, __) => const WakeSetupScreen()),
     // ── Full-screen routes (no bottom nav) ──
     GoRoute(
       path: '/remote/:sessionId',

@@ -28,6 +28,11 @@ class SettingsScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
+              ListTile(leading: const Icon(Icons.power_settings_new),
+                title: const Text('远程开机'),
+                subtitle: const Text('配置家中安卓助手，唤醒有线 Windows 电脑'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/wake')),
               _SettingsOverviewCard(
                 autoAccept: settings.autoAccept,
                 trustedPeerCount: settings.trustedPeers.length,

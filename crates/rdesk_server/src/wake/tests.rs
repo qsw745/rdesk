@@ -580,3 +580,133 @@ async fn diagnostics_expire_even_without_client_visits() {
     assert!(s.users.get("owner").unwrap().wake.requests.is_empty());
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn helper_disable_and_reenable_preserves_binding_and_rejects_old_token() {
+    let (s, dir) = authenticated_fixture();
+    let empty = serde_json::json!({});
+    let (_, a) = api(
+        &s,
+        "POST",
+        "/api/wake/agents",
+        "account",
+        serde_json::json!({"name":"phone"}),
+    )
+    .await;
+    let aid = a["id"].as_str().unwrap();
+    let old = a["token"].as_str().unwrap();
+    let (_, t) = api(
+        &s,
+        "POST",
+        "/api/wake/targets",
+        "account",
+        serde_json::json!({"name":"pc","device_id":"pc","mac":"02:11:22:33:44:55","agent_id":aid}),
+    )
+    .await;
+    assert_eq!(
+        api(
+            &s,
+            "POST",
+            &format!("/api/wake/agents/{aid}/disable"),
+            old,
+            empty.clone()
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(s
+        .users
+        .get("owner")
+        .unwrap()
+        .wake
+        .agents
+        .iter()
+        .any(|a| a.id == aid && !a.enabled));
+    let (status, new) = api(
+        &s,
+        "POST",
+        &format!("/api/wake/agents/{aid}/enable"),
+        "account",
+        serde_json::json!({"name":"phone"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(new["id"], aid);
+    assert_ne!(new["token"], old);
+    assert_eq!(
+        api(
+            &s,
+            "POST",
+            &format!("/api/wake/agents/{aid}/disable"),
+            old,
+            empty.clone()
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(s.users.get("owner").unwrap().wake.targets[0].agent_id, aid);
+    s.wake_runtime
+        .agents
+        .lock()
+        .unwrap()
+        .insert(aid.into(), crate::now_ms());
+    assert_eq!(
+        api(
+            &s,
+            "POST",
+            "/api/wake/requests",
+            "account",
+            serde_json::json!({"target_id":t["id"]})
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        api(
+            &s,
+            "POST",
+            &format!("/api/wake/agents/{aid}/enable"),
+            "other-account",
+            serde_json::json!({"name":"stolen"})
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn offline_helpers_keep_last_seen_for_diagnosis_without_becoming_online() {
+    let (s, dir) = authenticated_fixture();
+    let (_, a) = api(
+        &s,
+        "POST",
+        "/api/wake/agents",
+        "account",
+        serde_json::json!({"name":"phone"}),
+    )
+    .await;
+    let id = a["id"].as_str().unwrap();
+    let seen = crate::now_ms() - 300_000;
+    s.wake_runtime
+        .agents
+        .lock()
+        .unwrap()
+        .insert(id.into(), seen);
+    super::routes::cleanup(&s).await;
+    let (_, list) = api(
+        &s,
+        "GET",
+        "/api/wake/agents",
+        "account",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(list["agents"][0]["last_seen_ms"], seen);
+    assert_eq!(list["agents"][0]["online"], false);
+    std::fs::remove_dir_all(dir).unwrap();
+}

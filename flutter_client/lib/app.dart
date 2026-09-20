@@ -4,6 +4,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'src/services/rdesk_bridge_service.dart';
+import 'src/services/wake_api.dart';
+import 'src/services/wake_agent_channel.dart';
+import 'src/services/windows_wake_service.dart';
+import 'src/providers/wake_provider.dart';
 import 'src/providers/connection_provider.dart';
 import 'src/providers/session_provider.dart';
 import 'src/providers/settings_provider.dart';
@@ -42,6 +48,34 @@ class RDeskApp extends StatelessWidget {
         ChangeNotifierProvider(
             create: (_) => SettingsProvider()..loadSettings()),
         ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
+        ChangeNotifierProxyProvider2<AuthProvider, SettingsProvider,
+            WakeProvider>(
+          lazy: false,
+          create: (context) {
+            final auth = context.read<AuthProvider>();
+            final api = WakeApi(
+                baseUri: RdeskBridgeService.instance.getApiBaseUri,
+                accountToken: () async => auth.session?.token);
+            final wake = WakeProvider(
+                api: api,
+                agent: WakeAgentChannel(),
+                windows: Platform.isWindows
+                    ? WindowsWakeService(
+                        api: api,
+                        run: (exe, args) => Process.run(exe, args),
+                        storage: const FlutterSecureStorage())
+                    : null);
+            auth.beforeAccountExit = wake.stopForAccountExit;
+            return wake;
+          },
+          update: (_, auth, settings, wake) {
+            if (auth.initialized) {
+              unawaited(wake!
+                  .bindAccount(auth.session?.userId, settings.signalingServer));
+            }
+            return wake!;
+          },
+        ),
         ChangeNotifierProvider(create: (_) => FileTransferProvider()),
         ChangeNotifierProvider(create: (_) => AddressBookProvider()..load()),
         ChangeNotifierProvider(
