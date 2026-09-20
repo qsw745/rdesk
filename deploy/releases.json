@@ -90,5 +90,5 @@
     }
   },
   "checksums_url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/SHA256SUMS.txt",
-  "service_notice": "当前云端服务连接异常，可能影响账号登录和跨网连接，正在排查。官网与安装包下载正常。"
+  "service_notice": ""
 }
