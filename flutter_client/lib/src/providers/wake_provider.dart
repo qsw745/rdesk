@@ -292,7 +292,7 @@ class WakeProvider extends ChangeNotifier {
     _disposed = true;
     ++_generation;
     _timer?.cancel();
-    unawaited(windows?.stop() ?? Future.value());
+    unawaited(windows?.dispose() ?? Future.value());
     api.close();
     super.dispose();
   }

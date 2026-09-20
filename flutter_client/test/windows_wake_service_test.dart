@@ -50,43 +50,6 @@ void main() {
       HttpOverrides.global = null;
     }
   });
-  test('识别实际有线网卡并排除无效 MAC', () async {
-    final api = WakeApi(
-        baseUri: () async => Uri.parse('https://example.test'),
-        accountToken: () async => 'a');
-    addTearDown(api.close);
-    final service = WindowsWakeService(
-        api: api,
-        storage: const FlutterSecureStorage(),
-        run: (exe, args) async {
-          expect(exe, 'powershell.exe');
-          expect(args, contains('-NonInteractive'));
-          return ProcessResult(
-              1,
-              0,
-              '[{"InterfaceGuid":"wired","Name":"以太网","MacAddress":"02-11-22-33-44-55","Status":"Up","NdisPhysicalMedium":14},{"InterfaceGuid":"invalid","Name":"虚拟","MacAddress":"00-00-00-00-00-00","Status":"Up","NdisPhysicalMedium":"Unspecified"}]',
-              '');
-        });
-    final adapters = await service.adapters();
-    expect(adapters.length, 1);
-    expect(adapters.single.mac, '02:11:22:33:44:55');
-    expect(adapters.single.wired, isTrue);
-  });
-  test('单对象无线适配器不能宣称支持有线唤醒', () async {
-    final api = WakeApi(
-        baseUri: () async => Uri.parse('https://example.test'),
-        accountToken: () async => 'a');
-    addTearDown(api.close);
-    final service = WindowsWakeService(
-        api: api,
-        storage: const FlutterSecureStorage(),
-        run: (exe, args) async => ProcessResult(
-            1,
-            0,
-            '{"InterfaceGuid":"wifi","Name":"无线网络","MacAddress":"02-11-22-33-44-55","Status":"Up","NdisPhysicalMedium":9}',
-            ''));
-    expect((await service.adapters()).single.wired, isFalse);
-  });
   test('检测仅按真实值判断，未知关机唤醒不能显示通过', () async {
     final api = WakeApi(
         baseUri: () async => Uri.parse('https://example.test'),
@@ -117,22 +80,5 @@ void main() {
         run: (_, __) async => ProcessResult(1, 1, '', 'Access denied'));
     await expectLater(
         service.inspect('02:11:22:33:44:55'), throwsA(isA<WakeApiException>()));
-  });
-  test('物理介质未指定时使用以太网接口类型，不混淆无线接口', () async {
-    final api = WakeApi(
-        baseUri: () async => Uri.parse('https://example.test'),
-        accountToken: () async => 'a');
-    addTearDown(api.close);
-    final service = WindowsWakeService(
-        api: api,
-        storage: const FlutterSecureStorage(),
-        run: (_, __) async => ProcessResult(
-            1,
-            0,
-            '[{"Name":"Ethernet","MacAddress":"02-11-22-33-44-55","Status":"Up","NdisPhysicalMedium":0,"InterfaceType":6},{"Name":"Wi-Fi","MacAddress":"02-11-22-33-44-56","Status":"Up","NdisPhysicalMedium":0,"InterfaceType":71}]',
-            ''));
-    final adapters = await service.adapters();
-    expect(adapters.first.wired, isTrue);
-    expect(adapters.last.wired, isFalse);
   });
 }

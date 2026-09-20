@@ -5,6 +5,9 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/wake.dart';
 import 'wake_api.dart';
+import 'windows_adapter_service.dart';
+import 'windows_process_runner.dart';
+export 'windows_adapter_service.dart';
 
 enum WakeCheckState { enabled, disabled, unknown }
 
@@ -31,20 +34,13 @@ class WindowsWakeCheck {
   }
 }
 
-class WindowsWakeAdapter {
-  final String id, name, mac;
-  final bool connected, wired;
-  const WindowsWakeAdapter(
-      {required this.id,
-      required this.name,
-      required this.mac,
-      required this.connected,
-      required this.wired});
-}
-
 class WindowsWakeService {
   final WakeApi _api;
-  final Future<ProcessResult> Function(String, List<String>) _run;
+  final WindowsAdapterService _adapters;
+  final Future<ProcessResult> Function(String, List<String>)? _runOverride;
+  final _processes = WindowsProcessRunner();
+  Future<ProcessResult> _run(String exe, List<String> args) =>
+      _runOverride?.call(exe, args) ?? _processes.run(exe, args);
   final FlutterSecureStorage _storage;
   Timer? _timer;
   WakeApi? _heartbeatApi;
@@ -53,10 +49,12 @@ class WindowsWakeService {
   bool get active => _timer != null;
   WindowsWakeService(
       {required WakeApi api,
-      required Future<ProcessResult> Function(String, List<String>) run,
-      required FlutterSecureStorage storage})
+      Future<ProcessResult> Function(String, List<String>)? run,
+      required FlutterSecureStorage storage,
+      WindowsAdapterService adapters = const WindowsAdapterService()})
       : _api = api,
-        _run = run,
+        _adapters = adapters,
+        _runOverride = run,
         _storage = storage;
 
   /// Read driver settings only. BIOS and physical wake support require a real test.
@@ -75,12 +73,8 @@ try { $prop=$nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction St
 @{magicPacket=$magic; wakeArmed=$armed; shutdownWake=$shutdown} | ConvertTo-Json -Compress
 '''
             .replaceAll('__MAC__', mac);
-    final result = await _run('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      script
-    ]).timeout(const Duration(seconds: 15));
+    final result = await _run('powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', script]);
     if (result.exitCode != 0) {
       throw const WakeApiException('wake_check', '无法自动检测唤醒设置，请在设备管理器中核对');
     }
@@ -101,57 +95,15 @@ try { $prop=$nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction St
     final script = enabled
         ? "New-Item -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Force | Out-Null; Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RDesk' -Value '\"$path\"' -ErrorAction Stop"
         : "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RDesk' -ErrorAction SilentlyContinue";
-    final result = await _run('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      script
-    ]).timeout(const Duration(seconds: 10));
+    final result = await _run('powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', script]);
     if (result.exitCode != 0) {
       throw const WakeApiException('startup', '设置登录后启动失败，请重试');
     }
   }
 
-  Future<List<WindowsWakeAdapter>> adapters() async {
-    const script =
-        r'''$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; @(Get-NetAdapter -Physical | Select-Object @{n='InterfaceGuid';e={$_.InterfaceGuid.ToString()}},Name,MacAddress,InterfaceType,@{n='Status';e={$_.Status.ToString()}},@{n='NdisPhysicalMedium';e={[int]$_.NdisPhysicalMedium}}) | ConvertTo-Json -Compress''';
-    final result = await _run('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      script
-    ]).timeout(const Duration(seconds: 10));
-    if (result.exitCode != 0) {
-      throw const WakeApiException('adapter_query', '无法读取网卡，请检查 Windows 网络适配器');
-    }
-    final text = result.stdout.toString().trim();
-    if (text.isEmpty) return [];
-    final raw = jsonDecode(text);
-    final rows = raw is List ? raw : [raw];
-    final adapters = <WindowsWakeAdapter>[];
-    for (final row in rows) {
-      if (row is! Map) continue;
-      final mac = (row['MacAddress']?.toString() ?? '')
-          .replaceAll('-', ':')
-          .toUpperCase();
-      if (!RegExp(r'^[0-9A-F]{2}(:[0-9A-F]{2}){5}$').hasMatch(mac) ||
-          mac == '00:00:00:00:00:00' ||
-          int.parse(mac.substring(0, 2), radix: 16).isOdd) {
-        continue;
-      }
-      adapters.add(WindowsWakeAdapter(
-          id: row['InterfaceGuid']?.toString() ?? mac,
-          name: row['Name']?.toString() ?? '网卡',
-          mac: mac,
-          connected: row['Status'] == 'Up',
-          wired: row['NdisPhysicalMedium'].toString() == '14' ||
-              (row['NdisPhysicalMedium'].toString() == '0' &&
-                  row['InterfaceType'].toString() == '6')));
-    }
-    adapters.sort((a, b) => ((b.connected ? 2 : 0) + (b.wired ? 1 : 0))
-        .compareTo((a.connected ? 2 : 0) + (a.wired ? 1 : 0)));
-    return adapters;
-  }
+  Future<List<WindowsWakeAdapter>> adapters() => _adapters.adapters();
+  Future<WindowsAdapterScan> scanAdapters() => _adapters.scan();
 
   String _key(String userId, Uri uri) {
     return 'rdesk.wake.windows.${sha256.convert(utf8.encode('$uri|$userId'))}';
@@ -265,6 +217,11 @@ try { $prop=$nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction St
   }
 
   Future<void> stop() async => _stop();
+  Future<void> dispose() async {
+    _stop();
+    await _processes.dispose();
+  }
+
   void _stop() {
     ++_generation;
     _timer?.cancel();

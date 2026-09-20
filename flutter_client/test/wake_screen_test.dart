@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:rdesk/src/services/windows_wake_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,55 @@ class ScreenWake extends WakeProvider {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('com.qsw.rdesk/windows_wake');
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            channel,
+            (_) async => {
+                  'schema': 1,
+                  'source': 'ip_helper',
+                  'elapsed_ms': 1,
+                  'adapters': [
+                    {
+                      'id': 'wired',
+                      'name': '以太网',
+                      'mac': '02:11:22:33:44:55',
+                      'if_type': 6,
+                      'hardware': true,
+                      'connected': true
+                    }
+                  ]
+                });
+  });
+  tearDown(() => TestDefaultBinaryMessengerBinding
+      .instance.defaultBinaryMessenger
+      .setMockMethodCallHandler(channel, null));
+  testWidgets('检测失败显示诊断，不误报没有有线网卡', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel,
+            (_) async => throw PlatformException(code: 'adapter_query'));
+    final api = WakeApi(
+        baseUri: () async => Uri.parse('https://example.test'),
+        accountToken: () async => 'a');
+    final windows = WindowsWakeService(
+        api: api,
+        storage: const FlutterSecureStorage(),
+        run: (_, __) async => ProcessResult(0, 0, '', ''));
+    final wake = ScreenWake(windows: windows);
+    await wake.bindAccount('user', 'server');
+    await tester.pumpWidget(ChangeNotifierProvider<WakeProvider>.value(
+        value: wake, child: const MaterialApp(home: WakeSetupScreen())));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('网卡检测失败'), findsWidgets);
+    expect(find.text('未找到已连接的有线网卡'), findsNothing);
+    expect(find.text('查看诊断'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    wake.dispose();
+    api.close();
+  });
   testWidgets('单一网卡与助手自动选择，检测未知不假装通过，逐步进入 BIOS', (tester) async {
     FlutterSecureStorage.setMockInitialValues({});
     final api = WakeApi(
@@ -36,13 +86,10 @@ void main() {
         api: api,
         storage: const FlutterSecureStorage(),
         run: (_, args) async {
-          final script = args.last;
           return ProcessResult(
               1,
               0,
-              script.contains('Select-Object @{n=')
-                  ? '[{"InterfaceGuid":"wired","Name":"以太网","MacAddress":"02-11-22-33-44-55","Status":"Up","NdisPhysicalMedium":14}]'
-                  : '{"magicPacket":"Enabled","wakeArmed":true,"shutdownWake":null}',
+              '{"magicPacket":"Enabled","wakeArmed":true,"shutdownWake":null}',
               '');
         });
     final wake = ScreenWake(windows: windows);
@@ -54,8 +101,9 @@ void main() {
         value: wake, child: const MaterialApp(home: WakeSetupScreen())));
     await tester.pumpAndSettle();
     expect(find.text('检测网络唤醒设置'), findsOneWidget);
-    expect(find.text('家中手机'), findsOneWidget);
     expect(find.text('无法自动判断'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('家中手机'), 100);
+    expect(find.text('家中手机'), findsOneWidget);
     expect(find.text('开启主板网络唤醒'), findsNothing);
     await tester.scrollUntilVisible(find.text('下一步').hitTestable(), 150);
     await tester.pumpAndSettle();

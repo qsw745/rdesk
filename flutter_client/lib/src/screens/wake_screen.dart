@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/wake.dart';
@@ -317,6 +318,7 @@ class _WakeSetupScreenState extends State<WakeSetupScreen>
   List<WindowsWakeAdapter> _adapters = [];
   WindowsWakeAdapter? _adapter;
   WindowsWakeCheck? _check;
+  WindowsAdapterScan? _scan;
   String? _agentId, _error, _checkError;
   int _step = 0, _generation = 0;
   bool _biosConfirmed = false, _sameNetwork = false, _startup = true;
@@ -350,12 +352,15 @@ class _WakeSetupScreenState extends State<WakeSetupScreen>
       _error = null;
       _checkError = null;
       _check = null;
+      _scan = null;
     });
     final wake = context.read<WakeProvider>();
     try {
       await wake.refresh();
-      final adapters = await wake.windows?.adapters() ?? [];
+      final scan = await wake.windows?.scanAdapters();
+      final adapters = scan?.adapters ?? <WindowsWakeAdapter>[];
       if (!mounted || gen != _generation) return;
+      _scan = scan;
       _adapters = adapters.where((a) => a.connected && a.wired).toList();
       _adapter = _adapters.where((a) => a.mac == _adapter?.mac).firstOrNull ??
           _adapters.firstOrNull;
@@ -367,7 +372,10 @@ class _WakeSetupScreenState extends State<WakeSetupScreen>
         }
       }
     } catch (_) {
-      _error = '无法读取网卡，请检查网线连接后重新检测。';
+      if (!mounted || gen != _generation) return;
+      _adapter = null;
+      _adapters = [];
+      _error = '网卡检测失败，请重新检测。';
     } finally {
       if (mounted && gen == _generation) {
         setState(() {
@@ -375,6 +383,27 @@ class _WakeSetupScreenState extends State<WakeSetupScreen>
         });
       }
     }
+  }
+
+  Future<void> _showDiagnostic() async {
+    final report = _scan?.diagnostic;
+    if (report == null) return;
+    await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+                title: const Text('网卡检测诊断'),
+                content: SelectableText(report),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('关闭')),
+                  FilledButton(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: report));
+                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+                      },
+                      child: const Text('复制诊断')),
+                ]));
   }
 
   @override
@@ -509,8 +538,13 @@ class _WakeSetupScreenState extends State<WakeSetupScreen>
               padding: EdgeInsets.symmetric(vertical: 20),
               child: LinearProgressIndicator())
         else ...[
-          _status('有线网卡', _adapter?.name ?? '未找到已连接的有线网卡',
+          _status('有线网卡', _adapter?.name ?? _scan?.message ?? '尚未检测网卡',
               ok: _adapter != null),
+          if (_scan != null)
+            TextButton.icon(
+                onPressed: _showDiagnostic,
+                icon: const Icon(Icons.description_outlined),
+                label: const Text('查看诊断')),
           if (_adapter != null) ...[
             _checkRow('魔术包唤醒', _check?.magicPacket),
             _checkRow('允许网卡唤醒电脑', _check?.wakeArmed),

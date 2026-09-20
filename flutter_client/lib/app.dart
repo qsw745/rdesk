@@ -62,7 +62,6 @@ class RDeskApp extends StatelessWidget {
                 windows: Platform.isWindows
                     ? WindowsWakeService(
                         api: api,
-                        run: (exe, args) => Process.run(exe, args),
                         storage: const FlutterSecureStorage())
                     : null);
             auth.beforeAccountExit = wake.stopForAccountExit;
