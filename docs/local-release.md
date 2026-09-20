@@ -34,3 +34,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows.ps1
 首次部署与回滚路径见 [自有服务器迁移记录](validation/website-self-hosted-2026-09-20.md)。配置模板分别为 `deploy/nginx.rdesk-website-origin.conf` 与 `deploy/nginx.rdesk-website-edge.conf`，均为 server 内的片段，不能当完整虚拟主机文件使用。
 
 Windows 安装包目前没有发布者签名。iOS 仍通过 App Store 分发，上架更新需要独立的本地打包与审核流程，不能把官网下载页更新当作苹果手机版本已更新。
+
+## 2.2.0 扫码配对发行注意
+
+先部署并验证新服务端，再发布客户端。可在本地运行 `python3 scripts/check_wake_pairing.py --base https://qisw.top` 验证真实 HTTP 协议；脚本只创建自己的临时账号并在结束时删除，模拟回执不代表物理电脑已唤醒。
+
+Windows 生成短时二维码，新版 iPhone/Android 扫码后完成家庭助手、BIOS 和测试。相机只在用户开启扫码时使用，长期心跳凭据保存在 Windows 安全存储。iOS 2.2.0 本轮仅本地构建，不随网站更新自动进入 App Store。完整验证和未覆盖项见 [2.2.0 验证记录](validation/cross-platform-redesign-2026-09-20.md)。

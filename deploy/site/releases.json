@@ -1,42 +1,42 @@
 {
   "date": "2026-09-20",
   "wake_service_ready": true,
-  "source_commit": "48c9de51d2caf6a11b81f4ae5242b3223c8d4f0c",
+  "source_commit": "596475308d9aaa4fc9a0c629fc923373d473aa63",
   "platforms": [
     {
       "id": "macos",
       "symbol": "M",
       "tag": "Apple 芯片 / Intel",
       "name": "macOS",
-      "version": "2.1.1",
+      "version": "2.2.0",
       "requirements": "macOS 12 或更高版本",
       "capability": "可控制其他设备，也可共享本机桌面；支持发起远程开机请求。",
       "button": "下载 Apple 芯片版",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.1.1-macos-x64.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.0-macos-x64.zip",
         "label": "下载 Intel 版（ZIP）"
       },
       "note": "两个版本的应用均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.1.1-macos-arm64.dmg",
-      "sha256": "35cb0b0df9da7f9112c5732da1999987027f13a63cca0f3227e818c420c272bb",
-      "size": "10.6 MB"
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.0-macos-arm64.dmg",
+      "sha256": "51caeeabc36b9bca750b4c8725594cce98793495d606964bedddda39f7638d5e",
+      "size": "10.7 MB"
     },
     {
       "id": "windows",
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.1.2",
+      "version": "2.2.0",
       "requirements": "Windows 10 / 11 · x64",
-      "capability": "可控制其他设备、配置本机远程开机；当前尚不支持共享 Windows 桌面。",
+      "capability": "可控制其他设备、原生检测有线网卡并生成手机配对二维码；当前尚不支持共享 Windows 桌面。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.1.2-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.0-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.1.2-windows-x64-setup.exe",
-      "sha256": "9d733eac92b193eee06879fff8398ce1c62a1c7f259dbf62a8236b4b0c3c92a0",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.0-windows-x64-setup.exe",
+      "sha256": "3b8fa46084c29a790a0c4cb4a820244af2acbc53533dfdba797eb26351e85e6e",
       "size": "11.6 MB"
     },
     {
@@ -44,14 +44,14 @@
       "symbol": "A",
       "tag": "手机 / 平板",
       "name": "Android",
-      "version": "2.1.2",
+      "version": "2.2.0",
       "requirements": "Android 7.0 或更高版本",
-      "capability": "可控制或被控，也可作为家中长期在线的独立开机助手。",
+      "capability": "可扫码配对 Windows、发起开机，也可作为家中长期在线的开机助手；支持远程控制与屏幕共享。",
       "button": "下载安卓 APK",
       "note": "下载后打开 APK，按系统提示允许本次来源安装。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.1.2-android.apk",
-      "sha256": "c8adffa5c3349aebbd5df77ea0394e961e3455df6420b0cfc57f97f8987a7557",
-      "size": "53.9 MB"
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.0-android.apk",
+      "sha256": "d93fd96ca61a1ee96889a9b79b720eb1a724408172b031005a5e1d88cef133a6",
+      "size": "69.1 MB"
     },
     {
       "id": "ios",
@@ -64,31 +64,31 @@
       "capability": "可控制其他设备或分享屏幕；当前上架版尚不包含新的远程开机功能。",
       "url": "https://apps.apple.com/cn/app/id6796165712",
       "button": "前往 App Store",
-      "note": "通过 App Store 正常安装和更新，无需下载 IPA 文件。"
+      "note": "商店仍为 2.1.0；2.2.0 的扫码配对尚未提交 App Store。本地测试版不能供任意 iPhone 直接下载安装。"
     }
   ],
   "files": {
-    "RDesk-2.1.1-macos-arm64.dmg": {
-      "sha256": "35cb0b0df9da7f9112c5732da1999987027f13a63cca0f3227e818c420c272bb",
-      "bytes": 11084389
+    "RDesk-2.2.0-android.apk": {
+      "sha256": "d93fd96ca61a1ee96889a9b79b720eb1a724408172b031005a5e1d88cef133a6",
+      "bytes": 72449665
     },
-    "RDesk-2.1.1-macos-x64.zip": {
-      "sha256": "3a6b7c54159dde4d6f028f5cb8a349da6eba63d6729f1545297ecb70227c2d73",
-      "bytes": 11106539
+    "RDesk-2.2.0-macos-arm64.dmg": {
+      "sha256": "51caeeabc36b9bca750b4c8725594cce98793495d606964bedddda39f7638d5e",
+      "bytes": 11190296
     },
-    "RDesk-2.1.2-android.apk": {
-      "sha256": "c8adffa5c3349aebbd5df77ea0394e961e3455df6420b0cfc57f97f8987a7557",
-      "bytes": 56526899
+    "RDesk-2.2.0-macos-x64.zip": {
+      "sha256": "55857c66400dea47df469dde4a2b42735bf44134d6593ef1b657f2d87c2d6153",
+      "bytes": 11228974
     },
-    "RDesk-2.1.2-windows-x64-portable.zip": {
-      "sha256": "090f66ab496d72939d86d368e8c188a43c3698fea15e2414273e6c6fd874fee8",
-      "bytes": 14039892
+    "RDesk-2.2.0-windows-x64-portable.zip": {
+      "sha256": "e713beb34b45682745b68be92f7608dce420405170d17917ab05ea61ebe4b5d5",
+      "bytes": 14091556
     },
-    "RDesk-2.1.2-windows-x64-setup.exe": {
-      "sha256": "9d733eac92b193eee06879fff8398ce1c62a1c7f259dbf62a8236b4b0c3c92a0",
-      "bytes": 12123367
+    "RDesk-2.2.0-windows-x64-setup.exe": {
+      "sha256": "3b8fa46084c29a790a0c4cb4a820244af2acbc53533dfdba797eb26351e85e6e",
+      "bytes": 12155276
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": ""
+  "service_notice": "Windows、Android、Mac 已更新至 2.2.0。iPhone 扫码功能目前仅在本地测试版中，App Store 尚未更新。"
 }
