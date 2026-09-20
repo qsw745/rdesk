@@ -41,7 +41,8 @@ jobs:
           $dest = Join-Path $env:RUNNER_TEMP 'rdesk-install-smoke'
           $setup = Start-Process 'dist/RDesk-2.1.1-windows-x64-setup.exe' -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dest" -PassThru -Wait
           if ($setup.ExitCode -ne 0 -or !(Test-Path "$dest/rdesk.exe")) { throw 'Installation failed' }
-          Get-FileHash dist/* -Algorithm SHA256 | Format-Table -AutoSize | Out-File dist/SHA256SUMS.txt
+          $hashes = Get-ChildItem dist -File | Where-Object { $_.Extension -in '.exe', '.zip' } | Get-FileHash -Algorithm SHA256
+          $hashes | ForEach-Object { $_.Hash.ToLower() + '  ' + (Split-Path $_.Path -Leaf) } | Set-Content dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: rdesk-windows-2.1.1
