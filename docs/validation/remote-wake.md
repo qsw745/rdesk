@@ -1,6 +1,6 @@
 # 远程开机验证记录
 
-日期：2026-09-20。范围：仓库实现、自动测试与安卓安装包。公网服务/公开页面未部署，App Store 未上传，物理开机与隔夜稳定性未验收。
+日期：2026-09-20。下方保留首轮实现验收；后续公网服务已于 16:00 前完成部署与 HTTPS 协议验证，见 [部署修复记录](remote-wake-deployment-2026-09-20.md)。物理开机与隔夜稳定性仍未验收。
 
 ## 自动验证
 
@@ -58,12 +58,12 @@ HTTP 测试使用模拟助手和目标心跳，没有向家庭局域网发送包
 
 Windows 实际网卡、BIOS、电源状态；安卓型号、持续供电与锁屏后台；同网实际广播；蜂窝网络请求；隔夜、关机 24 小时与 48 小时。逐场景记录表见 `docs/remote-wake.md`。没有创建自动关机或周期任务。
 
-## 后续部署（本次未执行）
+## 部署流程（后续执行记录另附）
 
 部署目标与服务保持项目现状：`101.37.21.147`、`rdesk-server`、`/var/lib/rdesk-server/data/rdesk-users.json`、本机 HTTP 21116、公网 HTTPS 入口。获得部署确认后：
 
 1. 记录线上旧版本与运行二进制，备份用户及 auth-session 数据；新程序同样使用原用户文件并新增可选 wake 字段。
-2. 拉取已验证的 master 版本，在服务器构建 `cargo build -p rdesk_server --release`，保留旧 `/usr/local/bin/rdesk-server` 备份。
-3. 替换二进制、重启服务，检查 systemd、`http://127.0.0.1:21116/health` 与公网 HTTPS `/health`；未登录 `/api/wake/targets` 应返回 401，而不是旧版 404。
+2. 仅在本地构建经过验证的 master 快照，目标 Linux x86_64；在本地 Linux 容器验证成品后上传并比对 SHA-256，保留旧 `/usr/local/bin/rdesk-server` 备份。禁止在服务器、GitHub Actions 或其他云端 CI 构建。
+3. 停服务取得一致的数据备份，再替换二进制并启动服务。检查 systemd、`http://127.0.0.1:21116/health` 与公网 HTTPS `/health`；未登录 `/api/wake/targets` 在本机和公网均应返回 401，而不是 404。多业务域名必须在 HTTPS 反代中显式转发 `/api/wake/` 到 RDesk，不能让其落入其他业务的 `/api/` 路由。
 4. 在专用测试账号上用真实安卓与 Windows 配置、执行端到端验证；发布隐私/支持/下载说明后分别公开回读。GitHub Pages Support URL 需独立更新，修改 deploy/support.html 不会自动发布该网站。
 5. 失败时恢复旧二进制和匹配的数据备份再重启。旧版本写用户文件会丢弃未知 wake 字段，不将二进制降级与保留新配置混为一谈。回滚前保存故障版本数据，避免覆盖升级后的正常用户操作。
