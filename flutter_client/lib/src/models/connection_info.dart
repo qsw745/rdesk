@@ -1,5 +1,6 @@
 class ConnectionRecord {
   final String peerId;
+  final String? endpointScope;
   final String peerHostname;
   final String peerOs;
   final DateTime connectedAt;
@@ -10,6 +11,7 @@ class ConnectionRecord {
 
   const ConnectionRecord({
     required this.peerId,
+    this.endpointScope,
     required this.peerHostname,
     required this.peerOs,
     required this.connectedAt,

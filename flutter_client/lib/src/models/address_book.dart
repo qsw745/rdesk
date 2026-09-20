@@ -1,5 +1,6 @@
 class AddressBookEntry {
   final String deviceId;
+  final String? endpointScope;
   final String alias;
   final String group;
   final String platform;
@@ -8,6 +9,7 @@ class AddressBookEntry {
 
   const AddressBookEntry({
     required this.deviceId,
+    this.endpointScope,
     this.alias = '',
     this.group = '默认',
     this.platform = '',
@@ -23,6 +25,7 @@ class AddressBookEntry {
   }) {
     return AddressBookEntry(
       deviceId: deviceId,
+      endpointScope: endpointScope,
       alias: alias ?? this.alias,
       group: group ?? this.group,
       platform: platform ?? this.platform,
@@ -35,6 +38,7 @@ class AddressBookEntry {
 
   Map<String, dynamic> toJson() => {
         'deviceId': deviceId,
+        if (endpointScope != null) 'endpointScope': endpointScope,
         'alias': alias,
         'group': group,
         'platform': platform,
@@ -45,11 +49,11 @@ class AddressBookEntry {
   factory AddressBookEntry.fromJson(Map<String, dynamic> json) {
     return AddressBookEntry(
       deviceId: json['deviceId'] as String,
+      endpointScope: json['endpointScope'] as String?,
       alias: json['alias'] as String? ?? '',
       group: json['group'] as String? ?? '默认',
       platform: json['platform'] as String? ?? '',
-      createdAt:
-          DateTime.fromMillisecondsSinceEpoch(json['createdAt'] as int),
+      createdAt: DateTime.fromMillisecondsSinceEpoch(json['createdAt'] as int),
       lastConnectedAt: json['lastConnectedAt'] != null
           ? DateTime.fromMillisecondsSinceEpoch(json['lastConnectedAt'] as int)
           : null,

@@ -1,721 +1,348 @@
 import 'dart:async';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-
-import '../models/account.dart';
-import '../models/connection_info.dart';
+import '../models/device_directory_entry.dart';
 import '../providers/auth_provider.dart';
+import '../providers/address_book_provider.dart';
 import '../providers/connection_provider.dart';
-import '../screens/account_auth_screen.dart';
-import '../utils/theme.dart';
-import '../widgets/account_auth_dialog.dart';
+import '../providers/settings_provider.dart';
+import '../providers/wake_provider.dart';
+import '../utils/device_directory.dart';
 
 class MyDevicesScreen extends StatefulWidget {
-  const MyDevicesScreen({super.key});
-
+  final String initialFilter;
+  const MyDevicesScreen({super.key, this.initialFilter = '全部'});
   @override
   State<MyDevicesScreen> createState() => _MyDevicesScreenState();
 }
 
 class _MyDevicesScreenState extends State<MyDevicesScreen>
-    with SingleTickerProviderStateMixin {
-  Timer? _refreshTimer;
-  late TabController _tabController;
-  String _searchQuery = '';
-  final _searchController = TextEditingController();
-
+    with WidgetsBindingObserver {
+  Timer? _timer;
+  late String _filter;
+  String _query = '';
+  bool _refreshing = false, _foreground = true;
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _refreshTimer = Timer.periodic(
-      const Duration(seconds: 15),
-      (_) {
-        if (mounted) {
-          final auth = context.read<AuthProvider>();
-          if (auth.isLoggedIn && !auth.busy) {
-            auth.refreshDevices(notifyOnStart: false);
-          }
-        }
-      },
-    );
+    _filter = widget.initialFilter;
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_refresh());
+    });
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && _foreground && TickerMode.of(context))
+        unawaited(_refresh());
+    });
+  }
+
+  @override
+  void didUpdateWidget(MyDevicesScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialFilter != widget.initialFilter)
+      _filter = widget.initialFilter;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground && mounted && TickerMode.of(context)) unawaited(_refresh());
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
-    _tabController.dispose();
-    _searchController.dispose();
+    _timer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  void _navigateToDetail(
-    BuildContext context, {
-    required String deviceId,
-    required String hostname,
-    required String platform,
-    required bool isCurrent,
-  }) {
-    if (isCurrent) return;
-    context.push(
-      '/device-detail/$deviceId',
-      extra: {'hostname': hostname, 'platform': platform},
-    );
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    final auth = context.read<AuthProvider>();
+    final wake = context.read<WakeProvider>();
+    if (!auth.isLoggedIn) return;
+    _refreshing = true;
+    try {
+      await Future.wait(
+          [auth.refreshDevices(notifyOnStart: false), wake.refresh()]);
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  Future<void> _connect(DeviceDirectoryEntry item) async {
+    final current = normalizedEndpointScope(
+        context.read<SettingsProvider>().signalingServer);
+    if (item.endpointScope != null && item.endpointScope != current) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('这台设备属于另一台服务器，请先在网络设置中切换服务器。')));
+      return;
+    }
+    if (item.endpointScope == null) {
+      final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+                  title: const Text('确认连接来源'),
+                  content: const Text('这是旧版本保存的设备，未记录服务器。使用当前服务器查找此设备？'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('取消')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('继续连接'))
+                  ]));
+      if (confirm != true || !mounted) return;
+    }
+    context.read<ConnectionProvider>().prepareQuickConnect(item.deviceId);
+    context.go('/assist');
+  }
+
+  Future<void> _favorite(DeviceDirectoryEntry item) async {
+    final book = context.read<AddressBookProvider>();
+    if (item.favorite) {
+      await book.removeEntry(item.deviceId, endpointScope: item.endpointScope);
+    } else {
+      await book.addEntry(
+          deviceId: item.deviceId,
+          alias: item.name,
+          platform: item.platform,
+          endpointScope: item.endpointScope);
+    }
+  }
+
+  Future<void> _add() async {
+    final id = TextEditingController(), alias = TextEditingController();
+    final book = context.read<AddressBookProvider>();
+    final scope = normalizedEndpointScope(
+        context.read<SettingsProvider>().signalingServer);
+    await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+                title: const Text('添加设备'),
+                content: SizedBox(
+                    width: 360,
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      TextField(
+                          controller: id,
+                          autofocus: true,
+                          decoration:
+                              const InputDecoration(labelText: '设备 ID 或直连地址')),
+                      const SizedBox(height: 16),
+                      TextField(
+                          controller: alias,
+                          decoration:
+                              const InputDecoration(labelText: '备注名称（可选）')),
+                    ])),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('取消')),
+                  FilledButton(
+                      onPressed: () async {
+                        if (id.text.trim().isEmpty) return;
+                        await book.addEntry(
+                            deviceId: id.text.trim(),
+                            alias: alias.text.trim(),
+                            endpointScope: scope);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                      child: const Text('保存到收藏'))
+                ]));
+    // Let the closing route finish using its editing controllers.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    id.dispose();
+    alias.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? const Color(0xFF1E1E2E) : Colors.white;
-
+    final auth = context.watch<AuthProvider>();
+    final connection = context.watch<ConnectionProvider>();
+    final book = context.watch<AddressBookProvider>();
+    final wake = context.watch<WakeProvider>();
+    final scope = context.watch<SettingsProvider>().signalingServer;
+    final rows = mergeDeviceDirectory(
+            endpointScope: scope,
+            accountDevices: auth.devices,
+            history: connection.recentConnections,
+            saved: book.allEntries,
+            wakeTargets: wake.targets)
+        .where((e) =>
+            (_filter != '在线' || e.online) &&
+            (_filter != '收藏' || e.favorite) &&
+            ('${e.name} ${e.deviceId}'
+                .toLowerCase()
+                .contains(_query.toLowerCase())))
+        .toList();
+    final mobile = defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('设备列表'),
-        automaticallyImplyLeading: false,
-        actions: [
-          IconButton(
-              onPressed: () => context.push('/wake'),
-              icon: const Icon(Icons.power_settings_new),
-              tooltip: '远程开机'),
-          IconButton(
-            onPressed: () => context.read<AuthProvider>().refreshDevices(),
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: '刷新',
-          ),
-          const SizedBox(width: 8),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(100),
-          child: Column(
-            children: [
-              // Search bar
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (v) => setState(() => _searchQuery = v.trim()),
-                  decoration: InputDecoration(
-                    hintText: '搜索设备名称或ID',
-                    prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear_rounded, size: 18),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                          )
-                        : null,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    filled: true,
-                    fillColor: isDark
-                        ? Colors.white.withValues(alpha: 0.06)
-                        : const Color(0xFFF3F5F9),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(14),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-              ),
-              // Tab bar
-              TabBar(
-                controller: _tabController,
-                labelColor: AppTheme.primaryBlue,
-                unselectedLabelColor:
-                    isDark ? Colors.white54 : AppTheme.textMuted,
-                indicatorColor: AppTheme.primaryBlue,
-                indicatorSize: TabBarIndicatorSize.label,
-                labelStyle:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                unselectedLabelStyle:
-                    const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
-                tabs: const [
-                  Tab(text: '我的设备'),
-                  Tab(text: '最近连接'),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          // Tab 1: My devices
-          _MyDevicesTab(
-            searchQuery: _searchQuery,
-            isDark: isDark,
-            cardBg: cardBg,
-            onDeviceTap: (id, hostname, platform, isCurrent) =>
-                _navigateToDetail(context,
-                    deviceId: id,
-                    hostname: hostname,
-                    platform: platform,
-                    isCurrent: isCurrent),
-          ),
-          // Tab 2: Recent connections
-          _RecentConnectionsTab(
-            searchQuery: _searchQuery,
-            isDark: isDark,
-            cardBg: cardBg,
-            onTap: (peerId) {
-              final connection = context.read<ConnectionProvider>();
-              connection.prepareQuickConnect(peerId);
-              context.go('/assist');
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MyDevicesTab extends StatelessWidget {
-  final String searchQuery;
-  final bool isDark;
-  final Color cardBg;
-  final void Function(
-          String deviceId, String hostname, String platform, bool isCurrent)
-      onDeviceTap;
-
-  const _MyDevicesTab({
-    required this.searchQuery,
-    required this.isDark,
-    required this.cardBg,
-    required this.onDeviceTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<AuthProvider>(
-      builder: (context, auth, _) {
-        final cloudDevices = auth.devices;
-
-        final allDevices = _buildDevices(
-          cloudDevices: cloudDevices,
-        );
-
-        final filtered = searchQuery.isEmpty
-            ? allDevices
-            : allDevices.where((d) {
-                final q = searchQuery.toLowerCase();
-                return d.hostname.toLowerCase().contains(q) ||
-                    d.deviceId.contains(q);
-              }).toList();
-
-        if (!auth.isLoggedIn) {
-          return _EmptyState(
-            icon: Icons.cloud_off_rounded,
-            title: '登录后可同步设备',
-            subtitle: '登录同一个账号后，这里会自动出现你当前在线的其他设备。',
-            action: Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: () => context.push(
-                    accountAuthRoute(AccountAuthMode.login, redirect: '/'),
-                  ),
-                  icon: const Icon(Icons.login_rounded),
-                  label: const Text('登录账号'),
-                ),
-                OutlinedButton(
-                  onPressed: () => context.push(
-                    accountAuthRoute(AccountAuthMode.register, redirect: '/'),
-                  ),
-                  child: const Text('注册'),
-                ),
-              ],
-            ),
-          );
-        }
-
-        if (auth.busy) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (filtered.isEmpty) {
-          return _EmptyState(
-            icon: Icons.devices_rounded,
-            title: searchQuery.isEmpty ? '暂无设备' : '未找到匹配设备',
-            subtitle:
-                searchQuery.isEmpty ? '让其他设备登录同账号并在线后，会显示在这里。' : '尝试使用其他关键词搜索',
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
-          itemCount: filtered.length,
-          itemBuilder: (context, index) {
-            final device = filtered[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _DeviceCard(
-                device: device,
-                isDark: isDark,
-                cardBg: cardBg,
-                onTap: device.isCurrent
-                    ? null
-                    : () => onDeviceTap(device.deviceId, device.hostname,
-                        device.platform, device.isCurrent),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  List<_DeviceItem> _buildDevices({
-    required List<AccountDevice> cloudDevices,
-  }) {
-    final items = <_DeviceItem>[];
-    for (final item in cloudDevices) {
-      items.add(_DeviceItem(
-        deviceId: item.deviceId,
-        hostname: item.hostname,
-        platform: item.platform,
-        online: true,
-        isCurrent: false,
-        updatedAt: item.updatedAt,
-      ));
-    }
-    return items;
-  }
-}
-
-class _RecentConnectionsTab extends StatelessWidget {
-  final String searchQuery;
-  final bool isDark;
-  final Color cardBg;
-  final void Function(String peerId) onTap;
-
-  const _RecentConnectionsTab({
-    required this.searchQuery,
-    required this.isDark,
-    required this.cardBg,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<ConnectionProvider>(
-      builder: (context, connection, _) {
-        final records = connection.recentConnections;
-        final filtered = searchQuery.isEmpty
-            ? records
-            : records.where((r) {
-                final q = searchQuery.toLowerCase();
-                return r.peerId.contains(q) ||
-                    r.peerHostname.toLowerCase().contains(q);
-              }).toList();
-
-        if (filtered.isEmpty) {
-          return _EmptyState(
-            icon: Icons.history_rounded,
-            title: searchQuery.isEmpty ? '暂无连接记录' : '未找到匹配记录',
-            subtitle: searchQuery.isEmpty ? '连接过的设备会自动显示在这里' : '尝试使用其他关键词搜索',
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
-          itemCount: filtered.length,
-          itemBuilder: (context, index) {
-            final record = filtered[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _RecentCard(
-                record: record,
-                isDark: isDark,
-                cardBg: cardBg,
-                onTap: () => onTap(record.peerId),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _DeviceItem {
-  final String deviceId;
-  final String hostname;
-  final String platform;
-  final bool online;
-  final bool isCurrent;
-  final DateTime updatedAt;
-
-  const _DeviceItem({
-    required this.deviceId,
-    required this.hostname,
-    required this.platform,
-    required this.online,
-    required this.isCurrent,
-    required this.updatedAt,
-  });
-}
-
-class _DeviceCard extends StatelessWidget {
-  final _DeviceItem device;
-  final bool isDark;
-  final Color cardBg;
-  final VoidCallback? onTap;
-
-  const _DeviceCard({
-    required this.device,
-    required this.isDark,
-    required this.cardBg,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: cardBg,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: device.isCurrent
-                ? Border.all(
-                    color: AppTheme.primaryBlue.withValues(alpha: 0.3),
-                    width: 1.5)
-                : Border.all(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.06)
-                        : Colors.black.withValues(alpha: 0.04)),
-          ),
-          child: Row(
-            children: [
-              // Platform icon with gradient cover
-              _DeviceCover(
-                platform: device.platform,
-                online: device.online,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            device.hostname,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15,
-                            ),
-                          ),
-                        ),
-                        if (device.isCurrent)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color:
-                                  AppTheme.primaryBlue.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              '本机',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: AppTheme.primaryBlue,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          _platformIcon(device.platform),
-                          size: 14,
-                          color: AppTheme.primaryBlue,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            '${device.platform} · ${device.deviceId}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color:
-                                  isDark ? Colors.white54 : AppTheme.textMuted,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '最近在线 ${_formatTime(device.updatedAt)}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? Colors.white38 : Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (!device.isCurrent)
-                const Icon(Icons.chevron_right_rounded,
-                    color: Colors.grey, size: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static IconData _platformIcon(String platform) {
-    final n = platform.toLowerCase();
-    if (n.contains('android')) return Icons.android_rounded;
-    if (n.contains('ios') || n.contains('iphone')) {
-      return Icons.phone_iphone_rounded;
-    }
-    if (n.contains('mac')) return Icons.laptop_mac_rounded;
-    if (n.contains('windows')) return Icons.window_rounded;
-    return Icons.devices_other_rounded;
-  }
-
-  static String _formatTime(DateTime time) {
-    final diff = DateTime.now().difference(time);
-    if (diff.inMinutes < 1) return '刚刚';
-    if (diff.inHours < 1) return '${diff.inMinutes} 分钟前';
-    if (diff.inDays < 1) return '${diff.inHours} 小时前';
-    return '${diff.inDays} 天前';
-  }
-}
-
-class _DeviceCover extends StatelessWidget {
-  final String platform;
-  final bool online;
-
-  const _DeviceCover({required this.platform, required this.online});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 56,
-      height: 56,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        gradient: LinearGradient(
-          colors: _coverColors(platform),
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Stack(
-        children: [
-          Center(
-            child: Icon(
-              _DeviceCard._platformIcon(platform),
-              size: 28,
-              color: Colors.white.withValues(alpha: 0.92),
-            ),
-          ),
-          Positioned(
-            right: 4,
-            bottom: 4,
-            child: Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: online ? AppTheme.successGreen : Colors.grey,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static List<Color> _coverColors(String platform) {
-    final n = platform.toLowerCase();
-    if (n.contains('mac') || n.contains('ios')) {
-      return const [Color(0xFF6CB6FF), Color(0xFF2258D6)];
-    }
-    if (n.contains('windows')) {
-      return const [Color(0xFFB9D4E8), Color(0xFF5E97DD)];
-    }
-    if (n.contains('android')) {
-      return const [Color(0xFF62C870), Color(0xFF0B8B65)];
-    }
-    return const [Color(0xFF9EC6E5), Color(0xFF6AA4D8)];
-  }
-}
-
-class _RecentCard extends StatelessWidget {
-  final ConnectionRecord record;
-  final bool isDark;
-  final Color cardBg;
-  final VoidCallback onTap;
-
-  const _RecentCard({
-    required this.record,
-    required this.isDark,
-    required this.cardBg,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor =
-        record.isSuccess ? AppTheme.successGreen : AppTheme.errorRed;
-    return Material(
-      color: cardBg,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.black.withValues(alpha: 0.04),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryBlue.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.devices_other_rounded,
-                    color: AppTheme.primaryBlue, size: 20),
-              ),
+        appBar: AppBar(
+            title: const Text('我的设备'),
+            automaticallyImplyLeading: false,
+            actions: [
+              if (mobile)
+                IconButton(
+                    onPressed: () => context.push('/wake/scan'),
+                    icon: const Icon(Icons.qr_code_scanner),
+                    tooltip: '扫码添加电脑'),
+              IconButton(
+                  onPressed: _add,
+                  icon: const Icon(Icons.add),
+                  tooltip: '添加设备'),
+              PopupMenuButton<String>(
+                  tooltip: '更多设备操作',
+                  onSelected: (v) => context.push(v),
+                  itemBuilder: (_) => const [
+                        PopupMenuItem(value: '/wake', child: Text('远程开机')),
+                        PopupMenuItem(value: '/saved', child: Text('管理收藏和分组')),
+                      ]),
               const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            record.peerHostname,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: statusColor.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            record.isSuccess ? '成功' : '失败',
-                            style: TextStyle(
-                              color: statusColor,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${record.peerId} · ${record.peerOs}',
-                      style: TextStyle(
-                        color: isDark ? Colors.white54 : AppTheme.textMuted,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(Icons.arrow_forward_rounded,
-                  size: 16,
-                  color: isDark ? Colors.white38 : AppTheme.textMuted),
-            ],
-          ),
-        ),
-      ),
-    );
+            ]),
+        body: Column(children: [
+          Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+              child: Column(children: [
+                TextField(
+                    onChanged: (v) => setState(() => _query = v.trim()),
+                    decoration: const InputDecoration(
+                        hintText: '搜索名称或设备 ID',
+                        prefixIcon: Icon(Icons.search),
+                        isDense: true)),
+                const SizedBox(height: 12),
+                Row(children: [
+                  for (final value in ['全部', '在线', '收藏'])
+                    Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                            label: Text(value),
+                            selected: _filter == value,
+                            onSelected: (_) =>
+                                setState(() => _filter = value))),
+                  const Spacer(),
+                  IconButton(
+                      onPressed: _refresh,
+                      icon: const Icon(Icons.refresh),
+                      tooltip: '刷新设备'),
+                ]),
+              ])),
+          if (!auth.isLoggedIn)
+            Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Row(children: [
+                  const Expanded(
+                      child: Text('登录后同步其他设备', style: TextStyle(fontSize: 13))),
+                  TextButton(
+                      onPressed: () => context.push('/login'),
+                      child: const Text('登录账号')),
+                ])),
+          if (auth.error != null)
+            Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(auth.error!)),
+          Expanded(
+              child: rows.isEmpty
+                  ? Center(
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.devices_outlined,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.outline),
+                      const SizedBox(height: 16),
+                      Text(_query.isNotEmpty
+                          ? '没有匹配的设备'
+                          : '暂无${_filter == '全部' ? '' : _filter}设备'),
+                      const SizedBox(height: 8),
+                      const Text('添加设备，或登录同一账号同步',
+                          style: TextStyle(fontSize: 13)),
+                    ]))
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+                      itemCount: rows.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (_, i) => _device(rows[i], wake))),
+        ]));
   }
-}
 
-class _EmptyState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget? action;
-
-  const _EmptyState({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.action,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon,
-                size: 48, color: AppTheme.primaryBlue.withValues(alpha: 0.4)),
-            const SizedBox(height: 16),
-            Text(title,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-            const SizedBox(height: 8),
-            Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? Colors.white54
-                    : AppTheme.textMuted,
-              ),
-            ),
-            if (action != null) ...[
-              const SizedBox(height: 20),
-              action!,
-            ],
-          ],
-        ),
-      ),
-    );
+  Widget _device(DeviceDirectoryEntry item, WakeProvider wake) {
+    final target = item.wakeTarget;
+    final windows = item.platform.toLowerCase().contains('windows');
+    final source = item.endpointScope == null ? ' · 来源未记录' : '';
+    final status = item.online
+        ? '在线'
+        : target != null
+            ? (target.agentOnline ? '助手在线 · 可发送开机信号' : '家中助手离线')
+            : '未确认在线';
+    return Card(
+        child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: LayoutBuilder(builder: (context, box) {
+              final info = Row(children: [
+                Icon(
+                    windows
+                        ? Icons.desktop_windows_outlined
+                        : Icons.devices_outlined,
+                    size: 30),
+                const SizedBox(width: 16),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(item.name,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 16)),
+                      const SizedBox(height: 6),
+                      Text('$status$source',
+                          style: const TextStyle(fontSize: 13)),
+                      const SizedBox(height: 3),
+                      Text(item.deviceId, style: const TextStyle(fontSize: 13)),
+                    ])),
+              ]);
+              final actions = Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  children: [
+                    IconButton(
+                        onPressed: () => _favorite(item),
+                        tooltip: item.favorite ? '取消收藏' : '收藏设备',
+                        icon: Icon(item.favorite
+                            ? Icons.star_rounded
+                            : Icons.star_border_rounded)),
+                    if (target != null && !target.online)
+                      FilledButton(
+                          onPressed: !target.agentOnline || wake.busy
+                              ? null
+                              : () async {
+                                  final ok = await wake.wake(target);
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(ok
+                                              ? '开机请求已提交，可在远程开机中查看进度'
+                                              : wake.error ?? '开机请求失败')));
+                                },
+                          child: const Text('开机')),
+                    if (!windows)
+                      FilledButton.tonal(
+                          onPressed: () => _connect(item),
+                          child: const Text('连接')),
+                  ]);
+              return box.maxWidth < 520
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                          info,
+                          const SizedBox(height: 12),
+                          Align(
+                              alignment: Alignment.centerRight, child: actions)
+                        ])
+                  : Row(children: [
+                      Expanded(child: info),
+                      const SizedBox(width: 16),
+                      actions
+                    ]);
+            })));
   }
 }

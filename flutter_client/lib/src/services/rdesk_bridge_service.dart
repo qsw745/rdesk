@@ -1,3 +1,4 @@
+import '../utils/device_directory.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -404,6 +405,7 @@ class RdeskBridgeService {
         peerHostname: resolved.hostname ?? '远程设备 $deviceId',
         peerOs: resolved.platform ?? 'android-preview',
         connectedAt: DateTime.now(),
+        endpointScope: (await getApiBaseUri()).origin,
         connectionType: 'preview-registry',
         status: 'success',
       ),
@@ -491,6 +493,7 @@ class RdeskBridgeService {
         peerHostname: '直连 $address',
         peerOs: platform,
         connectedAt: DateTime.now(),
+        endpointScope: (await getApiBaseUri()).origin,
         connectionType: 'direct-ip',
         status: 'success',
       ),
@@ -736,6 +739,7 @@ class RdeskBridgeService {
         .map(
           (item) => ConnectionRecord(
             peerId: item['peerId'] as String,
+            endpointScope: item['endpointScope'] as String?,
             peerHostname: item['peerHostname'] as String,
             peerOs: item['peerOs'] as String,
             connectedAt: DateTime.parse(item['connectedAt'] as String),
@@ -763,6 +767,7 @@ class RdeskBridgeService {
         peerHostname: '远程设备 $peerId',
         peerOs: '未知系统',
         connectedAt: DateTime.now(),
+        endpointScope: (await getApiBaseUri()).origin,
         connectionType: 'preview-registry',
         status: 'failed',
         failureReason: failureReason,
@@ -1780,7 +1785,7 @@ class RdeskBridgeService {
     final seen = <String>{};
     final unique = <ConnectionRecord>[];
     for (final record in records) {
-      if (seen.add(record.peerId)) {
+      if (seen.add(deviceDirectoryKey(record.endpointScope, record.peerId))) {
         unique.add(record);
       }
     }
@@ -1793,6 +1798,7 @@ class RdeskBridgeService {
         .map(
           (record) => <String, dynamic>{
             'peerId': record.peerId,
+            if (record.endpointScope != null) 'endpointScope': record.endpointScope,
             'peerHostname': record.peerHostname,
             'peerOs': record.peerOs,
             'connectedAt': record.connectedAt.toIso8601String(),

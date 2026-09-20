@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/address_book.dart';
+import '../utils/device_directory.dart';
 
 class AddressBookProvider extends ChangeNotifier {
   static const _storageKey = 'address_book_entries';
@@ -10,6 +11,8 @@ class AddressBookProvider extends ChangeNotifier {
   List<String> _groups = ['默认'];
   String _filterGroup = '';
   String _searchQuery = '';
+
+  List<AddressBookEntry> get allEntries => List.unmodifiable(_entries);
 
   List<AddressBookEntry> get entries {
     var list = List<AddressBookEntry>.from(_entries);
@@ -36,8 +39,11 @@ class AddressBookProvider extends ChangeNotifier {
   String get filterGroup => _filterGroup;
   String get searchQuery => _searchQuery;
 
-  bool containsDevice(String deviceId) =>
-      _entries.any((e) => e.deviceId == deviceId);
+  bool _matches(AddressBookEntry e, String id, String? scope) =>
+      deviceDirectoryKey(e.endpointScope, e.deviceId) ==
+      deviceDirectoryKey(scope, id);
+  bool containsDevice(String deviceId, {String? endpointScope}) =>
+      _entries.any((e) => _matches(e, deviceId, endpointScope));
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -45,8 +51,7 @@ class AddressBookProvider extends ChangeNotifier {
     if (raw != null && raw.isNotEmpty) {
       final List<dynamic> list = jsonDecode(raw) as List<dynamic>;
       _entries = list
-          .map((e) =>
-              AddressBookEntry.fromJson(e as Map<String, dynamic>))
+          .map((e) => AddressBookEntry.fromJson(e as Map<String, dynamic>))
           .toList();
       _rebuildGroups();
     }
@@ -55,13 +60,15 @@ class AddressBookProvider extends ChangeNotifier {
 
   Future<void> addEntry({
     required String deviceId,
+    String? endpointScope,
     String alias = '',
     String group = '默认',
     String platform = '',
   }) async {
-    if (containsDevice(deviceId)) return;
+    if (containsDevice(deviceId, endpointScope: endpointScope)) return;
     _entries.add(AddressBookEntry(
       deviceId: deviceId,
+      endpointScope: normalizedEndpointScope(endpointScope),
       alias: alias,
       group: group,
       platform: platform,
@@ -72,13 +79,16 @@ class AddressBookProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateEntry(String deviceId, {
+  Future<void> updateEntry(
+    String deviceId, {
+    String? endpointScope,
     String? alias,
     String? group,
     String? platform,
     DateTime? lastConnectedAt,
   }) async {
-    final idx = _entries.indexWhere((e) => e.deviceId == deviceId);
+    final idx =
+        _entries.indexWhere((e) => _matches(e, deviceId, endpointScope));
     if (idx < 0) return;
     _entries[idx] = _entries[idx].copyWith(
       alias: alias,
@@ -91,8 +101,8 @@ class AddressBookProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> removeEntry(String deviceId) async {
-    _entries.removeWhere((e) => e.deviceId == deviceId);
+  Future<void> removeEntry(String deviceId, {String? endpointScope}) async {
+    _entries.removeWhere((e) => _matches(e, deviceId, endpointScope));
     _rebuildGroups();
     await _save();
     notifyListeners();
@@ -115,8 +125,9 @@ class AddressBookProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> markConnected(String deviceId) async {
-    await updateEntry(deviceId, lastConnectedAt: DateTime.now());
+  Future<void> markConnected(String deviceId, {String? endpointScope}) async {
+    await updateEntry(deviceId,
+        endpointScope: endpointScope, lastConnectedAt: DateTime.now());
   }
 
   void _rebuildGroups() {

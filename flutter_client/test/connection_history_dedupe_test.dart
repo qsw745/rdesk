@@ -76,6 +76,24 @@ void main() {
         history.map((r) => r.peerId), containsAll(['660725198', '999999999']));
   });
 
+  test('相同设备 ID 的不同服务器历史不能被折叠', () async {
+    SharedPreferences.setMockInitialValues({
+      historyKey: jsonEncode([
+        {
+          ...record('123', '2026-09-20T10:00:00.000'),
+          'endpointScope': 'https://a.test'
+        },
+        {
+          ...record('123', '2026-09-20T09:00:00.000'),
+          'endpointScope': 'https://b.test'
+        },
+        record('123', '2026-09-20T08:00:00.000'),
+      ])
+    });
+    final history = await RdeskBridgeService.instance.listConnectionHistory();
+    expect(history.length, 3);
+  });
+
   test('空历史返回空列表', () async {
     SharedPreferences.setMockInitialValues({});
     expect(await RdeskBridgeService.instance.listConnectionHistory(), isEmpty);

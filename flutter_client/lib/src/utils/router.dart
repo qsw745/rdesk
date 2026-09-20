@@ -87,6 +87,8 @@ final appRouter = GoRouter(
         path: '/wake/setup',
         parentNavigatorKey: rootNavigatorKey,
         builder: (_, __) => const WakeSetupScreen()),
+    GoRoute(path: '/saved', parentNavigatorKey: rootNavigatorKey,
+        builder: (_, __) => const AddressBookScreen()),
     // ── Full-screen routes (no bottom nav) ──
     GoRoute(
       path: '/remote/:sessionId',

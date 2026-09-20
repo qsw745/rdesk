@@ -4,6 +4,8 @@ import '../models/address_book.dart';
 import '../providers/address_book_provider.dart';
 import '../providers/connection_provider.dart';
 import '../utils/theme.dart';
+import '../utils/device_directory.dart';
+import '../providers/settings_provider.dart';
 
 class AddressBookScreen extends StatefulWidget {
   const AddressBookScreen({super.key});
@@ -244,6 +246,8 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                         if (id.isEmpty) return;
                         provider.addEntry(
                           deviceId: id,
+                          endpointScope: normalizedEndpointScope(
+                              context.read<SettingsProvider>().signalingServer),
                           alias: aliasController.text.trim(),
                           group: selectedGroup,
                         );
@@ -359,8 +363,8 @@ class _DeviceCard extends StatelessWidget {
                   color: AppTheme.primaryBlue.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(platformIcon,
-                    color: AppTheme.primaryBlue, size: 22),
+                child:
+                    Icon(platformIcon, color: AppTheme.primaryBlue, size: 22),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -395,8 +399,9 @@ class _DeviceCard extends StatelessWidget {
                               entry.deviceId,
                               style: TextStyle(
                                 fontSize: 11,
-                                color:
-                                    isDark ? Colors.white38 : AppTheme.textMuted,
+                                color: isDark
+                                    ? Colors.white38
+                                    : AppTheme.textMuted,
                               ),
                             ),
                           ),
@@ -428,9 +433,8 @@ class _DeviceCard extends StatelessWidget {
                             _formatLastConnect(entry.lastConnectedAt!),
                             style: TextStyle(
                               fontSize: 11,
-                              color: isDark
-                                  ? Colors.white38
-                                  : AppTheme.textMuted,
+                              color:
+                                  isDark ? Colors.white38 : AppTheme.textMuted,
                             ),
                           ),
                         ],
@@ -440,8 +444,8 @@ class _DeviceCard extends StatelessWidget {
                 ),
               ),
               PopupMenuButton<String>(
-                icon: Icon(Icons.more_vert, size: 20,
-                    color: isDark ? Colors.white38 : Colors.grey),
+                icon: Icon(Icons.more_vert,
+                    size: 20, color: isDark ? Colors.white38 : Colors.grey),
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'edit', child: Text('编辑')),
                   const PopupMenuItem(value: 'connect', child: Text('连接')),
@@ -452,7 +456,9 @@ class _DeviceCard extends StatelessWidget {
                 ],
                 onSelected: (v) {
                   if (v == 'delete') {
-                    context.read<AddressBookProvider>().removeEntry(entry.deviceId);
+                    context.read<AddressBookProvider>().removeEntry(
+                        entry.deviceId,
+                        endpointScope: entry.endpointScope);
                   } else if (v == 'connect') {
                     _quickConnect(context);
                   } else if (v == 'edit') {
@@ -482,11 +488,13 @@ class _DeviceCard extends StatelessWidget {
         return Container(
           decoration: BoxDecoration(
             color: dark ? const Color(0xFF1A1E2D) : Colors.white,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           ),
           padding: EdgeInsets.fromLTRB(
-            24, 16, 24, MediaQuery.of(ctx).viewInsets.bottom + 24,
+            24,
+            16,
+            24,
+            MediaQuery.of(ctx).viewInsets.bottom + 24,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -538,9 +546,9 @@ class _DeviceCard extends StatelessWidget {
                     final connectionProvider =
                         outerContext.read<ConnectionProvider>();
                     await connectionProvider.connect(entry.deviceId, pw);
-                    outerContext
-                        .read<AddressBookProvider>()
-                        .markConnected(entry.deviceId);
+                    outerContext.read<AddressBookProvider>().markConnected(
+                        entry.deviceId,
+                        endpointScope: entry.endpointScope);
                   },
                   child: const Text('连接'),
                 ),
@@ -614,8 +622,7 @@ class _DeviceCard extends StatelessWidget {
                       prefixIcon: Icon(Icons.folder_outlined, size: 20),
                     ),
                     items: provider.groups
-                        .map((g) =>
-                            DropdownMenuItem(value: g, child: Text(g)))
+                        .map((g) => DropdownMenuItem(value: g, child: Text(g)))
                         .toList(),
                     onChanged: (v) {
                       if (v != null) {
@@ -631,6 +638,7 @@ class _DeviceCard extends StatelessWidget {
                       onPressed: () {
                         provider.updateEntry(
                           entry.deviceId,
+                          endpointScope: entry.endpointScope,
                           alias: aliasController.text.trim(),
                           group: selectedGroup,
                         );
