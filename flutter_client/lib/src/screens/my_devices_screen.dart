@@ -33,22 +33,24 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
       if (mounted) unawaited(_refresh());
     });
     _timer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted && _foreground && TickerMode.of(context))
+      if (mounted && _foreground && TickerMode.valuesOf(context).enabled) {
         unawaited(_refresh());
+      }
     });
   }
 
   @override
   void didUpdateWidget(MyDevicesScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialFilter != widget.initialFilter)
+    if (oldWidget.initialFilter != widget.initialFilter) {
       _filter = widget.initialFilter;
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (_foreground && mounted && TickerMode.of(context)) unawaited(_refresh());
+    if (_foreground && mounted && TickerMode.valuesOf(context).enabled) unawaited(_refresh());
   }
 
   @override
@@ -316,7 +318,7 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                               ? null
                               : () async {
                                   final ok = await wake.wake(target);
-                                  if (!mounted) return;
+                                  if (!context.mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
                                           content: Text(ok

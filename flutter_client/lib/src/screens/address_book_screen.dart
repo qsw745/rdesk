@@ -474,6 +474,14 @@ class _DeviceCard extends StatelessWidget {
   }
 
   void _quickConnect(BuildContext context) {
+    final current = normalizedEndpointScope(
+        context.read<SettingsProvider>().signalingServer);
+    if (entry.endpointScope != null &&
+        normalizedEndpointScope(entry.endpointScope) != current) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('这台设备属于另一台服务器，请先在网络设置中切换服务器。')));
+      return;
+    }
     _showPasswordAndConnect(context);
   }
 

@@ -13,6 +13,7 @@ import '../providers/desktop_host_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/theme.dart';
+import '../utils/platform_capabilities.dart';
 import '../widgets/device_id_display.dart';
 
 enum _ConnectMode { remoteControl, fileTransfer }
@@ -220,7 +221,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                             Text(
                               '输入设备代码发起连接',
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 13,
                                 color: isDark
                                     ? Colors.white54
                                     : AppTheme.textMuted,
@@ -290,7 +291,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                                                 const TextStyle(fontSize: 14)),
                                         subtitle: Text(item.peerHostname,
                                             style:
-                                                const TextStyle(fontSize: 12)),
+                                                const TextStyle(fontSize: 13)),
                                         onTap: () => onSelected(item),
                                       );
                                     },
@@ -604,7 +605,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
           const SizedBox(height: 20),
 
           // --- Desktop host status + direct connect address ---
-          if (Platform.isMacOS || Platform.isWindows || Platform.isLinux)
+          if (PlatformCapabilities.current.platform == TargetPlatform.macOS)
             Consumer<DesktopHostProvider>(
               builder: (context, host, _) {
                 final endpoint = host.lanRelayEndpoint;
@@ -633,7 +634,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                             const Text(
                               '本机直连地址（局域网 / Tailscale）',
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 13,
                                 color: Colors.teal,
                                 fontWeight: FontWeight.w600,
                               ),
@@ -652,7 +653,7 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                             Text(
                               '其他设备输入此地址可局域网直连，延迟更低',
                               style: TextStyle(
-                                fontSize: 11,
+                                fontSize: 13,
                                 color: isDark
                                     ? Colors.white54
                                     : Colors.grey.shade600,
@@ -685,29 +686,30 @@ class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
                 );
               },
             ),
-          if (Platform.isMacOS || Platform.isWindows || Platform.isLinux)
+          if (PlatformCapabilities.current.platform == TargetPlatform.macOS)
             const SizedBox(height: 20),
 
-          // --- "Connect to this device" section ---
-          Consumer<ConnectionProvider>(
-            builder: (context, connection, _) {
-              final localDevice = connection.localDevice;
-              final bool isDesktop =
-                  Platform.isMacOS || Platform.isWindows || Platform.isLinux;
-              final lanEndpoint = isDesktop
-                  ? context.watch<DesktopHostProvider>().lanRelayEndpoint
-                  : Platform.isAndroid
-                      ? context.watch<AndroidHostProvider>().lanRelayEndpoint
-                      : null;
-              return DeviceIdDisplay(
-                compact: true,
-                deviceId: localDevice?.deviceId ?? '000000000',
-                temporaryPassword: connection.temporaryPassword,
-                onRefreshPassword: connection.refreshPassword,
-                lanEndpoint: lanEndpoint,
-              );
-            },
-          ),
+          // Only platforms with an implemented host expose credentials.
+          if (PlatformCapabilities.current.canHost)
+            Consumer<ConnectionProvider>(
+              builder: (context, connection, _) {
+                final localDevice = connection.localDevice;
+                final bool isDesktop =
+                    Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+                final lanEndpoint = isDesktop
+                    ? context.watch<DesktopHostProvider>().lanRelayEndpoint
+                    : Platform.isAndroid
+                        ? context.watch<AndroidHostProvider>().lanRelayEndpoint
+                        : null;
+                return DeviceIdDisplay(
+                  compact: true,
+                  deviceId: localDevice?.deviceId ?? '000000000',
+                  temporaryPassword: connection.temporaryPassword,
+                  onRefreshPassword: connection.refreshPassword,
+                  lanEndpoint: lanEndpoint,
+                );
+              },
+            ),
         ],
       ),
     );

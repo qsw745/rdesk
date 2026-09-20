@@ -17,9 +17,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('我的设备'), findsWidgets);
-    expect(find.text('云设备'), findsOneWidget);
-    expect(find.text('远程连接'), findsOneWidget);
-    expect(find.text('地址簿'), findsOneWidget);
+    expect(find.text('设备'), findsOneWidget);
+    expect(find.text('协助'), findsOneWidget);
+    expect(find.text('云设备'), findsNothing);
     expect(find.text('我的'), findsOneWidget);
   });
 

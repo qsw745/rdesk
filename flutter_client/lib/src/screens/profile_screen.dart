@@ -7,7 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../screens/account_auth_screen.dart';
-import '../utils/constants.dart';
+import '../utils/platform_capabilities.dart';
 import '../utils/theme.dart';
 import '../widgets/account_auth_dialog.dart';
 
@@ -16,252 +16,123 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cap = PlatformCapabilities.current;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? const Color(0xFF1E1E2E) : Colors.white;
+    final cardBg = Theme.of(context).colorScheme.surface;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('我的'),
-        automaticallyImplyLeading: false,
-      ),
-      body: Consumer<AuthProvider>(
-        builder: (context, auth, _) {
+        appBar: AppBar(
+            title: Text(cap.isDesktop ? '账号' : '我的'),
+            automaticallyImplyLeading: false),
+        body: Consumer<AuthProvider>(builder: (context, auth, _) {
           final session = auth.session;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-            children: [
-              // --- Profile header card ---
-              _ProfileHeaderCard(
-                session: session,
-                deviceCount: auth.devices.length,
-                isDark: isDark,
-                onLogin: () => context.push(
-                  accountAuthRoute(AccountAuthMode.login, redirect: '/me'),
-                ),
-              ),
-
-              if (session == null) ...[
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: OutlinedButton.icon(
-                          onPressed: () => context.push(
-                            accountAuthRoute(
-                              AccountAuthMode.login,
-                              redirect: '/me',
-                            ),
-                          ),
-                          icon: const Icon(Icons.login_rounded, size: 18),
-                          label: const Text('登录账号'),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 48,
-                        child: FilledButton.icon(
-                          onPressed: () => context.push(
-                            accountAuthRoute(
-                              AccountAuthMode.register,
-                              redirect: '/me',
-                            ),
-                          ),
-                          icon: const Icon(Icons.person_add_rounded, size: 18),
-                          label: const Text('注册账号'),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-
-              const SizedBox(height: 14),
-
-              // --- Quick function grid (2x3) ---
-              _QuickFunctionGrid(isDark: isDark, cardBg: cardBg),
-
-              const SizedBox(height: 14),
-
-              // --- Settings group: Basic ---
-              const _SectionLabel(label: '基础设置'),
-              const SizedBox(height: 6),
-              _MenuGroup(
-                cardBg: cardBg,
-                isDark: isDark,
-                children: [
-                  _MenuItem(
-                    icon: Icons.settings_outlined,
-                    iconColor: AppTheme.primaryBlue,
-                    title: '通用设置',
-                    onTap: () => context.push('/settings'),
-                  ),
-                  _MenuItem(
-                    icon: Icons.history_rounded,
-                    iconColor: AppTheme.accentPurple,
-                    title: '连接历史',
-                    onTap: () => context.push('/logs'),
-                  ),
-                  if (session != null)
-                    _MenuItem(
-                      icon: Icons.sync_rounded,
-                      iconColor: const Color(0xFF2BBFA0),
-                      title: '刷新设备列表',
-                      trailing: auth.busy
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : null,
-                      onTap: auth.busy ? null : auth.refreshDevices,
-                    ),
-                ],
-              ),
-
-              const SizedBox(height: 14),
-
-              // --- Settings group: Security ---
-              const _SectionLabel(label: '安全中心'),
-              const SizedBox(height: 6),
-              _MenuGroup(
-                cardBg: cardBg,
-                isDark: isDark,
-                children: [
-                  _MenuItem(
-                    icon: Icons.settings_remote_rounded,
-                    iconColor: AppTheme.warningAmber,
-                    title: '无人值守设置',
-                    onTap: () => context.push('/unattended-setup'),
-                  ),
-                  if (session != null && _supportsBiometricPlatform)
-                    _MenuItem(
-                      icon: Icons.fingerprint_rounded,
-                      iconColor: const Color(0xFF3AA56B),
-                      title: '${auth.biometricLabel}登录',
-                      trailing: Switch.adaptive(
-                        value: auth.biometricEnabled,
-                        onChanged: auth.busy
-                            ? null
-                            : (value) async {
-                                final ok =
-                                    await auth.setBiometricEnabled(value);
-                                if (!context.mounted) return;
-                                if (!ok && auth.error != null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(auth.error!),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                }
-                              },
-                      ),
-                      // Keep toggle changes on the Switch only.
-                      // ListTile onTap + Switch onChanged can trigger twice and
-                      // immediately revert the just-enabled state.
-                      onTap: null,
-                    ),
-                  if (session != null)
-                    _MenuItem(
-                      icon: Icons.logout_rounded,
-                      iconColor: AppTheme.errorRed,
-                      title: '退出登录',
-                      onTap: auth.logout,
-                    ),
-                  // App Store 审核指南 5.1.1(v) 要求提供应用内注销账号入口。
-                  if (session != null)
-                    _MenuItem(
-                      icon: Icons.person_remove_rounded,
-                      iconColor: AppTheme.errorRed,
-                      title: '注销账号',
-                      subtitle: '永久删除账号及云端设备记录',
-                      onTap: () => _confirmDeleteAccount(context, auth),
-                    ),
-                ],
-              ),
-
-              const SizedBox(height: 14),
-
-              // --- Help ---
-              const _SectionLabel(label: '帮助中心'),
-              const SizedBox(height: 6),
-              _MenuGroup(
-                cardBg: cardBg,
-                isDark: isDark,
-                children: [
-                  _MenuItem(
-                    icon: Icons.info_outline_rounded,
-                    iconColor: Colors.blueGrey,
-                    title: '关于 RDesk',
-                    onTap: () {
-                      showAboutDialog(
-                        context: context,
-                        applicationName: AppConstants.appName,
-                        applicationVersion: 'v${AppConstants.version}',
-                        applicationIcon: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            gradient: AppTheme.brandGradient,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(Icons.connected_tv_rounded,
-                              color: Colors.white, size: 28),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-
-              // App version footer
-              const SizedBox(height: 32),
-              Center(
-                child: Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        gradient: AppTheme.brandGradient,
-                        borderRadius: BorderRadius.circular(14),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.primaryBlue.withValues(alpha: 0.15),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(Icons.connected_tv_rounded,
-                          color: Colors.white, size: 22),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      AppConstants.appName,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white54 : AppTheme.textMuted,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'v${AppConstants.version}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark ? Colors.white38 : Colors.grey.shade400,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
+          return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: ListView(padding: const EdgeInsets.all(24), children: [
+                    _ProfileHeaderCard(
+                        session: session,
+                        deviceCount: auth.devices.length,
+                        isDark: isDark,
+                        onLogin: () => context.push(accountAuthRoute(
+                            AccountAuthMode.login,
+                            redirect: '/me'))),
+                    if (session == null)
+                      Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Wrap(spacing: 12, runSpacing: 8, children: [
+                            FilledButton(
+                                onPressed: () =>
+                                    context.push('/login?redirect=%2Fme'),
+                                child: const Text('登录账号')),
+                            OutlinedButton(
+                                onPressed: () =>
+                                    context.push('/register?redirect=%2Fme'),
+                                child: const Text('注册账号')),
+                          ])),
+                    if (!cap.isDesktop) ...[
+                      const SizedBox(height: 16),
+                      const _SectionLabel(label: '设置'),
+                      const SizedBox(height: 8),
+                      _MenuGroup(cardBg: cardBg, isDark: isDark, children: [
+                        _MenuItem(
+                            icon: Icons.tune,
+                            iconColor: AppTheme.primaryBlue,
+                            title: '常规',
+                            onTap: () =>
+                                context.push('/settings?section=general')),
+                        _MenuItem(
+                            icon: Icons.shield_outlined,
+                            iconColor: AppTheme.primaryBlue,
+                            title: '安全',
+                            onTap: () =>
+                                context.push('/settings?section=security')),
+                        _MenuItem(
+                            icon: Icons.language,
+                            iconColor: AppTheme.primaryBlue,
+                            title: '网络',
+                            onTap: () =>
+                                context.push('/settings?section=network')),
+                      ]),
+                      const SizedBox(height: 16),
+                      _MenuGroup(cardBg: cardBg, isDark: isDark, children: [
+                        _MenuItem(
+                            icon: Icons.touch_app_outlined,
+                            iconColor: AppTheme.primaryBlue,
+                            title: '操作手势',
+                            onTap: () => context.push('/gesture-guide')),
+                        _MenuItem(
+                            icon: Icons.history,
+                            iconColor: AppTheme.primaryBlue,
+                            title: '连接记录',
+                            onTap: () => context.push('/logs')),
+                        _MenuItem(
+                            icon: Icons.info_outline,
+                            iconColor: AppTheme.primaryBlue,
+                            title: '关于 RDesk',
+                            onTap: () =>
+                                context.push('/settings?section=about')),
+                      ]),
+                    ],
+                    if (session != null) ...[
+                      const SizedBox(height: 20),
+                      _MenuGroup(cardBg: cardBg, isDark: isDark, children: [
+                        if (_supportsBiometricPlatform)
+                          _MenuItem(
+                              icon: Icons.fingerprint,
+                              iconColor: AppTheme.primaryBlue,
+                              title: '${auth.biometricLabel}登录',
+                              onTap: null,
+                              trailing: Switch.adaptive(
+                                  value: auth.biometricEnabled,
+                                  onChanged: auth.busy
+                                      ? null
+                                      : (value) async {
+                                          final ok = await auth
+                                              .setBiometricEnabled(value);
+                                          if (!context.mounted) return;
+                                          if (!ok && auth.error != null) {
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(SnackBar(
+                                                    content:
+                                                        Text(auth.error!)));
+                                          }
+                                        })),
+                        _MenuItem(
+                            icon: Icons.logout,
+                            iconColor: AppTheme.errorRed,
+                            title: '退出登录',
+                            onTap: auth.logout),
+                        _MenuItem(
+                            icon: Icons.person_remove_outlined,
+                            iconColor: AppTheme.errorRed,
+                            title: '注销账号',
+                            subtitle: '永久删除账号及云端设备记录',
+                            onTap: () => _confirmDeleteAccount(context, auth)),
+                      ]),
+                    ],
+                  ])));
+        }));
   }
 }
 
@@ -312,14 +183,8 @@ class _ProfileHeaderCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isDark
-              ? const [Color(0xFF1C2440), Color(0xFF151B2D)]
-              : const [Color(0xFFE0EDFF), Color(0xFFF0F6FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isDark
               ? Colors.white.withValues(alpha: 0.06)
@@ -328,22 +193,15 @@ class _ProfileHeaderCard extends StatelessWidget {
       ),
       child: InkWell(
         onTap: session == null ? onLogin : null,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(12),
         child: Row(
           children: [
             Container(
               width: 56,
               height: 56,
-              decoration: BoxDecoration(
-                gradient: AppTheme.brandGradient,
+              decoration: const BoxDecoration(
+                color: AppTheme.primaryBlue,
                 shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.primaryBlue.withValues(alpha: 0.25),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
               ),
               child: const Icon(Icons.person_rounded,
                   color: Colors.white, size: 28),
@@ -378,154 +236,6 @@ class _ProfileHeaderCard extends StatelessWidget {
               ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _QuickFunctionGrid extends StatelessWidget {
-  final bool isDark;
-  final Color cardBg;
-
-  const _QuickFunctionGrid({
-    required this.isDark,
-    required this.cardBg,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      if (!kIsWeb &&
-          (defaultTargetPlatform == TargetPlatform.android || Platform.isIOS))
-        _QuickItem(Icons.cast_connected_rounded, '移动被控',
-            const Color(0xFF2BBFA0), () => context.push('/mobile-host')),
-      _QuickItem(Icons.tune_rounded, '连接设置', const Color(0xFF4A90D9),
-          () => context.push('/connection-settings')),
-      _QuickItem(Icons.touch_app_rounded, '操作手势', const Color(0xFFE8823A),
-          () => context.push('/gesture-guide')),
-      _QuickItem(Icons.folder_rounded, '我的文件', const Color(0xFF2BBFA0),
-          () => context.push('/logs')),
-      _QuickItem(Icons.settings_remote_rounded, '无人值守', const Color(0xFFE05B6E),
-          () => context.push('/unattended-setup')),
-      _QuickItem(Icons.info_outline_rounded, '关于', Colors.blueGrey, () {
-        showAboutDialog(
-          context: context,
-          applicationName: AppConstants.appName,
-          applicationVersion: 'v${AppConstants.version}',
-        );
-      }),
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : Colors.black.withValues(alpha: 0.05),
-        ),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 560;
-          if (compact) {
-            return GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 1.2,
-              mainAxisSpacing: 0,
-              crossAxisSpacing: 0,
-              children: items.map((item) {
-                return _QuickFunctionItem(
-                  icon: item.icon,
-                  label: item.label,
-                  color: item.color,
-                  isDark: isDark,
-                  onTap: item.onTap,
-                );
-              }).toList(),
-            );
-          }
-
-          return GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: items.length,
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 170,
-              mainAxisExtent: 128,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-            ),
-            itemBuilder: (context, index) {
-              final item = items[index];
-              return _QuickFunctionItem(
-                icon: item.icon,
-                label: item.label,
-                color: item.color,
-                isDark: isDark,
-                onTap: item.onTap,
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _QuickItem {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-  const _QuickItem(this.icon, this.label, this.color, this.onTap);
-}
-
-class _QuickFunctionItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final bool isDark;
-  final VoidCallback onTap;
-
-  const _QuickFunctionItem({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.isDark,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(icon, color: color, size: 22),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: isDark ? Colors.white70 : Colors.black87,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -652,7 +362,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             if (session != null)
               Text(
                 '账号：${session.username}',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                style:
+                    const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             const SizedBox(height: 10),
             const Text(
@@ -664,12 +375,12 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
               '· 你的账号与登录凭据\n'
               '· 云端保存的设备列表与在线状态\n'
               '· 全部已登录设备的登录状态',
-              style: TextStyle(fontSize: 12.5, height: 1.6),
+              style: TextStyle(fontSize: 13.5, height: 1.6),
             ),
             const SizedBox(height: 10),
             const Text(
               '此操作不可撤销，账号无法恢复。本机的连接历史需另行清除。',
-              style: TextStyle(fontSize: 12.5, color: AppTheme.errorRed),
+              style: TextStyle(fontSize: 13.5, color: AppTheme.errorRed),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -699,7 +410,8 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _submitting ? null : () => Navigator.of(context).pop(false),
+          onPressed:
+              _submitting ? null : () => Navigator.of(context).pop(false),
           child: const Text('取消'),
         ),
         FilledButton(
@@ -760,7 +472,7 @@ class _MenuItem extends StatelessWidget {
           : Text(
               subtitle!,
               style: TextStyle(
-                fontSize: 11.5,
+                fontSize: 13.5,
                 color: Theme.of(context).textTheme.bodySmall?.color,
               ),
             ),

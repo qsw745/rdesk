@@ -8,216 +8,234 @@ import '../providers/android_host_provider.dart';
 import '../providers/desktop_host_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/theme.dart';
+import '../utils/platform_capabilities.dart';
+import '../widgets/settings_sections.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+class SettingsScreen extends StatefulWidget {
+  final String initialSection;
+  const SettingsScreen({super.key, this.initialSection = 'general'});
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
 
-  bool get _supportsMobileHostPlatform =>
-      !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android || Platform.isIOS);
+class _SettingsScreenState extends State<SettingsScreen> {
+  late String _section;
+  late final Future<PackageInfo> _package = PackageInfo.fromPlatform();
+  @override
+  void initState() {
+    super.initState();
+    _section = widget.initialSection;
+  }
+
+  @override
+  void didUpdateWidget(SettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialSection != widget.initialSection) {
+      _section = widget.initialSection;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cap = PlatformCapabilities.current;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('设置'),
-      ),
-      body: Consumer<SettingsProvider>(
-        builder: (context, settings, _) {
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-            children: [
-              ListTile(leading: const Icon(Icons.power_settings_new),
-                title: const Text('远程开机'),
-                subtitle: const Text('配置家中安卓助手，唤醒有线 Windows 电脑'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/wake')),
-              _SettingsOverviewCard(
-                autoAccept: settings.autoAccept,
-                trustedPeerCount: settings.trustedPeers.length,
-                trustedViewerCount: settings.trustedIncomingViewers.length,
-              ),
-              if (_supportsMobileHostPlatform) ...[
-                const SizedBox(height: 14),
-                _CardContainer(
-                  isDark: isDark,
-                  child: ListTile(
-                    leading: _SettingIcon(
-                      icon: Icons.cast_connected_rounded,
-                      color: AppTheme.primaryBlue,
-                    ),
-                    title: Text(Platform.isIOS ? 'iOS 被控' : '移动被控'),
-                    subtitle: Text(
-                      '管理录屏授权、守护模式、实时预览和远控断开',
-                      style: TextStyle(
-                        color: Colors.grey.shade500,
-                        fontSize: 12,
-                      ),
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-                    onTap: () => context.push('/mobile-host'),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 24),
-              // ── 安全 ──
-              _SectionHeader(icon: Icons.shield_outlined, label: '安全'),
-              const SizedBox(height: 10),
-              _CardContainer(
-                isDark: isDark,
-                child: Column(
+        appBar: AppBar(title: const Text('设置')),
+        body: Consumer<SettingsProvider>(builder: (context, settings, _) {
+          final general = <Widget>[
+            const SizedBox(height: 24),
+            const _SectionHeader(icon: Icons.palette_outlined, label: '外观'),
+            const SizedBox(height: 10),
+            _CardContainer(
+              isDark: isDark,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
                   children: [
-                    ListTile(
-                      leading: _SettingIcon(
-                        icon: Icons.lock_outline,
-                        color: AppTheme.primaryBlue,
-                      ),
-                      title: const Text('永久密码'),
-                      subtitle: Text(
-                        settings.permanentPassword != null ? '已设置' : '未设置',
-                        style: TextStyle(
-                          color: settings.permanentPassword != null
-                              ? AppTheme.successGreen
-                              : Colors.grey.shade500,
-                          fontSize: 13,
-                        ),
-                      ),
-                      trailing:
-                          const Icon(Icons.chevron_right_rounded, size: 20),
-                      onTap: () => _showPasswordDialog(context, settings),
+                    _ThemeOption(
+                      label: '跟随系统',
+                      icon: Icons.brightness_auto_outlined,
+                      selected: settings.theme == 'system',
+                      onTap: () => settings.setTheme('system'),
+                      isDark: isDark,
                     ),
-                    _divider(isDark),
-                    _SwitchTile(
-                      icon: Icons.check_circle_outline,
-                      iconColor: AppTheme.successGreen,
-                      title: '自动接受连接',
-                      subtitle: '自动处理来自受信设备的连接请求',
-                      value: settings.autoAccept,
-                      onChanged: settings.setAutoAccept,
+                    const SizedBox(width: 10),
+                    _ThemeOption(
+                      label: '浅色',
+                      icon: Icons.light_mode_outlined,
+                      selected: settings.theme == 'light',
+                      onTap: () => settings.setTheme('light'),
+                      isDark: isDark,
                     ),
-                    _divider(isDark),
-                    _SwitchTile(
-                      icon: Icons.content_paste_go_rounded,
-                      iconColor: AppTheme.accentPurple,
-                      title: '自动同步剪贴板',
-                      subtitle: '远控会话中自动双向同步文本剪贴板',
-                      value: settings.autoClipboardSync,
-                      onChanged: settings.setAutoClipboardSync,
-                    ),
-                    _divider(isDark),
-                    _SwitchTile(
-                      icon: Icons.verified_user_outlined,
-                      iconColor: AppTheme.warningAmber,
-                      title: '记住受信设备',
-                      subtitle: '保存最近成功连接的设备密码，用于快捷重连',
-                      value: settings.rememberTrustedPeers,
-                      onChanged: settings.setRememberTrustedPeers,
-                    ),
-                    _divider(isDark),
-                    _SwitchTile(
-                      icon: Icons.screen_lock_portrait_rounded,
-                      iconColor: AppTheme.errorRed,
-                      title: '断开后自动锁屏',
-                      subtitle: '远控连接断开后自动锁定被控端屏幕',
-                      value: settings.lockAfterDisconnect,
-                      onChanged: settings.setLockAfterDisconnect,
-                    ),
-                    _divider(isDark),
-                    _SwitchTile(
-                      icon: Icons.settings_remote_rounded,
-                      iconColor: AppTheme.primaryBlue,
-                      title: '无人值守模式',
-                      subtitle: '开启后设备保持在线，允许通过永久密码直接连接',
-                      value: settings.unattendedMode,
-                      onChanged: settings.setUnattendedMode,
+                    const SizedBox(width: 10),
+                    _ThemeOption(
+                      label: '深色',
+                      icon: Icons.dark_mode_outlined,
+                      selected: settings.theme == 'dark',
+                      onTap: () => settings.setTheme('dark'),
+                      isDark: isDark,
                     ),
                   ],
                 ),
               ),
-
+            ),
+            if (cap.platform == TargetPlatform.macOS) ...[
               const SizedBox(height: 24),
-              _SectionHeader(icon: Icons.devices_other_rounded, label: '受信设备'),
+              const _SectionHeader(
+                  icon: Icons.desktop_windows_outlined, label: '桌面被控端'),
               const SizedBox(height: 10),
-              _CardContainer(
+              Consumer<DesktopHostProvider>(
+                  builder: (context, host, _) =>
+                      _DesktopHostCard(host: host, isDark: isDark)),
+            ],
+            if (cap.canScanPairing)
+              ListTile(
+                  leading: const Icon(Icons.cast_connected_outlined),
+                  title: const Text('屏幕共享'),
+                  subtitle: const Text('管理本机录屏授权和共享状态'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/mobile-host')),
+            if (cap.canRelayWake)
+              ListTile(
+                  leading: const Icon(Icons.power_settings_new),
+                  title: const Text('家中开机助手'),
+                  subtitle: const Text('让这部安卓手机帮助家中电脑开机'),
+                  onTap: () => context.push('/wake')),
+          ];
+          final security = <Widget>[
+            _CardContainer(
                 isDark: isDark,
-                child: settings.trustedPeers.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 24, horizontal: 16),
-                        child: Column(
-                          children: [
-                            Icon(Icons.device_unknown_rounded,
-                                size: 32, color: Colors.grey.shade400),
-                            const SizedBox(height: 10),
-                            Text(
-                              '暂无受信设备',
-                              style: TextStyle(
-                                color: Colors.grey.shade500,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '成功连接后会自动加入这里',
-                              style: TextStyle(
-                                color: Colors.grey.shade400,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : Column(
+                child: Column(children: [
+                  if (cap.canHost)
+                    ListTile(
+                        leading: const Icon(Icons.lock_outline),
+                        title: const Text('永久密码'),
+                        subtitle: Text(
+                            settings.permanentPassword != null ? '已设置' : '未设置'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _showPasswordDialog(context, settings)),
+                  if (cap.canUnattendedHost)
+                    _SwitchTile(
+                        icon: Icons.check_circle_outline,
+                        iconColor: AppTheme.successGreen,
+                        title: '自动接受连接',
+                        subtitle: '自动处理受信查看端的连接请求',
+                        value: settings.autoAccept,
+                        onChanged: settings.setAutoAccept),
+                  _SwitchTile(
+                      icon: Icons.content_paste_outlined,
+                      iconColor: AppTheme.primaryBlue,
+                      title: '自动同步剪贴板',
+                      subtitle: '远控会话中同步文本',
+                      value: settings.autoClipboardSync,
+                      onChanged: settings.setAutoClipboardSync),
+                  _SwitchTile(
+                      icon: Icons.verified_user_outlined,
+                      iconColor: AppTheme.primaryBlue,
+                      title: '记住受信设备',
+                      subtitle: '保存成功连接的设备密码，方便再次连接',
+                      value: settings.rememberTrustedPeers,
+                      onChanged: settings.setRememberTrustedPeers),
+                  if (cap.canUnattendedHost) ...[
+                    _SwitchTile(
+                        icon: Icons.screen_lock_portrait_outlined,
+                        iconColor: AppTheme.primaryBlue,
+                        title: '断开后自动锁屏',
+                        subtitle: '结束远控后锁定这台被控设备',
+                        value: settings.lockAfterDisconnect,
+                        onChanged: settings.setLockAfterDisconnect),
+                    _SwitchTile(
+                        icon: Icons.settings_remote_outlined,
+                        iconColor: AppTheme.primaryBlue,
+                        title: '无人值守模式',
+                        subtitle: '通过永久密码连接这台设备',
+                        value: settings.unattendedMode,
+                        onChanged: settings.setUnattendedMode),
+                  ],
+                ])),
+            const SizedBox(height: 24),
+            const _SectionHeader(icon: Icons.devices_other_rounded, label: '受信设备'),
+            const SizedBox(height: 10),
+            _CardContainer(
+              isDark: isDark,
+              child: settings.trustedPeers.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 24, horizontal: 16),
+                      child: Column(
                         children: [
-                          for (var i = 0;
-                              i < settings.trustedPeers.length;
-                              i++) ...[
-                            if (i > 0) _divider(isDark),
-                            ListTile(
-                              leading: _SettingIcon(
-                                icon: Icons.devices_rounded,
-                                color: AppTheme.primaryBlue,
-                              ),
-                              title: Text(
-                                '${settings.trustedPeers[i].hostname}',
-                                style: const TextStyle(
-                                    fontSize: 14, fontWeight: FontWeight.w500),
-                              ),
-                              subtitle: Text(
-                                '${settings.trustedPeers[i].peerOs} · ${settings.trustedPeers[i].lastUsedAt.toString().substring(0, 16)}',
-                                style: TextStyle(
-                                    color: Colors.grey.shade500, fontSize: 12),
-                              ),
-                              trailing: IconButton(
-                                icon: Icon(Icons.delete_outline_rounded,
-                                    size: 20,
-                                    color: AppTheme.errorRed
-                                        .withValues(alpha: 0.7)),
-                                onPressed: () => settings.removeTrustedPeer(
-                                    settings.trustedPeers[i].deviceId),
-                              ),
+                          Icon(Icons.device_unknown_rounded,
+                              size: 32, color: Colors.grey.shade600),
+                          const SizedBox(height: 10),
+                          Text(
+                            '暂无受信设备',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 13,
                             ),
-                          ],
-                          _divider(isDark),
-                          ListTile(
-                            leading: _SettingIcon(
-                              icon: Icons.delete_sweep_outlined,
-                              color: AppTheme.errorRed,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '成功连接后会自动加入这里',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 13,
                             ),
-                            title: const Text('清空受信设备',
-                                style: TextStyle(fontSize: 14)),
-                            subtitle: Text('移除所有本地缓存的设备密码',
-                                style: TextStyle(
-                                    color: Colors.grey.shade500, fontSize: 12)),
-                            onTap: settings.clearTrustedPeers,
                           ),
                         ],
                       ),
-              ),
-
+                    )
+                  : Column(
+                      children: [
+                        for (var i = 0;
+                            i < settings.trustedPeers.length;
+                            i++) ...[
+                          if (i > 0) _divider(isDark),
+                          ListTile(
+                            leading: const _SettingIcon(
+                              icon: Icons.devices_rounded,
+                              color: AppTheme.primaryBlue,
+                            ),
+                            title: Text(
+                              '${settings.trustedPeers[i].hostname}',
+                              style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w500),
+                            ),
+                            subtitle: Text(
+                              '${settings.trustedPeers[i].peerOs} · ${settings.trustedPeers[i].lastUsedAt.toString().substring(0, 16)}',
+                              style: TextStyle(
+                                  color: Colors.grey.shade600, fontSize: 13),
+                            ),
+                            trailing: IconButton(
+                              icon: Icon(Icons.delete_outline_rounded,
+                                  size: 20,
+                                  color:
+                                      AppTheme.errorRed.withValues(alpha: 0.7)),
+                              onPressed: () => settings.removeTrustedPeer(
+                                  settings.trustedPeers[i].deviceId),
+                            ),
+                          ),
+                        ],
+                        _divider(isDark),
+                        ListTile(
+                          leading: const _SettingIcon(
+                            icon: Icons.delete_sweep_outlined,
+                            color: AppTheme.errorRed,
+                          ),
+                          title: const Text('清空受信设备',
+                              style: TextStyle(fontSize: 14)),
+                          subtitle: Text('移除所有本地缓存的设备密码',
+                              style: TextStyle(
+                                  color: Colors.grey.shade600, fontSize: 13)),
+                          onTap: settings.clearTrustedPeers,
+                        ),
+                      ],
+                    ),
+            ),
+            if (cap.canHost) ...[
               const SizedBox(height: 24),
-              _SectionHeader(icon: Icons.visibility_outlined, label: '受信查看端'),
+              const _SectionHeader(icon: Icons.visibility_outlined, label: '受信查看端'),
               const SizedBox(height: 10),
               _CardContainer(
                 isDark: isDark,
@@ -228,18 +246,18 @@ class SettingsScreen extends StatelessWidget {
                         child: Column(
                           children: [
                             Icon(Icons.person_search_rounded,
-                                size: 32, color: Colors.grey.shade400),
+                                size: 32, color: Colors.grey.shade600),
                             const SizedBox(height: 10),
                             Text(
                               '暂无受信查看端',
                               style: TextStyle(
-                                  color: Colors.grey.shade500, fontSize: 13),
+                                  color: Colors.grey.shade600, fontSize: 13),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               '首次成功连接后会自动加入',
                               style: TextStyle(
-                                  color: Colors.grey.shade400, fontSize: 12),
+                                  color: Colors.grey.shade600, fontSize: 13),
                             ),
                           ],
                         ),
@@ -251,7 +269,7 @@ class SettingsScreen extends StatelessWidget {
                               i++) ...[
                             if (i > 0) _divider(isDark),
                             ListTile(
-                              leading: _SettingIcon(
+                              leading: const _SettingIcon(
                                 icon: Icons.verified_user_outlined,
                                 color: AppTheme.successGreen,
                               ),
@@ -263,7 +281,7 @@ class SettingsScreen extends StatelessWidget {
                               subtitle: Text(
                                 '${settings.trustedIncomingViewers[i].peerOs} · ${settings.trustedIncomingViewers[i].lastUsedAt.toString().substring(0, 16)}',
                                 style: TextStyle(
-                                    color: Colors.grey.shade500, fontSize: 12),
+                                    color: Colors.grey.shade600, fontSize: 13),
                               ),
                               trailing: IconButton(
                                 icon: Icon(Icons.delete_outline_rounded,
@@ -278,7 +296,7 @@ class SettingsScreen extends StatelessWidget {
                           ],
                           _divider(isDark),
                           ListTile(
-                            leading: _SettingIcon(
+                            leading: const _SettingIcon(
                               icon: Icons.person_remove_alt_1_outlined,
                               color: AppTheme.errorRed,
                             ),
@@ -286,156 +304,89 @@ class SettingsScreen extends StatelessWidget {
                                 style: TextStyle(fontSize: 14)),
                             subtitle: Text('关闭密码免输的自动接受列表',
                                 style: TextStyle(
-                                    color: Colors.grey.shade500, fontSize: 12)),
+                                    color: Colors.grey.shade600, fontSize: 13)),
                             onTap: settings.clearTrustedIncomingViewers,
                           ),
                         ],
                       ),
               ),
-
-              const SizedBox(height: 24),
-              _SectionHeader(icon: Icons.language_rounded, label: '网络'),
-              const SizedBox(height: 10),
-              _CardContainer(
-                isDark: isDark,
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: _SettingIcon(
-                        icon: Icons.dns_outlined,
-                        color: AppTheme.primaryBlue,
-                      ),
-                      title:
-                          const Text('信令服务器', style: TextStyle(fontSize: 14)),
-                      subtitle: Text(settings.signalingServer,
-                          style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
-                      trailing:
-                          const Icon(Icons.chevron_right_rounded, size: 20),
-                      onTap: () => _showServerDialog(
-                        context,
-                        '信令服务器',
-                        settings.signalingServer,
-                        settings.updateSignalingServer,
-                      ),
-                    ),
-                    _divider(isDark),
-                    ListTile(
-                      leading: _SettingIcon(
-                        icon: Icons.swap_horiz_rounded,
-                        color: AppTheme.accentPurple,
-                      ),
-                      title:
-                          const Text('中继服务器', style: TextStyle(fontSize: 14)),
-                      subtitle: Text(settings.relayServer,
-                          style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
-                      trailing:
-                          const Icon(Icons.chevron_right_rounded, size: 20),
-                      onTap: () => _showServerDialog(
-                        context,
-                        '中继服务器',
-                        settings.relayServer,
-                        settings.updateRelayServer,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-              _SectionHeader(icon: Icons.palette_outlined, label: '外观'),
-              const SizedBox(height: 10),
-              _CardContainer(
-                isDark: isDark,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      _ThemeOption(
-                        label: '跟随系统',
-                        icon: Icons.brightness_auto_outlined,
-                        selected: settings.theme == 'system',
-                        onTap: () => settings.setTheme('system'),
-                        isDark: isDark,
-                      ),
-                      const SizedBox(width: 10),
-                      _ThemeOption(
-                        label: '浅色',
-                        icon: Icons.light_mode_outlined,
-                        selected: settings.theme == 'light',
-                        onTap: () => settings.setTheme('light'),
-                        isDark: isDark,
-                      ),
-                      const SizedBox(width: 10),
-                      _ThemeOption(
-                        label: '深色',
-                        icon: Icons.dark_mode_outlined,
-                        selected: settings.theme == 'dark',
-                        onTap: () => settings.setTheme('dark'),
-                        isDark: isDark,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // Desktop host section (macOS / Windows / Linux)
-              if (!kIsWeb &&
-                  (Platform.isMacOS ||
-                      Platform.isWindows ||
-                      Platform.isLinux)) ...[
-                const SizedBox(height: 24),
-                const _SectionHeader(
-                    icon: Icons.desktop_windows_rounded, label: '桌面被控端'),
-                const SizedBox(height: 10),
-                Consumer<DesktopHostProvider>(
-                  builder: (context, host, _) {
-                    return _DesktopHostCard(
-                      host: host,
-                      isDark: isDark,
-                    );
-                  },
-                ),
-              ],
-
-              const SizedBox(height: 24),
-              _SectionHeader(icon: Icons.info_outline_rounded, label: '关于'),
-              const SizedBox(height: 10),
-              _CardContainer(
-                isDark: isDark,
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: _SettingIcon(
-                        icon: Icons.tag_rounded,
-                        color: Colors.grey,
-                      ),
-                      title: const Text('版本', style: TextStyle(fontSize: 14)),
-                      subtitle: Text('2.1.0',
-                          style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
-                    ),
-                    _divider(isDark),
-                    ListTile(
-                      leading: _SettingIcon(
-                        icon: Icons.code_rounded,
-                        color: Colors.grey,
-                      ),
-                      title: const Text('RDesk 项目',
-                          style: TextStyle(fontSize: 14)),
-                      subtitle: Text('跨平台远程控制软件原型',
-                          style: TextStyle(
-                              color: Colors.grey.shade500, fontSize: 12)),
-                    ),
-                  ],
-                ),
-              ),
             ],
-          );
-        },
-      ),
-    );
+          ];
+          final network = <Widget>[
+            const SizedBox(height: 24),
+            const _SectionHeader(icon: Icons.language_rounded, label: '网络'),
+            const SizedBox(height: 10),
+            _CardContainer(
+              isDark: isDark,
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const _SettingIcon(
+                      icon: Icons.dns_outlined,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    title: const Text('信令服务器', style: TextStyle(fontSize: 14)),
+                    subtitle: Text(settings.signalingServer,
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 13)),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                    onTap: () => _showServerDialog(
+                      context,
+                      '信令服务器',
+                      settings.signalingServer,
+                      settings.updateSignalingServer,
+                    ),
+                  ),
+                  _divider(isDark),
+                  ListTile(
+                    leading: const _SettingIcon(
+                      icon: Icons.swap_horiz_rounded,
+                      color: AppTheme.accentPurple,
+                    ),
+                    title: const Text('中继服务器', style: TextStyle(fontSize: 14)),
+                    subtitle: Text(settings.relayServer,
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 13)),
+                    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                    onTap: () => _showServerDialog(
+                      context,
+                      '中继服务器',
+                      settings.relayServer,
+                      settings.updateRelayServer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ];
+          final about = <Widget>[
+            const ListTile(
+                leading: Icon(Icons.connected_tv),
+                title: Text('RDesk'),
+                subtitle: Text('连接你的设备，随时远程协助')),
+            FutureBuilder<PackageInfo>(
+                future: _package,
+                builder: (context, snapshot) => ListTile(
+                    title: const Text('版本'),
+                    subtitle: Text(snapshot.hasData
+                        ? '${snapshot.data!.version} (${snapshot.data!.buildNumber})'
+                        : '版本信息暂不可用'))),
+            const ListTile(
+                title: Text('官网'),
+                subtitle: SelectableText('https://qisw.top/rdesk/')),
+          ];
+          return SettingsSections(
+              selected: SettingsSections.labels.containsKey(_section)
+                  ? _section
+                  : 'general',
+              onSelected: (value) => setState(() => _section = value),
+              children: switch (_section) {
+                'security' => security,
+                'network' => network,
+                'about' => about,
+                _ => general,
+              });
+        }));
   }
 
   void _showPasswordDialog(BuildContext context, SettingsProvider settings) {
@@ -514,125 +465,6 @@ class SettingsScreen extends StatelessWidget {
             ? Colors.white.withValues(alpha: 0.05)
             : Colors.grey.shade100,
       );
-}
-
-class _SettingsOverviewCard extends StatelessWidget {
-  final bool autoAccept;
-  final int trustedPeerCount;
-  final int trustedViewerCount;
-
-  const _SettingsOverviewCard({
-    required this.autoAccept,
-    required this.trustedPeerCount,
-    required this.trustedViewerCount,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isDark
-              ? const [Color(0xFF1C2440), Color(0xFF151B2D)]
-              : const [Color(0xFFF7FAFF), Color(0xFFEFF4FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.06)
-              : AppTheme.primaryBlue.withValues(alpha: 0.10),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '当前安全概览',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            autoAccept ? '已对受信查看端开启自动接受。' : '当前仍需手动确认新的远控连接。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: isDark ? Colors.white70 : AppTheme.textMuted,
-                ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _OverviewMetric(
-                  icon: Icons.devices_other_rounded,
-                  label: '受信设备',
-                  value: '$trustedPeerCount',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _OverviewMetric(
-                  icon: Icons.visibility_rounded,
-                  label: '受信查看端',
-                  value: '$trustedViewerCount',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _OverviewMetric extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _OverviewMetric({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withValues(alpha: 0.05)
-            : Colors.white.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18, color: AppTheme.primaryBlue),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: isDark ? Colors.white70 : AppTheme.textMuted,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -727,7 +559,7 @@ class _SwitchTile extends StatelessWidget {
       secondary: _SettingIcon(icon: icon, color: iconColor),
       title: Text(title, style: const TextStyle(fontSize: 14)),
       subtitle: Text(subtitle,
-          style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
       value: value,
       onChanged: onChanged,
     );
@@ -776,13 +608,13 @@ class _ThemeOption extends StatelessWidget {
               Icon(
                 icon,
                 size: 20,
-                color: selected ? AppTheme.primaryBlue : Colors.grey.shade500,
+                color: selected ? AppTheme.primaryBlue : Colors.grey.shade600,
               ),
               const SizedBox(height: 6),
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                   color: selected ? AppTheme.primaryBlue : Colors.grey.shade600,
                 ),
@@ -878,7 +710,7 @@ class AndroidHostCard extends StatelessWidget {
                                   ? stateText
                                   : '$stateText · ${host.state.accessibilityEnabled ? "无障碍已开启" : "无障碍未开启"}',
                               style: TextStyle(
-                                  fontSize: 12, color: Colors.grey.shade500),
+                                  fontSize: 13, color: Colors.grey.shade600),
                             ),
                           ),
                         ],
@@ -915,7 +747,7 @@ class AndroidHostCard extends StatelessWidget {
                               : '已启用：进入 App 时会尽量自动恢复前台服务并保持在线。'
                           : '关闭后将只保留手动启动的被控端服务。',
                       style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          TextStyle(fontSize: 13, color: Colors.grey.shade600),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -924,7 +756,7 @@ class AndroidHostCard extends StatelessWidget {
                         ? 'iOS 使用 ReplayKit 广播扩展录屏。启动被控后需在系统弹窗中确认开始广播，之后远端设备即可看到画面。'
                         : '一次性完成下面清单后，iPhone 端发起远控会更顺畅；但 Android 录屏授权在重启、系统回收或权限失效后，仍可能需要你再确认一次。',
                     style: TextStyle(
-                      fontSize: 12.5,
+                      fontSize: 13.5,
                       height: 1.5,
                       color: Colors.grey.shade700,
                     ),
@@ -1018,7 +850,7 @@ class AndroidHostCard extends StatelessWidget {
                         host.isReadyForRemoteRequests
                             ? '主要守护项已就绪。只要录屏权限没有被系统回收，Android 会尽量保持在线并等待 iPhone 发起连接。'
                             : '还有初始化项未完成。即使已能看屏幕，也建议把清单补齐，才能降低下次远控失败或被系统回收的概率。',
-                        style: const TextStyle(fontSize: 12.5, height: 1.5),
+                        style: const TextStyle(fontSize: 13.5, height: 1.5),
                       ),
                     ),
                   ],
@@ -1056,7 +888,7 @@ class AndroidHostCard extends StatelessWidget {
                         host.state.isRunning
                             ? '屏幕广播运行中。远端设备可实时看到 iPhone 画面。'
                             : 'iOS 因系统限制，无法像 Android 一样进行远程触控操作，但可以共享屏幕画面。点击"开始被控"后在系统弹窗中确认即可。',
-                        style: const TextStyle(fontSize: 12.5, height: 1.5),
+                        style: const TextStyle(fontSize: 13.5, height: 1.5),
                       ),
                     ),
                   ],
@@ -1083,7 +915,7 @@ class AndroidHostCard extends StatelessWidget {
                       child: Text(
                         host.error!,
                         style: const TextStyle(
-                            color: AppTheme.errorRed, fontSize: 12),
+                            color: AppTheme.errorRed, fontSize: 13),
                       ),
                     ),
                   ],
@@ -1104,17 +936,17 @@ class AndroidHostCard extends StatelessWidget {
                   children: [
                     SelectableText(
                       '局域网：${host.lanRelayEndpoint}/frame.jpg',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: AppTheme.primaryBlue,
                         fontWeight: FontWeight.w600,
-                        fontSize: 12,
+                        fontSize: 13,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '两端的信令服务器都需设置为 rdesk_server 地址',
                       style:
-                          TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                          TextStyle(color: Colors.grey.shade600, fontSize: 13),
                     ),
                   ],
                 ),
@@ -1159,7 +991,7 @@ class AndroidHostCard extends StatelessWidget {
                               SizedBox(width: 6),
                               Text('实时预览',
                                   style: TextStyle(
-                                      color: Colors.white, fontSize: 11)),
+                                      color: Colors.white, fontSize: 13)),
                             ],
                           ),
                         ),
@@ -1244,15 +1076,15 @@ class AndroidHostCard extends StatelessWidget {
               children: [
                 Text('${e.key}：',
                     style:
-                        TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                        TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     e.value!,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: AppTheme.primaryBlue,
                       fontWeight: FontWeight.w600,
-                      fontSize: 12,
+                      fontSize: 13,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1345,7 +1177,7 @@ class _DesktopHostCard extends StatelessWidget {
                             child: Text(
                               statusText,
                               style: TextStyle(
-                                  fontSize: 12, color: Colors.grey.shade500),
+                                  fontSize: 13, color: Colors.grey.shade600),
                             ),
                           ),
                         ],
@@ -1419,7 +1251,7 @@ class _DesktopHostCard extends StatelessWidget {
                           message,
                           style: const TextStyle(
                             color: AppTheme.errorRed,
-                            fontSize: 12,
+                            fontSize: 13,
                           ),
                         ),
                       ),
@@ -1482,13 +1314,13 @@ class _DesktopHostCard extends StatelessWidget {
           width: 88,
           child: Text(
             label,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
         ),
         Expanded(
           child: SelectableText(
             value,
-            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
           ),
         ),
       ],
@@ -1553,7 +1385,7 @@ class _ChecklistTile extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(description,
                     style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
                         height: 1.45,
                         color: Colors.grey.shade600)),
               ],

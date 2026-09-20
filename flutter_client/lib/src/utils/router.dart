@@ -4,11 +4,9 @@ import '../screens/remote_desktop_screen.dart';
 import '../screens/file_manager_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/wake_screen.dart';
-import '../screens/connection_settings_screen.dart';
 import '../screens/gesture_guide_screen.dart';
 import '../screens/connection_log_screen.dart';
 import '../screens/my_devices_screen.dart';
-import '../screens/cloud_devices_screen.dart';
 import '../screens/remote_assist_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/address_book_screen.dart';
@@ -17,6 +15,7 @@ import '../screens/device_detail_screen.dart';
 import '../screens/account_auth_screen.dart';
 import '../screens/mobile_host_screen.dart';
 import '../widgets/main_shell.dart';
+import 'platform_capabilities.dart';
 import '../widgets/account_auth_dialog.dart';
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -31,63 +30,43 @@ final appRouter = GoRouter(
         return MainShell(navigationShell: navigationShell);
       },
       branches: [
-        // Tab 0: 我的设备
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
+        StatefulShellBranch(routes: [
+          GoRoute(
               path: '/',
-              builder: (context, state) => const MyDevicesScreen(),
-            ),
-          ],
-        ),
-        // Tab 1: 云设备
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-              path: '/cloud',
-              builder: (context, state) => const CloudDevicesScreen(),
-            ),
-          ],
-        ),
-        // Tab 2: 远程协助
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-              path: '/assist',
-              builder: (context, state) => const RemoteAssistScreen(),
-            ),
-          ],
-        ),
-        // Tab 3: 地址簿
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-              path: '/addressbook',
-              builder: (context, state) => const AddressBookScreen(),
-            ),
-          ],
-        ),
-        // Tab 4: 我的
-        StatefulShellBranch(
-          routes: [
-            GoRoute(
-              path: '/me',
-              builder: (context, state) => const ProfileScreen(),
-            ),
-          ],
-        ),
+              builder: (_, state) => MyDevicesScreen(
+                  initialFilter: state.uri.queryParameters['filter'] ?? '全部'))
+        ]),
+        StatefulShellBranch(routes: [
+          GoRoute(
+              path: '/assist', builder: (_, __) => const RemoteAssistScreen())
+        ]),
+        StatefulShellBranch(routes: [
+          GoRoute(path: '/wake', builder: (_, __) => const WakeScreen())
+        ]),
+        StatefulShellBranch(routes: [
+          GoRoute(
+              path: '/settings',
+              builder: (_, state) => SettingsScreen(
+                  initialSection:
+                      state.uri.queryParameters['section'] ?? 'general'))
+        ]),
+        StatefulShellBranch(routes: [
+          GoRoute(path: '/me', builder: (_, __) => const ProfileScreen())
+        ]),
       ],
     ),
-
+    GoRoute(path: '/cloud', redirect: (_, __) => '/'),
+    GoRoute(path: '/addressbook', redirect: (_, __) => '/?filter=收藏'),
     GoRoute(
-        path: '/wake',
-        parentNavigatorKey: rootNavigatorKey,
-        builder: (_, __) => const WakeScreen()),
+        path: '/connection-settings',
+        redirect: (_, __) => '/settings?section=network'),
     GoRoute(
         path: '/wake/setup',
         parentNavigatorKey: rootNavigatorKey,
         builder: (_, __) => const WakeSetupScreen()),
-    GoRoute(path: '/saved', parentNavigatorKey: rootNavigatorKey,
+    GoRoute(
+        path: '/saved',
+        parentNavigatorKey: rootNavigatorKey,
         builder: (_, __) => const AddressBookScreen()),
     // ── Full-screen routes (no bottom nav) ──
     GoRoute(
@@ -103,11 +82,6 @@ final appRouter = GoRouter(
       builder: (context, state) => FileManagerScreen(
         sessionId: state.pathParameters['sessionId']!,
       ),
-    ),
-    GoRoute(
-      path: '/settings',
-      parentNavigatorKey: rootNavigatorKey,
-      builder: (context, state) => const SettingsScreen(),
     ),
     GoRoute(
       path: '/login',
@@ -126,12 +100,9 @@ final appRouter = GoRouter(
       ),
     ),
     GoRoute(
-      path: '/connection-settings',
-      parentNavigatorKey: rootNavigatorKey,
-      builder: (context, state) => const ConnectionSettingsScreen(),
-    ),
-    GoRoute(
       path: '/mobile-host',
+      redirect: (_, __) =>
+          PlatformCapabilities.current.canScanPairing ? null : '/settings',
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const MobileHostScreen(),
     ),
@@ -147,6 +118,9 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/unattended-setup',
+      redirect: (_, __) => PlatformCapabilities.current.canUnattendedHost
+          ? null
+          : '/settings?section=security',
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const UnattendedSetupScreen(),
     ),
