@@ -2234,6 +2234,11 @@ class RdeskBridgeService {
     return Uri.parse('http://$endpoint');
   }
 
+  Future<Uri> getApiBaseUri() async {
+    final settings = await loadSettings();
+    return _normalizeApiBaseUri(settings.signalingServer.trim());
+  }
+
   Future<Map<String, dynamic>> _postJson({
     required String path,
     required Map<String, Object?> body,
