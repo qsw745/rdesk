@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the complete static site locally. CI only uploads this directory."""
+"""Generate the complete static site locally. Upload this directory to the self-hosted origin."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,4 +15,4 @@ for name in ("download", "support", "privacy"):
     (site / name).mkdir(exist_ok=True)
     shutil.copy2(root / "deploy" / (name + ".html"), site / name / "index.html")
 (site / ".nojekyll").write_text("")
-print("本地静态官网已准备：deploy/site；发布流程只上传成品。")
+print("本地静态官网已准备：deploy/site；部署到自有服务器时只上传成品。")

@@ -13,11 +13,11 @@
       "capability": "可控制其他设备，也可共享本机桌面；支持发起远程开机请求。",
       "button": "下载 Apple 芯片版",
       "alternate": {
-        "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-macos-x64.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.1.1-macos-x64.zip",
         "label": "下载 Intel 版（ZIP）"
       },
       "note": "两个版本的应用均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。",
-      "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-macos-arm64.dmg",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.1.1-macos-arm64.dmg",
       "sha256": "35cb0b0df9da7f9112c5732da1999987027f13a63cca0f3227e818c420c272bb",
       "size": "10.6 MB"
     },
@@ -31,11 +31,11 @@
       "capability": "可控制其他设备、配置本机远程开机；当前尚不支持共享 Windows 桌面。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.2/RDesk-2.1.2-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.1.2-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。",
-      "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.2/RDesk-2.1.2-windows-x64-setup.exe",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.1.2-windows-x64-setup.exe",
       "sha256": "9d733eac92b193eee06879fff8398ce1c62a1c7f259dbf62a8236b4b0c3c92a0",
       "size": "11.6 MB"
     },
@@ -49,7 +49,7 @@
       "capability": "可控制或被控，也可作为家中长期在线的独立开机助手。",
       "button": "下载安卓 APK",
       "note": "下载后打开 APK，按系统提示允许本次来源安装。",
-      "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.2/RDesk-2.1.2-android.apk",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.1.2-android.apk",
       "sha256": "c8adffa5c3349aebbd5df77ea0394e961e3455df6420b0cfc57f97f8987a7557",
       "size": "53.9 MB"
     },
@@ -89,6 +89,6 @@
       "bytes": 12123367
     }
   },
-  "checksums_url": "https://github.com/qsw745/rdesk/releases/download/v2.1.2/SHA256SUMS.txt",
+  "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
   "service_notice": ""
 }

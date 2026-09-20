@@ -30,7 +30,7 @@ page = '''<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RDesk 官网 · 电脑与手机远程连接</title>
 <meta name="description" content="RDesk 官方下载。获取 macOS、Windows、Android 安装包，或前往 App Store 安装 iPhone 与 iPad 版。查看远程开机配置与平台能力。">
-<link rel="canonical" href="https://qsw745.github.io/rdesk/"><link rel="icon" href="/rdesk/icon.png">
+<link rel="canonical" href="https://qisw.top/rdesk/"><link rel="icon" href="/rdesk/icon.png">
 <meta name="theme-color" content="#f5f7fb">
 <style>
 :root{color-scheme:light dark;--bg:#f5f7fb;--surface:#fff;--ink:#152238;--muted:#596579;--line:#dfe5ee;--blue:#175bea;--soft:#eaf0ff}
