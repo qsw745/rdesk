@@ -6,6 +6,31 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/wake.dart';
 import 'wake_api.dart';
 
+enum WakeCheckState { enabled, disabled, unknown }
+
+class WindowsWakeCheck {
+  final WakeCheckState magicPacket, wakeArmed, shutdownWake;
+  const WindowsWakeCheck(
+      {required this.magicPacket,
+      required this.wakeArmed,
+      required this.shutdownWake});
+  bool get allEnabled =>
+      magicPacket == WakeCheckState.enabled &&
+      wakeArmed == WakeCheckState.enabled &&
+      shutdownWake == WakeCheckState.enabled;
+  factory WindowsWakeCheck.fromJson(Map<String, dynamic> json) {
+    WakeCheckState parse(Object? v) => v == true || v == 'Enabled' || v == '1'
+        ? WakeCheckState.enabled
+        : v == false || v == 'Disabled' || v == '0'
+            ? WakeCheckState.disabled
+            : WakeCheckState.unknown;
+    return WindowsWakeCheck(
+        magicPacket: parse(json['magicPacket']),
+        wakeArmed: parse(json['wakeArmed']),
+        shutdownWake: parse(json['shutdownWake']));
+  }
+}
+
 class WindowsWakeAdapter {
   final String id, name, mac;
   final bool connected, wired;
@@ -33,9 +58,63 @@ class WindowsWakeService {
       : _api = api,
         _run = run,
         _storage = storage;
+
+  /// Read driver settings only. BIOS and physical wake support require a real test.
+  Future<WindowsWakeCheck> inspect(String mac) async {
+    if (!RegExp(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$').hasMatch(mac)) {
+      throw const WakeApiException('invalid_mac', '请选择有效的有线网卡');
+    }
+    final script =
+        r'''$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8;
+$nic=Get-NetAdapter -Physical | Where-Object { ($_.MacAddress -replace '-',':') -eq '__MAC__' } | Select-Object -First 1;
+if (!$nic) { throw 'Adapter not found' }
+$magic=$null; $armed=$null; $shutdown=$null;
+try { $magic=($nic | Get-NetAdapterPowerManagement -ErrorAction Stop).WakeOnMagicPacket.ToString() } catch {}
+try { $names=@(& powercfg.exe /devicequery wake_armed); if ($LASTEXITCODE -eq 0) { $armed=(@($names | ForEach-Object {$_.Trim()}) -contains $nic.InterfaceDescription) } } catch {}
+try { $prop=$nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction Stop | Where-Object { $_.RegistryKeyword -in @('ShutdownWakeOnLan','S5WakeOnLan') } | Select-Object -First 1; if ($prop -and @($prop.RegistryValue).Count -eq 1) { $shutdown=[string]$prop.RegistryValue[0] } } catch {}
+@{magicPacket=$magic; wakeArmed=$armed; shutdownWake=$shutdown} | ConvertTo-Json -Compress
+'''
+            .replaceAll('__MAC__', mac);
+    final result = await _run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      script
+    ]).timeout(const Duration(seconds: 15));
+    if (result.exitCode != 0) {
+      throw const WakeApiException('wake_check', '无法自动检测唤醒设置，请在设备管理器中核对');
+    }
+    return WindowsWakeCheck.fromJson(
+        jsonDecode(result.stdout.toString().trim()) as Map<String, dynamic>);
+  }
+
+  Future<void> openDeviceManager() async {
+    final result = await _run('cmd.exe', ['/c', 'start', '', 'devmgmt.msc']);
+    if (result.exitCode != 0) {
+      throw const WakeApiException('device_manager', '请在开始菜单打开设备管理器');
+    }
+  }
+
+  /// Current-user startup only: no administrator task, service or login bypass.
+  Future<void> setLoginStartup(bool enabled) async {
+    final path = Platform.resolvedExecutable.replaceAll("'", "''");
+    final script = enabled
+        ? "New-Item -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Force | Out-Null; Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RDesk' -Value '\"$path\"' -ErrorAction Stop"
+        : "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RDesk' -ErrorAction SilentlyContinue";
+    final result = await _run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      script
+    ]).timeout(const Duration(seconds: 10));
+    if (result.exitCode != 0) {
+      throw const WakeApiException('startup', '设置登录后启动失败，请重试');
+    }
+  }
+
   Future<List<WindowsWakeAdapter>> adapters() async {
     const script =
-        r'''$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; @(Get-NetAdapter -Physical | Select-Object @{n='InterfaceGuid';e={$_.InterfaceGuid.ToString()}},Name,MacAddress,@{n='Status';e={$_.Status.ToString()}},@{n='NdisPhysicalMedium';e={[int]$_.NdisPhysicalMedium}}) | ConvertTo-Json -Compress''';
+        r'''$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; @(Get-NetAdapter -Physical | Select-Object @{n='InterfaceGuid';e={$_.InterfaceGuid.ToString()}},Name,MacAddress,InterfaceType,@{n='Status';e={$_.Status.ToString()}},@{n='NdisPhysicalMedium';e={[int]$_.NdisPhysicalMedium}}) | ConvertTo-Json -Compress''';
     final result = await _run('powershell.exe', [
       '-NoProfile',
       '-NonInteractive',
@@ -65,7 +144,9 @@ class WindowsWakeService {
           name: row['Name']?.toString() ?? '网卡',
           mac: mac,
           connected: row['Status'] == 'Up',
-          wired: row['NdisPhysicalMedium'].toString() == '14'));
+          wired: row['NdisPhysicalMedium'].toString() == '14' ||
+              (row['NdisPhysicalMedium'].toString() == '0' &&
+                  row['InterfaceType'].toString() == '6')));
     }
     adapters.sort((a, b) => ((b.connected ? 2 : 0) + (b.wired ? 1 : 0))
         .compareTo((a.connected ? 2 : 0) + (a.wired ? 1 : 0)));

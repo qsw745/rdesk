@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:rdesk/src/services/windows_wake_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:rdesk/src/models/wake.dart';
@@ -8,17 +11,76 @@ import 'package:rdesk/src/screens/wake_screen.dart';
 import 'wake_provider_test.dart' show TestAgent;
 
 class ScreenWake extends WakeProvider {
-  ScreenWake()
+  ScreenWake({WindowsWakeService? windows})
       : super(
             api: WakeApi(
                 baseUri: () async => Uri.parse('https://example.test'),
                 accountToken: () async => 'token'),
-            agent: TestAgent());
+            agent: TestAgent(),
+            windows: windows);
   @override
   Future<void> refresh() async {}
+  void replaceAgents(List<WakeAgent> value) {
+    agents = value;
+    notifyListeners();
+  }
 }
 
 void main() {
+  testWidgets('单一网卡与助手自动选择，检测未知不假装通过，逐步进入 BIOS', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final api = WakeApi(
+        baseUri: () async => Uri.parse('https://example.test'),
+        accountToken: () async => 'token');
+    final windows = WindowsWakeService(
+        api: api,
+        storage: const FlutterSecureStorage(),
+        run: (_, args) async {
+          final script = args.last;
+          return ProcessResult(
+              1,
+              0,
+              script.contains('Select-Object @{n=')
+                  ? '[{"InterfaceGuid":"wired","Name":"以太网","MacAddress":"02-11-22-33-44-55","Status":"Up","NdisPhysicalMedium":14}]'
+                  : '{"magicPacket":"Enabled","wakeArmed":true,"shutdownWake":null}',
+              '');
+        });
+    final wake = ScreenWake(windows: windows);
+    await wake.bindAccount('user', 'server');
+    wake.agents = [
+      const WakeAgent(id: 'helper', name: '家中手机', online: true, enabled: true)
+    ];
+    await tester.pumpWidget(ChangeNotifierProvider<WakeProvider>.value(
+        value: wake, child: const MaterialApp(home: WakeSetupScreen())));
+    await tester.pumpAndSettle();
+    expect(find.text('检测网络唤醒设置'), findsOneWidget);
+    expect(find.text('家中手机'), findsOneWidget);
+    expect(find.text('无法自动判断'), findsOneWidget);
+    expect(find.text('开启主板网络唤醒'), findsNothing);
+    await tester.scrollUntilVisible(find.text('下一步').hitTestable(), 150);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下一步'));
+    await tester.pumpAndSettle();
+    expect(find.text('开启主板网络唤醒'), findsOneWidget);
+    expect(find.text('保存并开始测试'), findsNothing);
+    wake.replaceAgents([
+      const WakeAgent(id: 'other', name: '另一台手机', online: true, enabled: true)
+    ]);
+    await tester.scrollUntilVisible(find.text('上一步').hitTestable(), 150);
+    await tester.tap(find.text('上一步'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('下一步').hitTestable(), 150);
+    expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '下一步'))
+            .onPressed,
+        isNull);
+    expect(find.text('请选择家中手机'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    wake.dispose();
+    api.close();
+  });
   testWidgets('离线助手禁用开机，发送状态不显示电脑已上线', (tester) async {
     final wake = ScreenWake();
     await wake.bindAccount('user', 'server');
@@ -44,7 +106,7 @@ void main() {
     await tester.pump();
     expect(find.text('信号已发送，等待电脑上线'), findsOneWidget);
     expect(find.text('电脑已上线'), findsNothing);
-    await tester.tap(find.text('查看记录'));
+    await tester.tap(find.byTooltip('更多'));
     await tester.pumpAndSettle();
     expect(find.textContaining('领取：未收到'), findsOneWidget);
     expect(find.textContaining('发送回执：未收到'), findsOneWidget);

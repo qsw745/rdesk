@@ -87,4 +87,52 @@ void main() {
             ''));
     expect((await service.adapters()).single.wired, isFalse);
   });
+  test('检测仅按真实值判断，未知关机唤醒不能显示通过', () async {
+    final api = WakeApi(
+        baseUri: () async => Uri.parse('https://example.test'),
+        accountToken: () async => 'a');
+    addTearDown(api.close);
+    final service = WindowsWakeService(
+        api: api,
+        storage: const FlutterSecureStorage(),
+        run: (_, args) async => ProcessResult(
+            1,
+            0,
+            '{"magicPacket":"Enabled","wakeArmed":false,"shutdownWake":null}',
+            ''));
+    final result = await service.inspect('02:11:22:33:44:55');
+    expect(result.magicPacket, WakeCheckState.enabled);
+    expect(result.wakeArmed, WakeCheckState.disabled);
+    expect(result.shutdownWake, WakeCheckState.unknown);
+    expect(result.allEnabled, isFalse);
+  });
+  test('网卡检测失败不能当成全部开启', () async {
+    final api = WakeApi(
+        baseUri: () async => Uri.parse('https://example.test'),
+        accountToken: () async => 'a');
+    addTearDown(api.close);
+    final service = WindowsWakeService(
+        api: api,
+        storage: const FlutterSecureStorage(),
+        run: (_, __) async => ProcessResult(1, 1, '', 'Access denied'));
+    await expectLater(
+        service.inspect('02:11:22:33:44:55'), throwsA(isA<WakeApiException>()));
+  });
+  test('物理介质未指定时使用以太网接口类型，不混淆无线接口', () async {
+    final api = WakeApi(
+        baseUri: () async => Uri.parse('https://example.test'),
+        accountToken: () async => 'a');
+    addTearDown(api.close);
+    final service = WindowsWakeService(
+        api: api,
+        storage: const FlutterSecureStorage(),
+        run: (_, __) async => ProcessResult(
+            1,
+            0,
+            '[{"Name":"Ethernet","MacAddress":"02-11-22-33-44-55","Status":"Up","NdisPhysicalMedium":0,"InterfaceType":6},{"Name":"Wi-Fi","MacAddress":"02-11-22-33-44-56","Status":"Up","NdisPhysicalMedium":0,"InterfaceType":71}]',
+            ''));
+    final adapters = await service.adapters();
+    expect(adapters.first.wired, isTrue);
+    expect(adapters.last.wired, isFalse);
+  });
 }
