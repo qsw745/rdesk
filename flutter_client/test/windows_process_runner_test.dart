@@ -6,6 +6,37 @@ import 'package:rdesk/src/services/windows_process_runner.dart';
 import 'package:rdesk/src/services/wake_api.dart';
 
 void main() {
+  test('Windows 超时真正终止 PowerShell 子进程树', () async {
+    final dir = await Directory.systemTemp.createTemp('rdesk-native-tree-');
+    final marker = File('${dir.path}/child.pid');
+    final runner = WindowsProcessRunner();
+    addTearDown(() async {
+      await runner.dispose();
+      if (marker.existsSync()) {
+        await Process.run('taskkill.exe',
+            ['/PID', marker.readAsStringSync().trim(), '/T', '/F']);
+      }
+      await dir.delete(recursive: true);
+    });
+    await expectLater(
+        runner.run(
+            'powershell.exe',
+            [
+              '-Command',
+              "\$child = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList '-NoProfile','-Command','Start-Sleep -Seconds 60'; Set-Content -Encoding ascii -Path '${marker.path.replaceAll("'", "''")}' -Value \$child.Id; Start-Sleep -Seconds 60"
+            ],
+            timeout: const Duration(seconds: 8)),
+        throwsA(isA<WakeApiException>()
+            .having((e) => e.code, 'code', 'process_timeout')));
+    expect(marker.existsSync(), isTrue);
+    final pid = int.parse(marker.readAsStringSync().trim());
+    final check = await Process.run('powershell.exe', [
+      '-NoProfile',
+      '-Command',
+      "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }"
+    ]);
+    expect(check.exitCode, 0, reason: '子进程必须先终止，检测才能返回');
+  }, skip: !Platform.isWindows);
   test('超时等待整个进程树清理完成后才返回', () async {
     final dir = await Directory.systemTemp.createTemp('rdesk-tree-');
     final marker = File('${dir.path}/pid');

@@ -10,6 +10,11 @@ PODS:
   - local_auth_darwin (0.0.1):
     - Flutter
     - FlutterMacOS
+  - mobile_scanner (7.0.0):
+    - Flutter
+    - FlutterMacOS
+  - package_info_plus (0.0.1):
+    - FlutterMacOS
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -20,6 +25,8 @@ DEPENDENCIES:
   - flutter_secure_storage_darwin (from `Flutter/ephemeral/.symlinks/plugins/flutter_secure_storage_darwin/darwin`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - local_auth_darwin (from `Flutter/ephemeral/.symlinks/plugins/local_auth_darwin/darwin`)
+  - mobile_scanner (from `Flutter/ephemeral/.symlinks/plugins/mobile_scanner/darwin`)
+  - package_info_plus (from `Flutter/ephemeral/.symlinks/plugins/package_info_plus/macos`)
   - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
 
 EXTERNAL SOURCES:
@@ -33,6 +40,10 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
   local_auth_darwin:
     :path: Flutter/ephemeral/.symlinks/plugins/local_auth_darwin/darwin
+  mobile_scanner:
+    :path: Flutter/ephemeral/.symlinks/plugins/mobile_scanner/darwin
+  package_info_plus:
+    :path: Flutter/ephemeral/.symlinks/plugins/package_info_plus/macos
   shared_preferences_foundation:
     :path: Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin
 
@@ -42,8 +53,10 @@ SPEC CHECKSUMS:
   flutter_secure_storage_darwin: acdb3f316ed05a3e68f856e0353b133eec373a23
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   local_auth_darwin: c3ee6cce0a8d56be34c8ccb66ba31f7f180aaebb
+  mobile_scanner: 9157936403f5a0644ca3779a38ff8404c5434a93
+  package_info_plus: f0052d280d17aa382b932f399edf32507174e870
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
 
-PODFILE CHECKSUM: 180da7a1dbc1d932db021ebc8007656e7c46dd99
+PODFILE CHECKSUM: 13edfb9e70ac3646927b8e6c9a212ad1d0fa29b2
 
 COCOAPODS: 1.16.2
