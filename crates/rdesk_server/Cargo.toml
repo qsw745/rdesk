@@ -26,3 +26,8 @@ clap = { version = "4", features = ["derive"] }
 axum = { version = "0.7", features = ["ws"] }
 futures-util = "0.3"
 uuid = { workspace = true }
+
+sha2 = "0.10"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

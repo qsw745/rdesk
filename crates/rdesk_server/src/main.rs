@@ -1,3 +1,4 @@
+mod wake;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::path::Path as FsPath;
@@ -51,6 +52,7 @@ struct Args {
 
 #[derive(Clone)]
 struct AppState {
+    wake_runtime: Arc<wake::Runtime>,
     previews: Arc<DashMap<String, PreviewRegistration>>,
     account_presence: Arc<DashMap<String, AccountPresence>>,
     frames: Arc<DashMap<String, FrameSnapshot>>,
@@ -93,6 +95,7 @@ struct FileBlob {
 impl AppState {
     fn new(user_store_path: String) -> Self {
         Self {
+            wake_runtime: Arc::new(wake::Runtime::default()),
             previews: Arc::new(DashMap::new()),
             account_presence: Arc::new(DashMap::new()),
             frames: Arc::new(DashMap::new()),
@@ -164,6 +167,8 @@ struct UserRecord {
     display_name: String,
     password_hash: String,
     created_at_ms: u64,
+    #[serde(default)]
+    wake: wake::model::WakeAccountData,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -380,10 +385,12 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let state = AppState::new(args.user_store_path.clone());
     load_users(&state).await?;
+    persist_users(&state).await?;
     if let Err(e) = load_auth_sessions(&state).await {
         warn!("failed to load auth sessions: {e}");
     }
     let app = Router::new()
+        .merge(wake::routes::routes())
         .route("/health", get(health))
         .route("/debug", get(debug_state))
         .route("/frame.jpg", get(fetch_frame))
@@ -437,6 +444,7 @@ async fn main() -> Result<()> {
         loop {
             interval.tick().await;
             cleanup_expired(cleanup_state.clone());
+            wake::routes::cleanup(&cleanup_state).await;
             // Persist auth sessions every ~5 minutes (20 * 15s)
             persist_counter += 1;
             if persist_counter >= 20 {
@@ -567,18 +575,21 @@ async fn register_account(
         display_name,
         password_hash,
         created_at_ms: now_ms(),
+        wake: Default::default(),
     };
-    state.users.insert(user.user_id.clone(), user.clone());
-    state
-        .username_index
-        .insert(username.clone(), user.user_id.clone());
-
-    if let Err(err) = persist_users(&state).await {
-        state.users.remove(&user.user_id);
-        state.username_index.remove(&username);
+    let guard = state.user_store_write.lock().await;
+    if state.username_index.contains_key(&username) {
+        return error_response(StatusCode::CONFLICT, "账号已存在");
+    }
+    let mut snapshot: Vec<UserRecord> = state.users.iter().map(|e| e.value().clone()).collect();
+    snapshot.push(user.clone());
+    if let Err(err) = wake::store::write_user_snapshot(&state, &snapshot).await {
         warn!(error = %err, "failed to persist registered user");
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, "保存账号失败");
     }
+    state.users.insert(user.user_id.clone(), user.clone());
+    state.username_index.insert(username.clone(), user.user_id.clone());
+    drop(guard);
 
     let session = create_account_session(&state, &user);
     let _ = persist_auth_sessions(&state).await;
@@ -636,10 +647,18 @@ async fn delete_account(
 
     let user_id = user.user_id.clone();
 
-    // 先备份，失败时可回滚内存态。
-    let removed_user = state.users.remove(&user_id).map(|(_, value)| value);
+    let guard = state.user_store_write.lock().await;
+    if !state.users.contains_key(&user_id) {
+        return error_response(StatusCode::UNAUTHORIZED, "登录状态已失效");
+    }
+    let snapshot: Vec<UserRecord> = state.users.iter()
+        .filter(|e| e.user_id != user_id).map(|e| e.value().clone()).collect();
+    if let Err(err) = wake::store::write_user_snapshot(&state, &snapshot).await {
+        warn!(error = %err, "failed to persist account deletion");
+        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "删除账号失败，请重试");
+    }
+    state.users.remove(&user_id);
     state.username_index.remove(&user.username);
-
     let removed_sessions: Vec<(String, AuthSession)> = state
         .auth_sessions
         .iter()
@@ -660,18 +679,7 @@ async fn delete_account(
         state.account_presence.remove(device_id);
     }
 
-    if let Err(err) = persist_users(&state).await {
-        // 回滚，避免内存与磁盘不一致导致账号「半删除」。
-        if let Some(value) = removed_user {
-            state.username_index.insert(user.username.clone(), user_id.clone());
-            state.users.insert(user_id.clone(), value);
-        }
-        for (token, session) in removed_sessions {
-            state.auth_sessions.insert(token, session);
-        }
-        warn!(error = %err, user_id = %user_id, "failed to persist account deletion");
-        return error_response(StatusCode::INTERNAL_SERVER_ERROR, "删除账号失败，请重试");
-    }
+    drop(guard);
 
     let _ = persist_auth_sessions(&state).await;
 
@@ -1765,7 +1773,8 @@ async fn load_users(state: &AppState) -> Result<()> {
         return Ok(());
     }
     let users: Vec<UserRecord> = serde_json::from_str(&raw)?;
-    for user in users {
+    for mut user in users {
+        user.wake.recover_after_restart(now_ms());
         state
             .username_index
             .insert(user.username.clone(), user.user_id.clone());
@@ -1776,15 +1785,8 @@ async fn load_users(state: &AppState) -> Result<()> {
 
 async fn persist_users(state: &AppState) -> Result<()> {
     let _guard = state.user_store_write.lock().await;
-    let path = FsPath::new(state.user_store_path.as_str());
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
-
-    let users: Vec<UserRecord> = state.users.iter().map(|entry| entry.clone()).collect();
-    let payload = serde_json::to_string_pretty(&users)?;
-    tokio::fs::write(path, payload).await?;
-    Ok(())
+    let users: Vec<UserRecord> = state.users.iter().map(|entry| entry.value().clone()).collect();
+    wake::store::write_user_snapshot(state, &users).await
 }
 
 fn auth_sessions_path(user_store_path: &str) -> std::path::PathBuf {
