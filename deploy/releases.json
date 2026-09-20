@@ -1,0 +1,93 @@
+{
+  "date": "2026-09-20",
+  "wake_service_ready": false,
+  "source_commit": "e33d884",
+  "platforms": [
+    {
+      "id": "macos",
+      "symbol": "M",
+      "tag": "Apple 芯片 / Intel",
+      "name": "macOS",
+      "version": "2.1.1",
+      "requirements": "macOS 12 或更高版本",
+      "capability": "可控制其他设备，也可共享本机桌面；支持发起远程开机请求。",
+      "button": "下载 Apple 芯片版",
+      "alternate": {
+        "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-macos-x64.zip",
+        "label": "下载 Intel 版（ZIP）"
+      },
+      "note": "两个版本的应用均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。",
+      "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-macos-arm64.dmg",
+      "sha256": "35cb0b0df9da7f9112c5732da1999987027f13a63cca0f3227e818c420c272bb",
+      "size": "10.6 MB"
+    },
+    {
+      "id": "windows",
+      "symbol": "W",
+      "tag": "64 位电脑",
+      "name": "Windows",
+      "version": "2.1.1",
+      "requirements": "Windows 10 / 11 · x64",
+      "capability": "可控制其他设备、配置本机远程开机；当前尚不支持共享 Windows 桌面。",
+      "button": "下载 Windows 安装包",
+      "alternate": {
+        "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-windows-x64-portable.zip",
+        "label": "下载免安装 ZIP 版"
+      },
+      "note": "安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。",
+      "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-windows-x64-setup.exe",
+      "sha256": "93a34d2ed5fa70bf45156064129e8f501a034cfcc7f134bfc5673092108234c5",
+      "size": "11.6 MB"
+    },
+    {
+      "id": "android",
+      "symbol": "A",
+      "tag": "手机 / 平板",
+      "name": "Android",
+      "version": "2.1.1",
+      "requirements": "Android 7.0 或更高版本",
+      "capability": "可控制或被控，也可作为家中长期在线的独立开机助手。",
+      "button": "下载安卓 APK",
+      "note": "下载后打开 APK，按系统提示允许本次来源安装。",
+      "url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-android.apk",
+      "sha256": "575490bc0ec82840001d23f394b8138011f691eb2b9553fcc24a56c697fd9c8b",
+      "size": "53.9 MB"
+    },
+    {
+      "id": "ios",
+      "symbol": "i",
+      "tag": "iPhone / iPad",
+      "name": "苹果手机",
+      "version": "2.1.0",
+      "size": "App Store 版",
+      "requirements": "iOS / iPadOS 13 或更高版本",
+      "capability": "可控制其他设备或分享屏幕；当前上架版尚不包含新的远程开机功能。",
+      "url": "https://apps.apple.com/cn/app/id6796165712",
+      "button": "前往 App Store",
+      "note": "通过 App Store 正常安装和更新，无需下载 IPA 文件。"
+    }
+  ],
+  "files": {
+    "RDesk-2.1.1-macos-arm64.dmg": {
+      "sha256": "35cb0b0df9da7f9112c5732da1999987027f13a63cca0f3227e818c420c272bb",
+      "bytes": 11084389
+    },
+    "RDesk-2.1.1-macos-x64.zip": {
+      "sha256": "3a6b7c54159dde4d6f028f5cb8a349da6eba63d6729f1545297ecb70227c2d73",
+      "bytes": 11106539
+    },
+    "RDesk-2.1.1-windows-x64-setup.exe": {
+      "sha256": "93a34d2ed5fa70bf45156064129e8f501a034cfcc7f134bfc5673092108234c5",
+      "bytes": 12115301
+    },
+    "RDesk-2.1.1-windows-x64-portable.zip": {
+      "sha256": "38f7a03d1df0b0980ecd64d6c60ed3c517b897c200ec8b4e3112f595a38ba85f",
+      "bytes": 14334656
+    },
+    "RDesk-2.1.1-android.apk": {
+      "sha256": "575490bc0ec82840001d23f394b8138011f691eb2b9553fcc24a56c697fd9c8b",
+      "bytes": 56493711
+    }
+  },
+  "checksums_url": "https://github.com/qsw745/rdesk/releases/download/v2.1.1/SHA256SUMS.txt"
+}

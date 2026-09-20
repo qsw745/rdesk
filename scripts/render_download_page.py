@@ -1,4 +1,32 @@
-<!doctype html>
+#!/usr/bin/env python3
+"""Render the public download pages from verified release metadata."""
+import html
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+data = json.loads((ROOT / 'deploy/releases.json').read_text())
+
+def esc(value):
+    return html.escape(str(value), quote=True)
+
+cards = []
+for item in data['platforms']:
+    alternate = ''
+    if item.get('alternate'):
+        alternate = f'<a class="secondary" href="{esc(item["alternate"]["url"])}">{esc(item["alternate"]["label"])}</a>'
+    integrity = ''
+    if item.get('sha256'):
+        integrity = f'<details><summary>文件校验 SHA-256</summary><code>{esc(item["sha256"])}</code></details>'
+    cards.append(f'''<article class="platform" id="{esc(item['id'])}">
+      <div class="platform-top"><span class="platform-icon" aria-hidden="true">{esc(item['symbol'])}</span><span class="tag">{esc(item['tag'])}</span></div>
+      <h3>{esc(item['name'])}</h3><p class="version">{esc(item['version'])} · {esc(item['size'])}</p>
+      <p class="requirements">{esc(item['requirements'])}</p><p class="capability">{esc(item['capability'])}</p>
+      <a class="button" href="{esc(item['url'])}">{esc(item['button'])}<span aria-hidden="true"> ↗</span></a>
+      {alternate}<p class="install-note">{esc(item['note'])}</p>{integrity}</article>''')
+status = ('远程开机配套服务已部署。实际唤醒仍需电脑硬件支持，并完成家中助手配置；隔夜稳定性请按说明实测。'
+          if data['wake_service_ready'] else '远程开机客户端已提供，配套服务尚待部署。目前可先安装并使用已支持的远程连接功能。')
+page = '''<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RDesk 官网 · 电脑与手机远程连接</title>
 <meta name="description" content="RDesk 官方下载。获取 macOS、Windows、Android 安装包，或前往 App Store 安装 iPhone 与 iPad 版。查看远程开机配置与平台能力。">
@@ -13,27 +41,11 @@
 </style></head><body>
 <header><nav aria-label="主导航"><a class="brand" href="/rdesk/"><img src="/rdesk/icon.png" alt="">RDesk</a><a href="#download">下载</a><a href="#wake">远程开机</a><a href="/rdesk/support">支持</a></nav></header>
 <main><section class="hero"><div class="eyebrow">RDESK · 官方网站</div><h1>电脑与手机，<br>连接到一起。</h1><p>从手边的设备访问另一台设备。选择适合你的版本，开始远程连接，或配置家中电脑的远程开机。</p><div class="facts"><span>核心功能免费</span><span>四个平台入口</span><span>官方文件下载</span></div></section>
-<section id="download" aria-labelledby="download-heading"><div class="section-head"><h2 id="download-heading">选择你的设备</h2><p>更新于 2026-09-20 · 各平台功能以说明为准</p></div><div class="platforms"><article class="platform" id="macos">
-      <div class="platform-top"><span class="platform-icon" aria-hidden="true">M</span><span class="tag">Apple 芯片 / Intel</span></div>
-      <h3>macOS</h3><p class="version">2.1.1 · 10.6 MB</p>
-      <p class="requirements">macOS 12 或更高版本</p><p class="capability">可控制其他设备，也可共享本机桌面；支持发起远程开机请求。</p>
-      <a class="button" href="https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-macos-arm64.dmg">下载 Apple 芯片版<span aria-hidden="true"> ↗</span></a>
-      <a class="secondary" href="https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-macos-x64.zip">下载 Intel 版（ZIP）</a><p class="install-note">两个版本的应用均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。</p><details><summary>文件校验 SHA-256</summary><code>35cb0b0df9da7f9112c5732da1999987027f13a63cca0f3227e818c420c272bb</code></details></article><article class="platform" id="windows">
-      <div class="platform-top"><span class="platform-icon" aria-hidden="true">W</span><span class="tag">64 位电脑</span></div>
-      <h3>Windows</h3><p class="version">2.1.1 · 11.6 MB</p>
-      <p class="requirements">Windows 10 / 11 · x64</p><p class="capability">可控制其他设备、配置本机远程开机；当前尚不支持共享 Windows 桌面。</p>
-      <a class="button" href="https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-windows-x64-setup.exe">下载 Windows 安装包<span aria-hidden="true"> ↗</span></a>
-      <a class="secondary" href="https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-windows-x64-portable.zip">下载免安装 ZIP 版</a><p class="install-note">安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。</p><details><summary>文件校验 SHA-256</summary><code>93a34d2ed5fa70bf45156064129e8f501a034cfcc7f134bfc5673092108234c5</code></details></article><article class="platform" id="android">
-      <div class="platform-top"><span class="platform-icon" aria-hidden="true">A</span><span class="tag">手机 / 平板</span></div>
-      <h3>Android</h3><p class="version">2.1.1 · 53.9 MB</p>
-      <p class="requirements">Android 7.0 或更高版本</p><p class="capability">可控制或被控，也可作为家中长期在线的独立开机助手。</p>
-      <a class="button" href="https://github.com/qsw745/rdesk/releases/download/v2.1.1/RDesk-2.1.1-android.apk">下载安卓 APK<span aria-hidden="true"> ↗</span></a>
-      <p class="install-note">下载后打开 APK，按系统提示允许本次来源安装。</p><details><summary>文件校验 SHA-256</summary><code>575490bc0ec82840001d23f394b8138011f691eb2b9553fcc24a56c697fd9c8b</code></details></article><article class="platform" id="ios">
-      <div class="platform-top"><span class="platform-icon" aria-hidden="true">i</span><span class="tag">iPhone / iPad</span></div>
-      <h3>苹果手机</h3><p class="version">2.1.0 · App Store 版</p>
-      <p class="requirements">iOS / iPadOS 13 或更高版本</p><p class="capability">可控制其他设备或分享屏幕；当前上架版尚不包含新的远程开机功能。</p>
-      <a class="button" href="https://apps.apple.com/cn/app/id6796165712">前往 App Store<span aria-hidden="true"> ↗</span></a>
-      <p class="install-note">通过 App Store 正常安装和更新，无需下载 IPA 文件。</p></article></div></section>
-<section class="wake" id="wake"><div class="eyebrow">新功能 · 远程开机预览</div><h2>出门之后，也能请求电脑开机。</h2><p>让家中长期供电的安卓手机接收开机请求，再通过家庭局域网唤醒插网线的 Windows 电脑。无需在路由器开放公网端口。</p><div class="steps"><div><div class="number">01 / 家中安卓手机</div><strong>启用开机助手</strong><span>登录同一账号，连接家庭 Wi-Fi，保持充电并允许后台运行。</span></div><div><div class="number">02 / Windows 电脑</div><strong>选择有线网卡</strong><span>确认主板与网卡支持网络唤醒，在 RDesk 中绑定家中助手。</span></div><div><div class="number">03 / 外出的设备</div><strong>发起请求，查看记录</strong><span>在「设置 → 远程开机」查看助手、发送回执和电脑应用上线状态。</span></div></div><p class="status">远程开机客户端已提供，配套服务尚待部署。目前可先安装并使用已支持的远程连接功能。</p><p>“信号已发送”不代表电脑已启动；只有收到电脑应用心跳才显示上线。当前 App Store 版本尚不包含此项新功能。</p></section>
+<section id="download" aria-labelledby="download-heading"><div class="section-head"><h2 id="download-heading">选择你的设备</h2><p>更新于 __DATE__ · 各平台功能以说明为准</p></div><div class="platforms">__CARDS__</div></section>
+<section class="wake" id="wake"><div class="eyebrow">新功能 · 远程开机预览</div><h2>出门之后，也能请求电脑开机。</h2><p>让家中长期供电的安卓手机接收开机请求，再通过家庭局域网唤醒插网线的 Windows 电脑。无需在路由器开放公网端口。</p><div class="steps"><div><div class="number">01 / 家中安卓手机</div><strong>启用开机助手</strong><span>登录同一账号，连接家庭 Wi-Fi，保持充电并允许后台运行。</span></div><div><div class="number">02 / Windows 电脑</div><strong>选择有线网卡</strong><span>确认主板与网卡支持网络唤醒，在 RDesk 中绑定家中助手。</span></div><div><div class="number">03 / 外出的设备</div><strong>发起请求，查看记录</strong><span>在「设置 → 远程开机」查看助手、发送回执和电脑应用上线状态。</span></div></div><p class="status">__STATUS__</p><p>“信号已发送”不代表电脑已启动；只有收到电脑应用心跳才显示上线。当前 App Store 版本尚不包含此项新功能。</p></section>
 <section class="faq"><h2>下载前，你可能想了解</h2><details><summary>哪些设备可以被远程操作？</summary><p>Android 与 macOS 可作为被控端。Windows 当前提供控制端与远程开机配置，尚不支持共享 Windows 桌面给别人操作。iPhone/iPad 可作控制端，也可分享屏幕，但不能接收远程触控。</p></details><details><summary>iPhone 可以像安卓一样下载文件安装吗？</summary><p>官网的苹果手机按钮会前往 App Store。普通 IPA 文件不能像 APK 一样在任意 iPhone 上直接安装。</p></details><details><summary>安装后需要开启哪些权限？</summary><p>Mac 被控需要屏幕录制与辅助功能权限；Android 屏幕共享和远程操作按应用提示授权。独立的安卓开机助手仅需网络、通知与后台运行，不要求录屏或无障碍。</p></details><details><summary>远程开机为什么需要实测？</summary><p>不同主板、网卡、Windows 电源状态及安卓后台策略存在差异。先测试睡眠与刚关机，再测试蜂窝网络、隔夜、24 小时和 48 小时。失败时先看助手是否在线，再看发送回执与电脑应用心跳。</p></details><details><summary>旧系统还能下载旧版吗？</summary><p><a href="https://qisw.top/rdesk/dl/RDesk-2.1.0.dmg">macOS 2.1.0 旧版</a>保留供兼容性需要。旧版不包含新的远程开机功能。</p></details></section></main>
-<footer><span>© 2026 RDesk · QSW</span><a href="https://github.com/qsw745/rdesk/releases/download/v2.1.1/SHA256SUMS.txt">全部文件校验值</a><a href="/rdesk/support">技术支持</a><a href="/rdesk/privacy">隐私政策</a><a href="mailto:641742030@qq.com">联系我们</a></footer></body></html>
+<footer><span>© 2026 RDesk · QSW</span><a href="__CHECKSUMS__">全部文件校验值</a><a href="/rdesk/support">技术支持</a><a href="/rdesk/privacy">隐私政策</a><a href="mailto:641742030@qq.com">联系我们</a></footer></body></html>'''
+page = page.replace('__DATE__', esc(data['date'])).replace('__CARDS__', ''.join(cards)).replace('__STATUS__', status).replace('__CHECKSUMS__', esc(data['checksums_url']))
+for name in ['index.html', 'download.html']:
+    (ROOT / 'deploy' / name).write_text(page)
+print('官网和下载页已生成。')

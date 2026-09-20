@@ -1,0 +1,37 @@
+name: 官网发布
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ['deploy/**', 'scripts/render_download_page.py', '.github/workflows/website.yml']
+permissions:
+  contents: read
+concurrency:
+  group: website
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 生成静态官网
+        run: |
+          python3 scripts/render_download_page.py
+          mkdir -p _site/download _site/support _site/privacy
+          cp deploy/index.html deploy/icon.png deploy/releases.json _site/
+          cp deploy/download.html _site/download/index.html
+          cp deploy/support.html _site/support/index.html
+          cp deploy/privacy.html _site/privacy/index.html
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - uses: actions/deploy-pages@v4
+        id: deployment
