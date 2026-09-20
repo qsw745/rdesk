@@ -29,6 +29,7 @@ class WakeProvider extends ChangeNotifier {
   String? error;
   bool get loggedIn => _userId != null;
   String? get userId => _userId;
+  int get identityGeneration => _generation;
   bool _current(int gen) => !_disposed && gen == _generation;
   void _notify() {
     if (!_disposed) notifyListeners();
@@ -95,6 +96,7 @@ class WakeProvider extends ChangeNotifier {
     history = {};
     busy = false;
     helper = const WakeAgentStatus();
+    _notify();
     await windows?.stop();
     await agent.stop();
     await _native(agent.stop);
@@ -263,6 +265,11 @@ class WakeProvider extends ChangeNotifier {
           history[target.id] = [request, ...?history[target.id]];
           _schedule();
         }
+      });
+  Future<bool> completeTarget(String id, String agentId) =>
+      _mutate((scoped, gen) async {
+        await scoped.completeTarget(id, agentId);
+        if (_current(gen)) await refresh();
       });
   Future<bool> remove(WakeTarget target) => _mutate((scoped, gen) async {
         await scoped.deleteTarget(target.id);

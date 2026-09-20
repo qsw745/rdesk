@@ -122,10 +122,20 @@ class WakePairingProvider extends ChangeNotifier {
         _deviceId = saved['device_id'] as String;
         _candidate = saved['candidate_token'] as String?;
         phase = PairingPhase.waiting;
+      } else {
+        final known = await vault.enrollment(_user!, _endpoint!);
+        if (!_current(gen)) return;
+        if (known != null) {
+          targetId = known.id;
+          await _scoped!.targetHeartbeat(known.id, known.token);
+          if (!_current(gen)) return;
+          phase = PairingPhase.paired;
+          await onPaired?.call(_user!);
+        }
       }
-    } catch (_) {
+    } catch (e) {
       if (_current(gen)) {
-        error = '无法读取安全凭据，请重试';
+        error = e is WakeApiException ? e.message : '无法读取安全凭据，请重试';
         phase = PairingPhase.failed;
       }
     } finally {
@@ -142,6 +152,10 @@ class WakePairingProvider extends ChangeNotifier {
       required String deviceId,
       required String mac}) async {
     if (_busy || _user == null) return;
+    if (_candidate != null) {
+      await poll();
+      return;
+    }
     final gen = _generation;
     _busy = true;
     error = null;
@@ -186,7 +200,9 @@ class WakePairingProvider extends ChangeNotifier {
     if (_busy ||
         session == null ||
         _user == null ||
-        phase == PairingPhase.paired) return;
+        phase == PairingPhase.paired) {
+      return;
+    }
     final gen = _generation;
     _busy = true;
     final scoped = _scoped!;
@@ -279,6 +295,23 @@ class WakePairingProvider extends ChangeNotifier {
     error = null;
     _timer?.cancel();
     await onPaired?.call(user);
+  }
+
+  /// Only call after the user has explicitly removed the old server binding.
+  Future<void> resetRemovedBinding() async {
+    final gen = ++_generation;
+    _timer?.cancel();
+    if (_user != null && _endpoint != null)
+      await vault.clear(_user!, _endpoint!);
+    if (!_current(gen)) return;
+    session = null;
+    targetId = null;
+    _candidate = null;
+    _deviceId = null;
+    error = null;
+    phase = PairingPhase.idle;
+    _busy = false;
+    _notify();
   }
 
   Future<void> cancelForExit() async {

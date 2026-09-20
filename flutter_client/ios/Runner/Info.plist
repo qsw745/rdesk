@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描电脑上的 RDesk 配对二维码，添加远程开机设备</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>RDesk 需要访问本地网络以连接同一局域网内的远程设备</string>
 	<key>NSFaceIDUsageDescription</key>

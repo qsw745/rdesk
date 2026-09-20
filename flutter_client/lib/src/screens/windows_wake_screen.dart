@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../providers/wake_provider.dart';
+import '../models/wake.dart';
 import '../providers/wake_pairing_provider.dart';
 import '../providers/connection_provider.dart';
 import '../services/windows_wake_service.dart';
@@ -36,6 +37,7 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _wake = context.read<WakeProvider>();
+        unawaited(_wake!.refresh());
         _visibility();
         unawaited(_detect());
       }
@@ -96,8 +98,9 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
       final startup = await service.loginStartupEnabled();
       if (mounted && gen == _generation) setState(() => _startup = startup);
     } catch (_) {
-      if (mounted && gen == _generation)
+      if (mounted && gen == _generation) {
         setState(() => _error = '无法读取登录启动设置，可在 Windows 启动应用中检查');
+      }
     }
     await _inspect(gen);
   }
@@ -109,8 +112,9 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
       final check = await _wake!.windows!.inspect(selected.mac);
       if (mounted && gen == _generation) setState(() => _check = check);
     } catch (_) {
-      if (mounted && gen == _generation)
+      if (mounted && gen == _generation) {
         setState(() => _error = '网卡已识别。驱动唤醒设置需在设备管理器中核对。');
+      }
     }
   }
 
@@ -291,8 +295,34 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
           Text(_error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error)),
       ]);
+  Future<void> _rePair(
+      WakeProvider wake, WakePairingProvider pairing, WakeTarget target) async {
+    final gen = wake.identityGeneration;
+    final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+                title: const Text('重新配对这台电脑？'),
+                content: const Text('将移除原开机配置并取消未完成的开机请求，需要手机重新扫码。'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialog, false),
+                      child: const Text('取消')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialog, true),
+                      child: const Text('移除并重新配对'))
+                ]));
+    if (!mounted || confirmed != true || gen != wake.identityGeneration) return;
+    final user = wake.userId;
+    if (user == null ||
+        !await wake.remove(target) ||
+        gen != wake.identityGeneration) return;
+    await wake.windows?.forget(user);
+    if (gen != wake.identityGeneration) return;
+    await pairing.resetRemovedBinding();
+  }
+
   Widget _pairCard(WakePairingProvider p, WakeProvider wake) {
-    if (p.phase == PairingPhase.paired) {
+    if (p.phase == PairingPhase.paired || p.targetId != null) {
       final target = wake.targets.where((t) => t.id == p.targetId).firstOrNull;
       return _card('2. 已与手机配对', [
         const Icon(Icons.check_circle_outline,
@@ -302,7 +332,14 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
             ? '配置已保存，可以在手机上测试开机。'
             : '请在手机上继续选择家中助手、核对 BIOS 并测试。'),
         const SizedBox(height: 16),
-        OutlinedButton(onPressed: wake.refresh, child: const Text('刷新配置状态'))
+        OutlinedButton(onPressed: wake.refresh, child: const Text('刷新配置状态')),
+        if (p.error != null)
+          Text(p.error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+        if (target != null)
+          TextButton(
+              onPressed: wake.busy ? null : () => _rePair(wake, p, target),
+              child: const Text('移除旧配置并重新配对'))
       ]);
     }
     final waiting = p.session != null &&

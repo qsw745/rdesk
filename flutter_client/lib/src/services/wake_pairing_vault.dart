@@ -1,8 +1,10 @@
 import 'dart:convert';
+import '../models/wake.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 abstract class WakePairingVault {
+  Future<WakeEnrollment?> enrollment(String user, Uri endpoint) async => null;
   Future<Map<String, dynamic>?> read(String user, Uri endpoint);
   Future<void> save(String user, Uri endpoint, Map<String, Object?> data);
   Future<void> promote(String user, Uri endpoint, String id, String token);
@@ -16,6 +18,15 @@ class SecureWakePairingVault implements WakePairingVault {
       '${sha256.convert(utf8.encode('$endpoint|$user'))}';
   String _key(String user, Uri endpoint) =>
       'rdesk.wake.pairing.${_suffix(user, endpoint)}';
+  @override
+  Future<WakeEnrollment?> enrollment(String user, Uri endpoint) async {
+    final value = await storage.read(
+        key: 'rdesk.wake.windows.${_suffix(user, endpoint)}');
+    return value == null
+        ? null
+        : WakeEnrollment.fromJson(jsonDecode(value) as Map<String, dynamic>);
+  }
+
   @override
   Future<Map<String, dynamic>?> read(String user, Uri endpoint) async {
     final value = await storage.read(key: _key(user, endpoint));

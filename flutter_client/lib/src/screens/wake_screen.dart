@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/wake.dart';
+import '../utils/platform_capabilities.dart';
 import '../providers/wake_provider.dart';
 import '../services/rdesk_bridge_service.dart';
 import '../services/windows_wake_service.dart';
@@ -63,7 +64,8 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
 
   Future<void> _setup(WakeProvider wake) async {
     wake.setVisible(false);
-    await context.push('/wake/setup');
+    await context.push(
+        PlatformCapabilities.current.canScanPairing ? '/wake/scan' : '/wake');
     if (mounted) wake.setVisible(true);
   }
 
@@ -117,16 +119,26 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                     textAlign: TextAlign.center),
                                 const SizedBox(height: 24),
                                 FilledButton(
-                                    onPressed: () => _setup(wake),
+                                    onPressed: PlatformCapabilities
+                                            .current.canScanPairing
+                                        ? () => _setup(wake)
+                                        : null,
                                     child: Text(wake.windows != null
                                         ? '启用远程开机'
-                                        : '开始配置')),
+                                        : PlatformCapabilities
+                                                .current.canScanPairing
+                                            ? '扫码添加电脑'
+                                            : '请在 Windows 电脑上配置')),
                               ]),
                             for (final target in wake.targets)
                               _target(wake, target),
-                            if (wake.targets.isNotEmpty)
+                            if (wake.targets.isNotEmpty &&
+                                PlatformCapabilities.current.canScanPairing)
                               TextButton.icon(
-                                  onPressed: () => _setup(wake),
+                                  onPressed: PlatformCapabilities
+                                          .current.canScanPairing
+                                      ? () => _setup(wake)
+                                      : null,
                                   icon: const Icon(Icons.settings_outlined),
                                   label: const Text('配置远程开机')),
                             if (defaultTargetPlatform == TargetPlatform.android)
@@ -142,7 +154,7 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                         ? null
                                         : (v) async {
                                             if (v) {
-                                              await _setup(wake);
+                                              await wake.enableHelper('家中安卓手机');
                                             } else {
                                               await wake.disableHelper();
                                             }
@@ -164,11 +176,13 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(target.name, style: Theme.of(context).textTheme.titleLarge),
-          Text(target.online
-              ? '电脑应用在线'
-              : target.agentOnline
-                  ? '可发送开机信号'
-                  : '家中助手离线'),
+          Text(!target.setupComplete
+              ? '已配对 · 待完成设置'
+              : target.online
+                  ? '电脑应用在线'
+                  : target.agentOnline
+                      ? '可发送开机信号'
+                      : '家中助手离线'),
         ])),
         IconButton(
             tooltip: '更多',
@@ -180,17 +194,23 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
       if (requests.isNotEmpty && requests.first.phase == WakePhase.unconfirmed)
         _notice('尚未收到电脑应用的上线信号。电脑可能已启动，请确认 RDesk 已运行；也可在“更多”查看记录。'),
       const SizedBox(height: 16),
-      FilledButton.icon(
-          onPressed:
-              wake.busy || target.online || !target.agentOnline || pending
-                  ? null
-                  : () => wake.wake(target),
-          icon: const Icon(Icons.power_settings_new),
-          label: Text(target.online
-              ? '电脑已在线'
-              : pending
-                  ? '正在开机…'
-                  : '开机')),
+      if (!target.setupComplete)
+        FilledButton(
+            onPressed: () =>
+                context.push('/wake/target/${Uri.encodeComponent(target.id)}'),
+            child: const Text('继续配置')),
+      if (target.setupComplete)
+        FilledButton.icon(
+            onPressed:
+                wake.busy || target.online || !target.agentOnline || pending
+                    ? null
+                    : () => wake.wake(target),
+            icon: const Icon(Icons.power_settings_new),
+            label: Text(target.online
+                ? '电脑已在线'
+                : pending
+                    ? '正在开机…'
+                    : '开机')),
     ]);
   }
 

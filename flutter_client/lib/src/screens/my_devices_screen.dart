@@ -50,7 +50,8 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (_foreground && mounted && TickerMode.valuesOf(context).enabled) unawaited(_refresh());
+    if (_foreground && mounted && TickerMode.valuesOf(context).enabled)
+      unawaited(_refresh());
   }
 
   @override
@@ -272,11 +273,13 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
     final target = item.wakeTarget;
     final windows = item.platform.toLowerCase().contains('windows');
     final source = item.endpointScope == null ? ' · 来源未记录' : '';
-    final status = item.online
-        ? '在线'
-        : target != null
-            ? (target.agentOnline ? '助手在线 · 可发送开机信号' : '家中助手离线')
-            : '未确认在线';
+    final status = target != null && !target.setupComplete
+        ? '已配对 · 待完成开机设置'
+        : item.online
+            ? '在线'
+            : target != null
+                ? (target.agentOnline ? '助手在线 · 可发送开机信号' : '家中助手离线')
+                : '未确认在线';
     return Card(
         child: Padding(
             padding: const EdgeInsets.all(18),
@@ -312,7 +315,14 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                         icon: Icon(item.favorite
                             ? Icons.star_rounded
                             : Icons.star_border_rounded)),
-                    if (target != null && !target.online)
+                    if (target != null && !target.setupComplete)
+                      FilledButton.tonal(
+                          onPressed: () => context.push(
+                              '/wake/target/${Uri.encodeComponent(target.id)}'),
+                          child: const Text('继续配置')),
+                    if (target != null &&
+                        target.setupComplete &&
+                        !target.online)
                       FilledButton(
                           onPressed: !target.agentOnline || wake.busy
                               ? null

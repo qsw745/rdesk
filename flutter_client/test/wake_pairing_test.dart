@@ -11,6 +11,9 @@ class TestVault implements WakePairingVault {
   Map<String, dynamic>? data;
   bool failSave = false;
   String? promoted;
+  WakeEnrollment? known;
+  @override
+  Future<WakeEnrollment?> enrollment(String user, Uri endpoint) async => known;
   @override
   Future<Map<String, dynamic>?> read(String user, Uri endpoint) async => data;
   @override
@@ -109,6 +112,50 @@ Future<WakePairingProvider> started(PairApi api, TestVault vault) async {
 }
 
 void main() {
+  test('到期后停止等待，刷新不会延长二维码有效期', () async {
+    var clock = DateTime.now();
+    final api = PairApi();
+    final p =
+        WakePairingProvider(api: api, vault: TestVault(), now: () => clock)
+          ..bindAccount('user', 'server');
+    addTearDown(p.dispose);
+    await p.start(name: 'pc', deviceId: 'pc', mac: '02:11:22:33:44:55');
+    final deadline = p.session!.expiresAtMs;
+    clock = clock.add(const Duration(minutes: 6));
+    await p.poll();
+    expect(p.phase, PairingPhase.expired);
+    expect(p.secondsRemaining, 0);
+    expect(p.session!.expiresAtMs, deadline);
+    expect(api.polls, 0);
+  });
+
+  test('更新或重启后恢复原有本机绑定，避免再生成二维码', () async {
+    final api = PairApi()..tokens = ['existing-token'];
+    final vault = TestVault()
+      ..known = const WakeEnrollment('existing', 'existing-token');
+    final p = WakePairingProvider(api: api, vault: vault)
+      ..bindAccount('user', 'https://relay.test');
+    addTearDown(p.dispose);
+    await p.restore();
+    expect(p.phase, PairingPhase.paired);
+    expect(p.targetId, 'existing');
+    expect(api.claims, 0);
+  });
+
+  test('未知领取结果时重新生成不能覆盖已保存的候选令牌', () async {
+    final api = PairApi()
+      ..state = 'confirmed'
+      ..lostReply = true;
+    final vault = TestVault();
+    final p = await started(api, vault);
+    addTearDown(p.dispose);
+    await p.poll();
+    final token = api.tokens.single;
+    await p.start(name: 'pc', deviceId: 'pc', mac: '02:11:22:33:44:55');
+    expect(vault.promoted, token);
+    expect(api.tokens.every((t) => t == token), isTrue);
+  });
+
   test('领取前安全保存，响应丢失后重试同一令牌且不生成第二个配对', () async {
     final api = PairApi()
       ..state = 'confirmed'

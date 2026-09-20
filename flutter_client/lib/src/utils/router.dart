@@ -5,6 +5,8 @@ import '../screens/file_manager_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/wake_screen.dart';
 import '../screens/windows_wake_screen.dart';
+import '../screens/wake_pairing_scan_screen.dart';
+import '../screens/wake_mobile_setup_screen.dart';
 import '../screens/gesture_guide_screen.dart';
 import '../screens/connection_log_screen.dart';
 import '../screens/my_devices_screen.dart';
@@ -67,11 +69,21 @@ final appRouter = GoRouter(
         path: '/connection-settings',
         redirect: (_, __) => '/settings?section=network'),
     GoRoute(
-        path: '/wake/setup',
+        path: '/wake/scan',
         parentNavigatorKey: rootNavigatorKey,
-        builder: (_, __) => PlatformCapabilities.current.canConfigureLocalWake
-            ? const WindowsWakeScreen()
-            : const WakeSetupScreen()),
+        redirect: (_, __) =>
+            PlatformCapabilities.current.canScanPairing ? null : '/wake',
+        builder: (_, __) => const WakePairingScanScreen()),
+    GoRoute(
+        path: '/wake/target/:id',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (_, state) =>
+            WakeMobileSetupScreen(targetId: state.pathParameters['id']!)),
+    GoRoute(
+        path: '/wake/setup',
+        redirect: (_, __) => PlatformCapabilities.current.canScanPairing
+            ? '/wake/scan'
+            : '/wake'),
     GoRoute(
         path: '/saved',
         parentNavigatorKey: rootNavigatorKey,
