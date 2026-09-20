@@ -1,3 +1,4 @@
+import '../widgets/app_update_widgets.dart';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -360,6 +361,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ];
           final about = <Widget>[
+            const UpdateCard(),
             const ListTile(
                 leading: Icon(Icons.connected_tv),
                 title: Text('RDesk'),

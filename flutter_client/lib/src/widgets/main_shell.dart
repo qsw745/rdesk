@@ -1,3 +1,4 @@
+import 'app_update_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../utils/platform_capabilities.dart';
@@ -13,7 +14,10 @@ class MainShell extends StatelessWidget {
       const indices = [0, 1, 4];
       final index = indices.indexOf(navigationShell.currentIndex);
       return Scaffold(
-          body: navigationShell,
+          body: Column(children: [
+            const UpdateBanner(),
+            Expanded(child: navigationShell)
+          ]),
           bottomNavigationBar: NavigationBar(
               selectedIndex: index < 0 ? 0 : index,
               onDestinationSelected: (i) => _go(indices[i]),
@@ -83,7 +87,11 @@ class MainShell extends StatelessWidget {
             const SizedBox(height: 16),
           ]))),
       const VerticalDivider(width: 1),
-      Expanded(child: navigationShell),
+      Expanded(
+          child: Column(children: [
+        const UpdateBanner(),
+        Expanded(child: navigationShell)
+      ])),
     ]));
   }
 }

@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'src/providers/app_update_provider.dart';
+import 'src/widgets/app_update_widgets.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -44,6 +46,7 @@ class RDeskApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => AppUpdateProvider()),
         ChangeNotifierProvider(
             create: (_) => ConnectionProvider()..initialize()),
         ChangeNotifierProvider(create: (_) => SessionProvider()),
@@ -112,7 +115,8 @@ class RDeskApp extends StatelessWidget {
         builder: (context, settings, _) {
           return GestureDetector(
             onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-            child: MaterialApp.router(
+            child: UpdateLifecycle(
+                child: MaterialApp.router(
               title: 'RDesk 远程桌面',
               debugShowCheckedModeBanner: false,
               theme: AppTheme.lightTheme,
@@ -120,7 +124,7 @@ class RDeskApp extends StatelessWidget {
               themeMode: _getThemeMode(settings.theme),
               routerConfig: appRouter,
               locale: const Locale('zh', 'CN'),
-            ),
+            )),
           );
         },
       ),
