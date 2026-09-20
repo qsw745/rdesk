@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .merge(super::pairing::routes())
         .route("/api/wake/targets", get(targets).post(create_target))
         .route(
             "/api/wake/targets/:id",
@@ -33,10 +34,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/wake/requests/:id/result", post(result))
         .layer(DefaultBodyLimit::max(16 * 1024))
 }
-fn account(state: &AppState, h: &HeaderMap) -> WakeResult<UserRecord> {
+pub(super) fn account(state: &AppState, h: &HeaderMap) -> WakeResult<UserRecord> {
     authenticated_user(state, h).ok_or(WakeError("unauthorized"))
 }
-fn digest(token: &str) -> String {
+pub(super) fn digest(token: &str) -> String {
     format!("{:x}", Sha256::digest(token.as_bytes()))
 }
 fn credential() -> (String, String) {
@@ -44,7 +45,7 @@ fn credential() -> (String, String) {
     let h = digest(&t);
     (t, h)
 }
-fn bearer(h: &HeaderMap) -> WakeResult<&str> {
+pub(super) fn bearer(h: &HeaderMap) -> WakeResult<&str> {
     h.get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(parse_bearer_token)
@@ -75,7 +76,7 @@ fn device_owner(state: &AppState, h: &HeaderMap, id: &str, agent: bool) -> WakeR
         })
         .ok_or(WakeError("unauthorized"))
 }
-fn name(raw: &str) -> WakeResult<String> {
+pub(super) fn name(raw: &str) -> WakeResult<String> {
     let s = raw.trim();
     if s.is_empty() || s.chars().count() > 80 {
         Err(WakeError("invalid_name"))
@@ -124,7 +125,7 @@ async fn targets(State(s): State<AppState>, h: HeaderMap) -> WakeResult<Json<Val
     let u = account(&s, &h)?;
     advance(&s, &u.user_id).await?;
     let u = s.users.get(&u.user_id).ok_or(WakeError("not_found"))?;
-    let items:Vec<_>=u.wake.targets.iter().map(|t|json!({"id":t.id,"name":t.name,"device_id":t.device_id,"mac":t.mac,"agent_id":t.agent_id,"revision":t.revision,"online":fresh(target_seen(&s,&t.id)),"last_seen_ms":target_seen(&s,&t.id),"agent_online":u.wake.agents.iter().any(|a|a.id==t.agent_id&&a.enabled)&&fresh(agent_seen(&s,&t.agent_id))})).collect();
+    let items:Vec<_>=u.wake.targets.iter().map(|t|json!({"id":t.id,"name":t.name,"device_id":t.device_id,"mac":t.mac,"agent_id":t.agent_id,"revision":t.revision,"setup_complete":t.setup_complete,"online":fresh(target_seen(&s,&t.id)),"last_seen_ms":target_seen(&s,&t.id),"agent_online":u.wake.agents.iter().any(|a|a.id==t.agent_id&&a.enabled)&&fresh(agent_seen(&s,&t.agent_id))})).collect();
     Ok(Json(json!({"targets":items,"server_time_ms":now_ms()})))
 }
 async fn agents(State(s): State<AppState>, h: HeaderMap) -> WakeResult<Json<Value>> {
@@ -192,6 +193,7 @@ async fn create_target(
             return Err(WakeError("conflict"));
         }
         d.targets.push(WakeTarget {
+            setup_complete: true,
             id: id.clone(),
             name,
             device_id: b.device_id,
@@ -400,6 +402,9 @@ async fn create_request(
             .iter()
             .find(|t| t.id == b.target_id)
             .ok_or(WakeError("not_found"))?;
+        if !t.setup_complete {
+            return Err(WakeError("setup_incomplete"));
+        }
         if let Some(r) = d
             .requests
             .iter()
@@ -511,7 +516,7 @@ async fn poll(
                 let now=now_ms();let r=d.requests.iter_mut().find(|r|r.agent_id==id&&matches!(r.phase,WakePhase::Queued|WakePhase::Claimed)&&r.authorized_at_ms.is_none()&&r.expires_at_ms>now).ok_or(WakeError("conflict"))?;
                 let t=d.targets.iter().find(|t|t.id==r.target_id&&t.agent_id==id&&t.revision==r.target_revision).ok_or(WakeError("conflict"))?;
                 r.phase=WakePhase::Claimed;r.claimed_at_ms.get_or_insert(now);
-                Ok(json!({"id":r.id,"target_id":r.target_id,"mac":t.mac,"revision":t.revision,"remaining_ms":r.expires_at_ms-now,"server_time_ms":now}))
+                Ok(json!({"id":r.id,"target_id":r.target_id,"mac":t.mac,"revision":t.revision,"setup_complete":t.setup_complete,"remaining_ms":r.expires_at_ms-now,"server_time_ms":now}))
             }).await?;
             return Ok(Json(job).into_response());
         }
@@ -631,6 +636,7 @@ async fn result(
     Ok(Json(serde_json::to_value(r).unwrap()))
 }
 pub async fn cleanup(s: &AppState) {
+    s.wake_runtime.pairings.lock().await.prune(now_ms());
     let now = now_ms();
     let mut agents = std::collections::HashSet::new();
     let mut targets = std::collections::HashSet::new();

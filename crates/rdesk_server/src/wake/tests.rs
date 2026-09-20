@@ -141,7 +141,7 @@ use axum::{
     http::{HeaderMap, Request, StatusCode},
 };
 use tower::ServiceExt;
-async fn api(
+pub(super) async fn api(
     state: &AppState,
     method: &str,
     path: &str,
@@ -168,7 +168,7 @@ async fn api(
         serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
     )
 }
-fn authenticated_fixture() -> (AppState, std::path::PathBuf) {
+pub(super) fn authenticated_fixture() -> (AppState, std::path::PathBuf) {
     let (state, dir) = fixture();
     state.auth_sessions.insert(
         "account".into(),

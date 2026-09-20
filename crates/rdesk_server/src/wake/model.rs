@@ -15,6 +15,7 @@ impl IntoResponse for WakeError {
             "not_found" => (404, "开机配置不存在"),
             "agent_offline" => (409, "家中开机助手离线"),
             "target_online" => (409, "电脑已经在线"),
+            "setup_incomplete" => (409, "请先完成家中助手和 BIOS 设置"),
             "conflict" => (409, "配置已变更或请求状态已变化"),
             "expired" => (410, "开机请求已过期"),
             "rate_limited" => (429, "操作过于频繁，请稍后再试"),
@@ -58,6 +59,8 @@ impl MacAddress {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WakeTarget {
+    #[serde(default = "default_setup_complete")]
+    pub setup_complete: bool,
     pub id: String,
     pub name: String,
     pub device_id: String,
@@ -66,6 +69,9 @@ pub struct WakeTarget {
     pub revision: u64,
     pub token_hash: String,
     pub created_at_ms: u64,
+}
+fn default_setup_complete() -> bool {
+    true
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WakeAgent {
