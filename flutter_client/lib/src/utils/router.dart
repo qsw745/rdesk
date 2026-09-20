@@ -4,6 +4,7 @@ import '../screens/remote_desktop_screen.dart';
 import '../screens/file_manager_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/wake_screen.dart';
+import '../screens/windows_wake_screen.dart';
 import '../screens/gesture_guide_screen.dart';
 import '../screens/connection_log_screen.dart';
 import '../screens/my_devices_screen.dart';
@@ -41,7 +42,12 @@ final appRouter = GoRouter(
               path: '/assist', builder: (_, __) => const RemoteAssistScreen())
         ]),
         StatefulShellBranch(routes: [
-          GoRoute(path: '/wake', builder: (_, __) => const WakeScreen())
+          GoRoute(
+              path: '/wake',
+              builder: (_, __) =>
+                  PlatformCapabilities.current.canConfigureLocalWake
+                      ? const WindowsWakeScreen()
+                      : const WakeScreen())
         ]),
         StatefulShellBranch(routes: [
           GoRoute(
@@ -63,7 +69,9 @@ final appRouter = GoRouter(
     GoRoute(
         path: '/wake/setup',
         parentNavigatorKey: rootNavigatorKey,
-        builder: (_, __) => const WakeSetupScreen()),
+        builder: (_, __) => PlatformCapabilities.current.canConfigureLocalWake
+            ? const WindowsWakeScreen()
+            : const WakeSetupScreen()),
     GoRoute(
         path: '/saved',
         parentNavigatorKey: rootNavigatorKey,

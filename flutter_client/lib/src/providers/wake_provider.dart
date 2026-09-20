@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wake.dart';
+import 'wake_pairing_provider.dart';
 import '../services/wake_api.dart';
 import '../services/wake_agent_channel.dart';
 import '../services/windows_wake_service.dart';
@@ -12,7 +13,9 @@ class WakeProvider extends ChangeNotifier {
   final WakeApi api;
   final WakeAgentChannel agent;
   final WindowsWakeService? windows;
-  WakeProvider({required this.api, required this.agent, this.windows});
+  final WakePairingProvider? pairing;
+  WakeProvider(
+      {required this.api, required this.agent, this.windows, this.pairing});
   String? _userId, _server;
   int _generation = 0;
   bool _disposed = false, _visible = false, _refreshing = false;
@@ -43,6 +46,7 @@ class WakeProvider extends ChangeNotifier {
   Future<void> bindAccount(String? userId, String server) async {
     if (_userId == userId && _server == server) return;
     final previous = _server != null;
+    pairing?.bindAccount(userId, server);
     _userId = userId;
     _server = server;
     final gen = ++_generation;
@@ -82,6 +86,7 @@ class WakeProvider extends ChangeNotifier {
 
   /// Called before account credentials are removed. Generation changes immediately.
   Future<void> stopForAccountExit() async {
+    final cancellation = pairing?.cancelForExit();
     ++_generation;
     _userId = null;
     _timer?.cancel();
@@ -93,6 +98,7 @@ class WakeProvider extends ChangeNotifier {
     await windows?.stop();
     await agent.stop();
     await _native(agent.stop);
+    await cancellation;
   }
 
   void setVisible(bool visible) {
@@ -246,7 +252,8 @@ class WakeProvider extends ChangeNotifier {
         }
       });
   Future<bool> wake(WakeTarget target) => _mutate((scoped, gen) async {
-        if (target.online ||
+        if (!target.setupComplete ||
+            target.online ||
             !target.agentOnline ||
             (history[target.id]?.any((r) => r.active) ?? false)) {
           return;
@@ -293,6 +300,7 @@ class WakeProvider extends ChangeNotifier {
     ++_generation;
     _timer?.cancel();
     unawaited(windows?.dispose() ?? Future.value());
+    pairing?.dispose();
     api.close();
     super.dispose();
   }

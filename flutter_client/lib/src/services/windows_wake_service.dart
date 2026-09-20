@@ -90,6 +90,18 @@ try { $prop=$nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction St
   }
 
   /// Current-user startup only: no administrator task, service or login bypass.
+  Future<bool> loginStartupEnabled() async {
+    final result = await _run('powershell.exe', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      r"$v=Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RDesk' -ErrorAction SilentlyContinue; if ($v) { 'true' } else { 'false' }"
+    ]);
+    if (result.exitCode != 0)
+      throw const WakeApiException('startup', '无法读取登录启动设置');
+    return result.stdout.toString().trim() == 'true';
+  }
+
   Future<void> setLoginStartup(bool enabled) async {
     final path = Platform.resolvedExecutable.replaceAll("'", "''");
     final script = enabled

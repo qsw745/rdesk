@@ -13,7 +13,7 @@ enum WakePhase {
 
 class WakeTarget {
   final String id, name, deviceId, mac, agentId;
-  final bool online, agentOnline;
+  final bool online, agentOnline, setupComplete;
   final int revision;
   final int? lastSeenMs;
   const WakeTarget(
@@ -25,9 +25,11 @@ class WakeTarget {
       required this.online,
       required this.agentOnline,
       required this.revision,
-      this.lastSeenMs});
+      this.lastSeenMs,
+      this.setupComplete = true});
   factory WakeTarget.fromJson(Map<String, dynamic> j) => WakeTarget(
       id: _id(j),
+      setupComplete: j['setup_complete'] != false,
       name: j['name'] as String,
       deviceId: j['device_id'] as String,
       mac: j['mac'] as String,
