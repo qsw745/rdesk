@@ -24,3 +24,14 @@
 公网服务部署与临时账号协议闭环见 [部署记录](remote-wake-deployment-2026-09-20.md)。协议、界面、虚拟机启动通过不能替代真实主板、网卡和安卓后台策略的睡眠、关机、外网、隔夜与 24/48 小时验收。
 
 本次只更新 Windows、Android 安装包。macOS 保留 2.1.1，iOS 保留原 App Store 2.1.0；没有上传新 iOS 构建或提交审核。Windows 尚未配置发布者签名，仍不支持桌面被控。
+
+## 公开发布验收
+
+- 功能提交：`48c9de51d2caf6a11b81f4ae5242b3223c8d4f0c`；官网提交：`27bdeb2e8047679227e2e1ba5d1cf0d12d2f9eba`。
+- 发行页：https://github.com/qsw745/rdesk/releases/tag/v2.1.2 ，Windows 安装包、便携 ZIP、Android APK 均公开可下载。
+- Pages 发布任务 `35500748732` 成功，只上传本地 `deploy/site` 成品；仓库已删除 Windows 托管构建 workflow。
+- 三个新发行文件完整回读，大小与 SHA-256 均与本地一致：
+  - Windows 安装包：`9d733eac92b193eee06879fff8398ce1c62a1c7f259dbf62a8236b4b0c3c92a0`，12123367 字节。
+  - Windows ZIP：`090f66ab496d72939d86d368e8c188a43c3698fea15e2414273e6c6fd874fee8`，14039892 字节。
+  - Android APK：`c8adffa5c3349aebbd5df77ea0394e961e3455df6420b0cfc57f97f8987a7557`，56526899 字节。
+- 官网首页、下载页、支持页、隐私页、releases.json 均返回 200，内容与本地成品逐字节一致。实际浏览器刷新后，Windows/Android 显示 2.1.2、服务显示已部署；Mac/iOS 仍明确标注各自旧版本。
