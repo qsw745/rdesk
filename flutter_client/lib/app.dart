@@ -49,7 +49,11 @@ class RDeskApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SessionProvider()),
         ChangeNotifierProvider(
             create: (_) => SettingsProvider()..loadSettings()),
-        ChangeNotifierProvider(create: (_) => AuthProvider()..initialize()),
+        ChangeNotifierProxyProvider<SettingsProvider, AuthProvider>(
+          create: (_) => AuthProvider()..initialize(),
+          update: (_, settings, auth) =>
+              auth!..bindServer(settings.signalingServer),
+        ),
         ChangeNotifierProxyProvider2<AuthProvider, SettingsProvider,
             WakeProvider>(
           lazy: false,
@@ -78,8 +82,9 @@ class RDeskApp extends StatelessWidget {
           },
           update: (_, auth, settings, wake) {
             if (auth.initialized) {
-              unawaited(wake!
-                  .bindAccount(auth.session?.userId, settings.signalingServer));
+              unawaited(wake!.bindAccount(
+                  auth.session?.userId, settings.signalingServer,
+                  token: auth.session?.token));
             }
             return wake!;
           },

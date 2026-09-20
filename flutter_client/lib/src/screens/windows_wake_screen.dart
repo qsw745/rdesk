@@ -295,8 +295,8 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
           Text(_error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error)),
       ]);
-  Future<void> _rePair(
-      WakeProvider wake, WakePairingProvider pairing, WakeTarget target) async {
+  Future<void> _rePair(WakeProvider wake, WakePairingProvider pairing,
+      WakeTarget? target) async {
     final gen = wake.identityGeneration;
     final confirmed = await showDialog<bool>(
         context: context,
@@ -313,33 +313,58 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
                 ]));
     if (!mounted || confirmed != true || gen != wake.identityGeneration) return;
     final user = wake.userId;
-    if (user == null ||
-        !await wake.remove(target) ||
-        gen != wake.identityGeneration) return;
+    if (user == null) return;
+    // Re-read the server before discarding local credentials. A missing item in
+    // a stale UI list or a network failure is not evidence of deletion.
+    try {
+      final targets = await wake.api.targets();
+      if (!mounted || gen != wake.identityGeneration) return;
+      final existing = targets
+          .where((t) =>
+              t.id == (target?.id ?? pairing.bindingId ?? pairing.targetId))
+          .firstOrNull;
+      if (existing != null && !await wake.remove(existing)) return;
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('无法核实旧配置，请联网后重试')));
+      return;
+    }
+    if (gen != wake.identityGeneration) return;
     await wake.windows?.forget(user);
     if (gen != wake.identityGeneration) return;
     await pairing.resetRemovedBinding();
   }
 
   Widget _pairCard(WakePairingProvider p, WakeProvider wake) {
-    if (p.phase == PairingPhase.paired || p.targetId != null) {
+    if (p.phase == PairingPhase.paired || p.bindingId != null) {
       final target = wake.targets.where((t) => t.id == p.targetId).firstOrNull;
-      return _card('2. 已与手机配对', [
-        const Icon(Icons.check_circle_outline,
-            size: 64, color: Color(0xff267647)),
+      return _card(p.phase == PairingPhase.paired ? '2. 已与手机配对' : '2. 需要恢复配对', [
+        Icon(
+            p.phase == PairingPhase.paired
+                ? Icons.check_circle_outline
+                : Icons.sync_problem,
+            size: 64,
+            color: const Color(0xff526074)),
         const SizedBox(height: 16),
-        Text(target?.setupComplete == true
-            ? '配置已保存，可以在手机上测试开机。'
-            : '请在手机上继续选择家中助手、核对 BIOS 并测试。'),
+        Text(p.phase != PairingPhase.paired
+            ? '旧配对暂时无法验证。可以重试，或移除旧配置后重新配对。'
+            : target?.setupComplete == true
+                ? '配置已保存，可以在手机上测试开机。'
+                : '请在手机上继续选择家中助手、核对 BIOS 并测试。'),
         const SizedBox(height: 16),
-        OutlinedButton(onPressed: wake.refresh, child: const Text('刷新配置状态')),
+        OutlinedButton(
+            onPressed: () async {
+              await p.retryRestore();
+              await wake.refresh();
+            },
+            child: const Text('刷新配置状态')),
         if (p.error != null)
           Text(p.error!,
               style: TextStyle(color: Theme.of(context).colorScheme.error)),
-        if (target != null)
-          TextButton(
-              onPressed: wake.busy ? null : () => _rePair(wake, p, target),
-              child: const Text('移除旧配置并重新配对'))
+        TextButton(
+            onPressed: wake.busy ? null : () => _rePair(wake, p, target),
+            child: const Text('移除旧配置并重新配对'))
       ]);
     }
     final waiting = p.session != null &&

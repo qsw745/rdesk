@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/account.dart';
 import '../services/rdesk_bridge_service.dart';
+import '../utils/device_directory.dart';
 
 class AuthProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
@@ -25,6 +26,20 @@ class AuthProvider extends ChangeNotifier {
   Future<void> Function()? beforeAccountExit;
   bool _initialized = false;
   bool get initialized => _initialized;
+
+  int _identityGeneration = 0;
+  String? _server, _devicesEndpoint;
+  String? get devicesEndpoint => _devicesEndpoint;
+  void bindServer(String server) {
+    final scope = normalizedEndpointScope(server);
+    if (scope == _server) return;
+    _server = scope;
+    ++_identityGeneration;
+    _devices = const [];
+    _devicesEndpoint = null;
+    _busy = false;
+    // Called by ProxyProvider while building; its dependents read cleared data.
+  }
 
   AccountSession? _session;
   List<AccountDevice> _devices = const [];
@@ -100,8 +115,10 @@ class AuthProvider extends ChangeNotifier {
   Future<void> logout() async {
     await beforeAccountExit?.call();
     final existingSession = _session;
+    ++_identityGeneration;
     _session = null;
     _devices = const [];
+    _devicesEndpoint = null;
     _error = null;
     _refreshTimer?.cancel();
     _refreshTimer = null;
@@ -145,8 +162,10 @@ class AuthProvider extends ChangeNotifier {
       // Server deletion is already committed; never keep a deleted account locally.
       _error = '账号已删除，本机助手停止状态请在通知栏核对';
     }
+    ++_identityGeneration;
     _session = null;
     _devices = const [];
+    _devicesEndpoint = null;
     _refreshTimer?.cancel();
     _refreshTimer = null;
     await _bridge.clearSavedAccountSession();
@@ -163,6 +182,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> refreshDevices({bool notifyOnStart = true}) async {
+    final gen = _identityGeneration;
     if (_session == null) {
       _devices = const [];
       if (notifyOnStart) {
@@ -178,15 +198,17 @@ class AuthProvider extends ChangeNotifier {
     }
 
     try {
-      _devices = await _loadRemoteDevicesOnly();
+      await _loadRemoteDevicesOnly();
     } catch (e) {
+      if (gen != _identityGeneration) return;
       final msg = e.toString().replaceFirst('Exception: ', '');
       // Auto-re-login when token expires (e.g. server restart)
       if (msg.contains('登录状态已失效')) {
         final relogged = await _tryAutoRelogin();
+        if (gen != _identityGeneration) return;
         if (relogged) {
           try {
-            _devices = await _loadRemoteDevicesOnly();
+            await _loadRemoteDevicesOnly();
             _error = null;
           } catch (_) {
             _error = msg;
@@ -199,8 +221,10 @@ class AuthProvider extends ChangeNotifier {
         _error = msg;
       }
     } finally {
-      _busy = false;
-      notifyListeners();
+      if (gen == _identityGeneration) {
+        _busy = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -212,7 +236,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       _session = await action();
       await _bridge.saveAccountSession(_session!);
-      _devices = await _loadRemoteDevicesOnly();
+      await _loadRemoteDevicesOnly();
       if (_biometricEnabled) {
         await _storeBiometricSession(_session!);
       }
@@ -227,14 +251,22 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<List<AccountDevice>> _loadRemoteDevicesOnly() async {
-    final devices = await _bridge.listAccountDevices();
+  Future<void> _loadRemoteDevicesOnly() async {
+    final gen = _identityGeneration;
+    final session = _session;
+    final endpoint = await _bridge.getApiBaseUri();
+    if (session == null || gen != _identityGeneration) return;
+    final devices =
+        await _bridge.listAccountDevices(session: session, endpoint: endpoint);
     final localDevice = await _bridge.getLocalDeviceInfo();
-    final localId = localDevice.deviceId.trim();
-    if (localId.isEmpty) {
-      return devices;
-    }
-    return devices.where((item) => item.deviceId.trim() != localId).toList();
+    if (gen != _identityGeneration ||
+        _session?.token != session.token ||
+        normalizedEndpointScope((await _bridge.getApiBaseUri()).toString()) !=
+            normalizedEndpointScope(endpoint.toString())) return;
+    _devices = devices
+        .where((item) => item.deviceId.trim() != localDevice.deviceId.trim())
+        .toList();
+    _devicesEndpoint = normalizedEndpointScope(endpoint.toString());
   }
 
   Future<bool> setBiometricEnabled(bool enabled) async {
@@ -311,7 +343,7 @@ class AuthProvider extends ChangeNotifier {
 
       _session = secureSession;
       await _bridge.saveAccountSession(secureSession);
-      _devices = await _loadRemoteDevicesOnly();
+      await _loadRemoteDevicesOnly();
       _ensureAutoRefresh();
       return true;
     } catch (e) {
@@ -439,6 +471,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> _tryAutoRelogin() async {
+    final gen = _identityGeneration;
     try {
       final raw = await _secureStorage.read(key: _credentialsKey);
       if (raw == null || raw.isEmpty) return false;
@@ -446,11 +479,14 @@ class AuthProvider extends ChangeNotifier {
       final username = cred['u'] as String?;
       final password = cred['p'] as String?;
       if (username == null || password == null) return false;
-      _session = await _bridge.loginAccount(
+      if (gen != _identityGeneration) return false;
+      final recovered = await _bridge.loginAccount(
         username: username,
         password: password,
       );
-      await _bridge.saveAccountSession(_session!);
+      if (gen != _identityGeneration) return false;
+      _session = recovered;
+      await _bridge.saveAccountSession(recovered);
       return true;
     } catch (_) {
       return false;
@@ -459,8 +495,10 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _clearInvalidSession() async {
     await beforeAccountExit?.call();
+    ++_identityGeneration;
     _session = null;
     _devices = const [];
+    _devicesEndpoint = null;
     _refreshTimer?.cancel();
     _refreshTimer = null;
     await _bridge.clearSavedAccountSession();

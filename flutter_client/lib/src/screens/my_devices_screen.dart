@@ -169,7 +169,10 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
     final scope = context.watch<SettingsProvider>().signalingServer;
     final rows = mergeDeviceDirectory(
             endpointScope: scope,
-            accountDevices: auth.devices,
+            accountDevices: normalizedEndpointScope(auth.devicesEndpoint) ==
+                    normalizedEndpointScope(scope)
+                ? auth.devices
+                : const [],
             history: connection.recentConnections,
             saved: book.allEntries,
             wakeTargets: wake.targets)

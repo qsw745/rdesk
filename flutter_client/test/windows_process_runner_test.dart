@@ -6,6 +6,42 @@ import 'package:rdesk/src/services/windows_process_runner.dart';
 import 'package:rdesk/src/services/wake_api.dart';
 
 void main() {
+  test('超时等待整个进程树清理完成后才返回', () async {
+    final dir = await Directory.systemTemp.createTemp('rdesk-tree-');
+    final marker = File('${dir.path}/pid');
+    Process? parent;
+    int? childPid;
+    bool treeCleaned = false;
+    final runner = WindowsProcessRunner(start: (exe, args) async {
+      parent = await Process.start(exe, args);
+      return parent!;
+    }, terminateTree: (process) async {
+      childPid = int.parse(await marker.readAsString());
+      Process.killPid(childPid!, ProcessSignal.sigkill);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      process.kill(ProcessSignal.sigkill);
+      await process.exitCode;
+      treeCleaned = true;
+    });
+    addTearDown(() async {
+      if (marker.existsSync())
+        Process.killPid(
+            int.parse(marker.readAsStringSync()), ProcessSignal.sigkill);
+      parent?.kill(ProcessSignal.sigkill);
+      await runner.dispose();
+      await dir.delete(recursive: true);
+    });
+    await expectLater(
+        runner.run(
+            '/usr/bin/python3',
+            [
+              '-c',
+              "import subprocess,time; p=subprocess.Popen(['/usr/bin/python3','-c','import time; time.sleep(60)']); open(r'${marker.path}','w').write(str(p.pid)); time.sleep(60)"
+            ],
+            timeout: const Duration(seconds: 1)),
+        throwsA(isA<WakeApiException>()));
+    expect(treeCleaned, isTrue);
+  });
   test('PowerShell 使用编码参数并保留中文及去除 BOM', () async {
     final runner = WindowsProcessRunner(start: (exe, args) {
       expect(exe, 'powershell.exe');

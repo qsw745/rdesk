@@ -42,24 +42,36 @@ class PairApi extends WakeApi {
             accountToken: () async => 'account');
   String state = 'pending';
   int polls = 0, claims = 0, cancels = 0;
-  bool lostReply = false, gone = false;
+  bool lostReply = false,
+      gone = false,
+      noTargets = false,
+      badHeartbeat = false,
+      listFails = false;
+  int creates = 0, scopes = 0;
   List<String> tokens = [];
   Completer<Map<String, dynamic>>? barrier;
   @override
-  Future<WakeApi> scoped() async => this;
+  Future<WakeApi> scoped() async {
+    scopes++;
+    return this;
+  }
+
   @override
   void close() {}
   @override
   Future<WakePairingSession> createPairing(
-          {required String name,
-          required String deviceId,
-          required String mac}) async =>
-      WakePairingSession(
-          id: 'a' * 32,
-          qrProof: 'b' * 64,
-          desktopProof: 'c' * 64,
-          manualCode: 'ABCDABCDABCDABCD',
-          expiresAtMs: DateTime.now().millisecondsSinceEpoch + 300000);
+      {required String name,
+      required String deviceId,
+      required String mac}) async {
+    creates++;
+    return WakePairingSession(
+        id: 'a' * 32,
+        qrProof: 'b' * 64,
+        desktopProof: 'c' * 64,
+        manualCode: 'ABCDABCDABCDABCD',
+        expiresAtMs: DateTime.now().millisecondsSinceEpoch + 300000);
+  }
+
   @override
   Future<Map<String, dynamic>> pairingStatus(WakePairingSession s) async {
     polls++;
@@ -86,20 +98,28 @@ class PairApi extends WakeApi {
   @override
   Future<void> cancelPairing(WakePairingSession s) async {}
   @override
-  Future<List<WakeTarget>> targets() async => [
-        const WakeTarget(
-            id: 'target',
-            name: 'pc',
-            deviceId: 'pc',
-            mac: '02:11:22:33:44:55',
-            agentId: '',
-            online: false,
-            agentOnline: false,
-            revision: 1,
-            setupComplete: false)
-      ];
+  Future<List<WakeTarget>> targets() async {
+    if (listFails) throw const WakeApiException('network', '断网');
+    return noTargets
+        ? []
+        : [
+            const WakeTarget(
+                id: 'target',
+                name: 'pc',
+                deviceId: 'pc',
+                mac: '02:11:22:33:44:55',
+                agentId: '',
+                online: false,
+                agentOnline: false,
+                revision: 1,
+                setupComplete: false)
+          ];
+  }
+
   @override
   Future<void> targetHeartbeat(String id, String token) async {
+    if (badHeartbeat)
+      throw const WakeApiException('unauthorized', '凭据已失效', 401);
     expect(token, tokens.first);
   }
 }
@@ -112,6 +132,61 @@ Future<WakePairingProvider> started(PairApi api, TestVault vault) async {
 }
 
 void main() {
+  test('未领取的候选过期并确认目标不存在后允许新配对', () async {
+    final api = PairApi()
+      ..state = 'confirmed'
+      ..lostReply = true
+      ..noTargets = true;
+    final vault = TestVault();
+    final p = await started(api, vault);
+    addTearDown(p.dispose);
+    await p.poll();
+    api.gone = true;
+    await p.poll();
+    expect(p.phase, PairingPhase.expired);
+    await p.start(name: 'pc', deviceId: 'pc', mac: '02:11:22:33:44:55');
+    expect(api.creates, 2);
+    expect(vault.data?['candidate_token'], isNull);
+  });
+  test('目标查询断网不能丢弃未确定的候选', () async {
+    final api = PairApi()
+      ..state = 'confirmed'
+      ..lostReply = true;
+    final vault = TestVault();
+    final p = await started(api, vault);
+    addTearDown(p.dispose);
+    await p.poll();
+    final token = vault.data!['candidate_token'];
+    api.gone = true;
+    api.listFails = true;
+    await p.start(name: 'pc', deviceId: 'pc', mac: '02:11:22:33:44:55');
+    expect(api.creates, 1);
+    expect(vault.data!['candidate_token'], token);
+  });
+  test('旧凭据失效不显示配对成功', () async {
+    final api = PairApi()
+      ..badHeartbeat = true
+      ..noTargets = true;
+    final vault = TestVault()..known = const WakeEnrollment('deleted', 'old');
+    final p = WakePairingProvider(api: api, vault: vault)
+      ..bindAccount('user', 'server');
+    addTearDown(p.dispose);
+    await p.restore();
+    expect(p.phase, PairingPhase.failed);
+    expect(p.targetId, isNull);
+  });
+  test('同账号令牌更新会重新建立请求作用域并恢复配对', () async {
+    final api = PairApi();
+    final vault = TestVault();
+    final p = WakePairingProvider(api: api, vault: vault)
+      ..bindAccount('user', 'server', token: 'one');
+    addTearDown(p.dispose);
+    await p.start(name: 'pc', deviceId: 'pc', mac: '02:11:22:33:44:55');
+    p.bindAccount('user', 'server', token: 'two');
+    await p.restore();
+    expect(api.scopes, 2);
+    expect(p.phase, PairingPhase.waiting);
+  });
   test('到期后停止等待，刷新不会延长二维码有效期', () async {
     var clock = DateTime.now();
     final api = PairApi();

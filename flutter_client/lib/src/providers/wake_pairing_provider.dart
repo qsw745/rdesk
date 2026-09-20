@@ -29,8 +29,8 @@ class WakePairingProvider extends ChangeNotifier {
       : now = now ?? DateTime.now;
   PairingPhase phase = PairingPhase.idle;
   WakePairingSession? session;
-  String? error, targetId;
-  String? _user, _server, _candidate, _deviceId;
+  String? error, targetId, bindingId;
+  String? _user, _server, _candidate, _deviceId, _authToken;
   Uri? _endpoint;
   WakeApi? _scoped;
   Timer? _timer;
@@ -48,8 +48,9 @@ class WakePairingProvider extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  void bindAccount(String? user, String server) {
-    if (user == _user && server == _server) return;
+  void bindAccount(String? user, String server, {String? token}) {
+    if (user == _user && server == _server && token == _authToken) return;
+    _authToken = token;
     ++_generation;
     _timer?.cancel();
     _scoped?.close();
@@ -61,6 +62,7 @@ class WakePairingProvider extends ChangeNotifier {
     _deviceId = null;
     session = null;
     targetId = null;
+    bindingId = null;
     error = null;
     phase = PairingPhase.idle;
     _busy = false;
@@ -126,9 +128,11 @@ class WakePairingProvider extends ChangeNotifier {
         final known = await vault.enrollment(_user!, _endpoint!);
         if (!_current(gen)) return;
         if (known != null) {
-          targetId = known.id;
+          targetId = null;
+          bindingId = known.id;
           await _scoped!.targetHeartbeat(known.id, known.token);
           if (!_current(gen)) return;
+          targetId = known.id;
           phase = PairingPhase.paired;
           await onPaired?.call(_user!);
         }
@@ -151,7 +155,7 @@ class WakePairingProvider extends ChangeNotifier {
       {required String name,
       required String deviceId,
       required String mac}) async {
-    if (_busy || _user == null) return;
+    if (_busy || _user == null || bindingId != null) return;
     if (_candidate != null) {
       await poll();
       return;
@@ -173,6 +177,7 @@ class WakePairingProvider extends ChangeNotifier {
       _deviceId = deviceId;
       _candidate = null;
       targetId = null;
+      bindingId = null;
       await _persist();
       if (!_current(gen)) return;
       _restored = true;
@@ -209,7 +214,7 @@ class WakePairingProvider extends ChangeNotifier {
     final user = _user!;
     final endpoint = _endpoint!;
     try {
-      if (secondsRemaining == 0) {
+      if (secondsRemaining == 0 && _candidate == null) {
         if (!await _recover(gen, scoped, user, endpoint)) {
           if (_current(gen)) {
             phase = PairingPhase.expired;
@@ -241,7 +246,7 @@ class WakePairingProvider extends ChangeNotifier {
       }
     } on WakeApiException catch (e) {
       if (!_current(gen)) return;
-      if (e.statusCode == 404 || e.statusCode == 410) {
+      if (e.statusCode == 404 || e.statusCode == 410 || e.statusCode == 409) {
         try {
           if (!await _recover(gen, scoped, user, endpoint) && _current(gen)) {
             phase = PairingPhase.expired;
@@ -282,7 +287,17 @@ class WakePairingProvider extends ChangeNotifier {
       await _finish(gen, user, endpoint, target.id);
       return true;
     }
+    // A successful authenticated list after the server invalidated the session
+    // proves there is no target to recover. A failed list must retain the token.
+    await vault.clear(user, endpoint);
+    if (!_current(gen)) return false;
+    _candidate = null;
     return false;
+  }
+
+  Future<void> retryRestore() async {
+    _restored = false;
+    await restore();
   }
 
   Future<void> _finish(int gen, String user, Uri endpoint, String id) async {
@@ -291,6 +306,7 @@ class WakePairingProvider extends ChangeNotifier {
     await vault.clear(user, endpoint);
     if (!_current(gen)) return;
     targetId = id;
+    bindingId = id;
     phase = PairingPhase.paired;
     error = null;
     _timer?.cancel();
@@ -306,6 +322,7 @@ class WakePairingProvider extends ChangeNotifier {
     if (!_current(gen)) return;
     session = null;
     targetId = null;
+    bindingId = null;
     _candidate = null;
     _deviceId = null;
     error = null;
@@ -323,6 +340,7 @@ class WakePairingProvider extends ChangeNotifier {
     _busy = false;
     session = null;
     targetId = null;
+    bindingId = null;
     phase = PairingPhase.idle;
     _candidate = null;
     try {

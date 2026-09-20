@@ -7,9 +7,14 @@ import 'wake_api.dart';
 class WindowsProcessRunner {
   final Future<Process> Function(String, List<String>) _start;
   final Map<Process, Completer<ProcessResult>> _active = {};
+  final Future<void> Function(Process)? _terminateTree;
+  final Map<Process, Future<void>> _terminating = {};
   bool _disposed = false;
-  WindowsProcessRunner({Future<Process> Function(String, List<String>)? start})
-      : _start = start ?? ((exe, args) => Process.start(exe, args));
+  WindowsProcessRunner(
+      {Future<Process> Function(String, List<String>)? start,
+      Future<void> Function(Process)? terminateTree})
+      : _start = start ?? ((exe, args) => Process.start(exe, args)),
+        _terminateTree = terminateTree;
 
   Future<ProcessResult> run(String executable, List<String> arguments,
       {Duration timeout = const Duration(seconds: 15)}) async {
@@ -47,7 +52,7 @@ class WindowsProcessRunner {
       if (!interrupted.isCompleted) {
         interrupted.completeError(WakeApiException(code, message));
       }
-      process.kill(ProcessSignal.sigkill);
+      unawaited(_stop(process));
     }
 
     final done = () async {
@@ -78,13 +83,22 @@ class WindowsProcessRunner {
       return await Future.any([done, interrupted.future]);
     } finally {
       timer.cancel();
-      _active.remove(process);
-      // The caller never observes cancellation before the OS process has exited.
+      // Retain ownership until tree termination finishes, including failure paths.
+      await _terminating[process];
       await process.exitCode;
+      _active.remove(process);
+      _terminating.remove(process);
     }
   }
 
+  Future<void> _stop(Process process) =>
+      _terminating.putIfAbsent(process, () => _terminate(process));
+
   Future<void> _terminate(Process process) async {
+    if (_terminateTree != null) {
+      await _terminateTree(process);
+      return;
+    }
     if (Platform.isWindows) {
       // powercfg is a short-lived child of the inspection script; terminate the
       // whole tree so a stalled child cannot retain inherited output pipes.
@@ -112,8 +126,11 @@ class WindowsProcessRunner {
         entry.value.completeError(
             const WakeApiException('process_cancelled', '检测已取消'));
       }
-      unawaited(_terminate(entry.key));
+      unawaited(_stop(entry.key));
     }
-    await Future.wait(active.keys.map((p) => p.exitCode));
+    await Future.wait(active.keys.map((p) async {
+      await _terminating[p];
+      await p.exitCode;
+    }));
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,6 +11,69 @@ import 'package:rdesk/src/services/rdesk_bridge_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('切换服务器立即清空旧设备，失败及旧响应不会恢复旧来源', () async {
+    const channel =
+        MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async => null);
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    final a = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final b = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() async {
+      await a.close(force: true);
+      await b.close(force: true);
+    });
+    Completer<void>? barrier;
+    final pending = Completer<void>();
+    a.listen((r) async {
+      if (r.uri.path == '/api/account/devices' && barrier != null) {
+        pending.complete();
+        await barrier!.future;
+      }
+      r.response.headers.contentType = ContentType.json;
+      r.response.write(jsonEncode({
+        'devices': [
+          {'device_id': 'remote-a', 'hostname': 'A 电脑', 'platform': 'windows'}
+        ]
+      }));
+      await r.response.close();
+    });
+    b.listen((r) async {
+      r.response.statusCode = 503;
+      r.response.write('{"message":"暂时不可用"}');
+      await r.response.close();
+    });
+    final endpointA = 'http://127.0.0.1:${a.port}',
+        endpointB = 'http://127.0.0.1:${b.port}';
+    SharedPreferences.setMockInitialValues({
+      'rdesk.account_token': 'session',
+      'rdesk.account_user_id': 'user',
+      'rdesk.account_username': 'owner',
+      'rdesk.account_display_name': 'owner',
+      'rdesk.signaling_server': endpointA
+    });
+    final auth = AuthProvider()..bindServer(endpointA);
+    addTearDown(auth.dispose);
+    await HttpOverrides.runWithHttpOverrides(() async {
+      await auth.initialize();
+      expect(auth.devices.single.deviceId, 'remote-a');
+      barrier = Completer<void>();
+      final oldRequest = auth.refreshDevices();
+      await pending.future;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('rdesk.signaling_server', endpointB);
+      auth.bindServer(endpointB);
+      expect(auth.devices, isEmpty);
+      await auth.refreshDevices();
+      expect(auth.devices, isEmpty);
+      barrier!.complete();
+      await oldRequest;
+      expect(auth.devices, isEmpty);
+    }, _LocalHttpOverrides());
+  });
 
   test('续登失败后清除已失效会话并回到未登录状态', () async {
     const secureStorageChannel =

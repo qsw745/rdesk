@@ -44,10 +44,11 @@ class WakeProvider extends ChangeNotifier {
   String _key(Uri uri, String user) =>
       'rdesk.wake.helper.${sha256.convert(utf8.encode('$uri|$user'))}';
 
-  Future<void> bindAccount(String? userId, String server) async {
+  Future<void> bindAccount(String? userId, String server,
+      {String? token}) async {
+    pairing?.bindAccount(userId, server, token: token);
     if (_userId == userId && _server == server) return;
     final previous = _server != null;
-    pairing?.bindAccount(userId, server);
     _userId = userId;
     _server = server;
     final gen = ++_generation;

@@ -1114,14 +1114,17 @@ class RdeskBridgeService {
     );
   }
 
-  Future<List<AccountDevice>> listAccountDevices() async {
-    final session = await getSavedAccountSession();
+  Future<List<AccountDevice>> listAccountDevices(
+      {AccountSession? session, Uri? endpoint}) async {
+    session ??= await getSavedAccountSession();
+    endpoint ??= await getApiBaseUri();
     if (session == null) {
       return const [];
     }
-    await _upsertAccountPresence(session);
+    await _upsertAccountPresence(session, endpoint: endpoint);
     final payload = await _getJson(
       path: '/api/account/devices',
+      endpoint: endpoint,
       bearerToken: session.token,
     );
     final rawDevices = payload['devices'] as List<dynamic>? ?? const [];
@@ -1143,11 +1146,13 @@ class RdeskBridgeService {
         .toList();
   }
 
-  Future<void> _upsertAccountPresence(AccountSession session) async {
+  Future<void> _upsertAccountPresence(AccountSession session,
+      {Uri? endpoint}) async {
     final local = await getLocalDeviceInfo();
     try {
       await _postJson(
         path: '/api/account/presence',
+        endpoint: endpoint,
         bearerToken: session.token,
         body: <String, Object?>{
           'device_id': local.deviceId.trim(),
@@ -1798,7 +1803,8 @@ class RdeskBridgeService {
         .map(
           (record) => <String, dynamic>{
             'peerId': record.peerId,
-            if (record.endpointScope != null) 'endpointScope': record.endpointScope,
+            if (record.endpointScope != null)
+              'endpointScope': record.endpointScope,
             'peerHostname': record.peerHostname,
             'peerOs': record.peerOs,
             'connectedAt': record.connectedAt.toIso8601String(),
@@ -2249,9 +2255,9 @@ class RdeskBridgeService {
     required String path,
     required Map<String, Object?> body,
     String? bearerToken,
+    Uri? endpoint,
   }) async {
-    final settings = await loadSettings();
-    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final apiBase = endpoint ?? await getApiBaseUri();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
 
     try {
@@ -2296,9 +2302,9 @@ class RdeskBridgeService {
   Future<Map<String, dynamic>> _getJson({
     required String path,
     String? bearerToken,
+    Uri? endpoint,
   }) async {
-    final settings = await loadSettings();
-    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final apiBase = endpoint ?? await getApiBaseUri();
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
 
     try {
