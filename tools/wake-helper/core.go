@@ -280,6 +280,13 @@ func (e *Engine) recover(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Some platforms pause the monotonic clock during system sleep. Require both
+// clocks to remain inside the permit; a wall-clock jump forward fails closed.
+func withinDeadline(now, deadline time.Time) bool {
+	return now.Before(deadline) && now.UnixMilli() < deadline.UnixMilli()
+}
+
 func (e *Engine) execute(ctx context.Context, job Job, pollStart time.Time) error {
 	if !identifier.MatchString(job.ID) {
 		return fault("invalid_job")
@@ -298,7 +305,7 @@ func (e *Engine) execute(ctx context.Context, job Job, pollStart time.Time) erro
 		return fault("invalid_job")
 	}
 	deadline := pollStart.Add(time.Duration(job.RemainingMS) * time.Millisecond)
-	if !time.Now().Before(deadline) {
+	if !withinDeadline(time.Now(), deadline) {
 		return fault("request_expired")
 	}
 	for id, item := range e.journal.Items {
@@ -366,7 +373,7 @@ func (e *Engine) execute(ctx context.Context, job Job, pollStart time.Time) erro
 		if err = e.check(); err != nil {
 			return fail("network_changed")
 		}
-		if !time.Now().Before(deadline) {
+		if !withinDeadline(time.Now(), deadline) {
 			return fail("permit_expired")
 		}
 		if err = e.send(packet); err != nil {

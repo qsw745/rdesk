@@ -47,3 +47,19 @@ func TestAppParentExitStopsHelper(t *testing.T) {
 		t.Fatal("child outlived parent")
 	}
 }
+
+func TestPermitClockBoundaries(t *testing.T) {
+	now := time.Now()
+	deadline := now.Add(time.Second)
+	if !withinDeadline(now, deadline) {
+		t.Fatal("valid permit rejected")
+	}
+	if withinDeadline(deadline, deadline) || withinDeadline(deadline.Add(time.Nanosecond), deadline) {
+		t.Fatal("expired permit accepted")
+	}
+	// Check an expired wall-clock value. This does not simulate a live system sleep.
+	wallAfterResume := time.UnixMilli(deadline.UnixMilli() + 3600000)
+	if withinDeadline(wallAfterResume, deadline) {
+		t.Fatal("resume accepted old permit")
+	}
+}
