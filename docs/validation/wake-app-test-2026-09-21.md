@@ -21,3 +21,12 @@
 - 用户 AX3000T / RD03 / 原厂 2.0.28 没有已验证的 RDesk 安装入口；没有承诺可直接使用。AX6000 使用稳定本身不证明任意 AX6000 都支持 RDesk，仍应核对具体固件/助手来源。
 - Mac 保持在家同一网络且唤醒，另一台手机使用蜂窝网络，自行让 Windows 睡眠/关机后测试；收到应用心跳不等于证明 WOL 因果。
 - 断网恢复、隔夜、24 小时、48 小时和物理电源状态仍待验收。iOS 公开 App Store 状态与本地构建分别记录，不能由官网下载更新互相推断。
+
+## 最终成品与部署
+
+- Mac Apple Silicon / Intel 成品签名与内嵌 helper 的 Developer ID、TeamIdentifier、Hardened Runtime 校验通过；两种应用与 arm64 DMG 的 Apple 公证均 Accepted，并完成票据附加校验。
+- `/Applications/rdesk.app` 已安装 2.2.3（20），保留旧版备份。实际打开界面，选择家庭 en0，账号助手显示「家中 Mac · 在线」；按用户此前 BIOS 已开启的确认，将现有 Windows 配对绑定至该助手，并保存测试配置，没有自动检测 BIOS 或发送真实开机请求。
+- 已在安装 App 中执行退出：原 App PID 退出，helper PID 消失；重新打开后未擅自恢复助手。完成验证后重新启用家中 Mac，供用户测试。App、服务端心跳和界面检查不等于物理唤醒成功。
+- Android APK 包名 com.qsw.rdesk、版本 2.2.3/20 与原发布签名核验通过。Windows 最终包包含审查后的诊断修复，重新构建、启动与安装校验通过；VM 已恢复挂起。
+- iOS 测试版在本地 Xcode 以 IPHONEOS_DEPLOYMENT_TARGET=15.0 构建成功（解决当前 SDK 对旧 Pods 最低版本的构建检查），主包版本2.2.3/20和签名校验通过。没有已连接 iPhone，未安装、未上传 App Store，不把它写为公开更新。
+- 官网成品已上传 124.223.200.182 并校验 MANIFEST，current 切换到 releases/20260921-2.2.3；前一版20260921-2.2.2保留，可切回软链接回滚。旧安装包复制保留以兼容现有 URL。没有服务器构建或云 CI。

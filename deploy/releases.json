@@ -1,30 +1,30 @@
 {
   "date": "2026-09-21",
   "wake_service_ready": true,
-  "source_commit": "389e4c4acc750a0bb8f0b82e242d8d6d1242bd24",
+  "source_commit": "7da7eaa",
   "platforms": [
     {
       "id": "macos",
       "symbol": "M",
       "tag": "Apple 芯片 / Intel",
       "name": "macOS",
-      "version": "2.2.2",
+      "version": "2.2.3",
       "requirements": "macOS 12 或更高版本",
-      "capability": "可控制其他设备，也可共享本机桌面；支持发起远程开机请求。",
+      "capability": "可远程控制和共享桌面；可作为家中开机助手，支持开机测试和诊断。",
       "button": "下载 Apple 芯片版",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-macos-x64.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.3-macos-x64.zip",
         "label": "下载 Intel 版（ZIP）"
       },
       "note": "两个版本的应用均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-macos-arm64.dmg",
-      "sha256": "f54c6be4cd8ead03fe158c634c54465ea5e4aa0a979b810371a02343e8a47e98",
-      "size": "10.8 MB",
-      "build_number": 19,
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.3-macos-arm64.dmg",
+      "sha256": "4614c832eb8eeab2dadc6223c02687f561a5642bf4971ce3ddf57f6a05a73a4e",
+      "size": "16.4 MB",
+      "build_number": 20,
       "release_notes": [
-        "同账号设备可在卡片直接连接，无需跳转远程协助。",
-        "提高全部、在线、收藏及分组筛选的文字对比度，适配浅色、深色和大字号。",
-        "完善连接进度、取消与失败重试；保留 IP 直连并明确远程开机助手要求。"
+        "新增开机测试与诊断：查看服务器接受、助手领取、发包回执及应用上线。",
+        "Mac 可在家庭网络代发开机信号；需保持 Mac 唤醒和 RDesk 运行。",
+        "支持选择已安装的兼容 Linux 路由器／NAS 助手。AX3000T 原厂固件尚未适配，物理及隔夜开机待实测。"
       ]
     },
     {
@@ -32,23 +32,23 @@
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.2.2",
+      "version": "2.2.3",
       "requirements": "Windows 10 / 11 · x64",
       "capability": "可控制其他设备、原生检测有线网卡并生成手机配对二维码；当前尚不支持共享 Windows 桌面。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.3-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-windows-x64-setup.exe",
-      "sha256": "e3d0450b23da0aca175d81ede008b075d2e1b4f833cd79c4f96ad103319e2efa",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.3-windows-x64-setup.exe",
+      "sha256": "9648b94d57b0631bbf5c6fa40bdc884b8d65186716baa9e6e0defcbdfbedcaf7",
       "size": "11.6 MB",
-      "build_number": 19,
+      "build_number": 20,
       "release_notes": [
-        "同账号设备可在卡片直接连接，无需跳转远程协助。",
-        "提高全部、在线、收藏及分组筛选的文字对比度，适配浅色、深色和大字号。",
-        "完善连接进度、取消与失败重试；保留 IP 直连并明确远程开机助手要求。"
+        "新增开机测试与诊断：查看服务器接受、助手领取、发包回执及应用上线。",
+        "Mac 可在家庭网络代发开机信号；需保持 Mac 唤醒和 RDesk 运行。",
+        "支持选择已安装的兼容 Linux 路由器／NAS 助手。AX3000T 原厂固件尚未适配，物理及隔夜开机待实测。"
       ]
     },
     {
@@ -56,19 +56,19 @@
       "symbol": "A",
       "tag": "手机 / 平板",
       "name": "Android",
-      "version": "2.2.2",
+      "version": "2.2.3",
       "requirements": "Android 7.0 或更高版本",
       "capability": "可扫码配对 Windows、发起开机，也可作为家中长期在线的开机助手；支持远程控制与屏幕共享。",
       "button": "下载安卓 APK",
       "note": "下载后打开 APK，按系统提示允许本次来源安装。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-android.apk",
-      "sha256": "21a3add78544b738ca85bbe61a7c38429947583649c12abeb7412f8dc58f9590",
-      "size": "69.4 MB",
-      "build_number": 19,
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.3-android.apk",
+      "sha256": "43ac1e99bcb1c70678045c62db9a8e1c9bb03faf868686796e8cea8c159f7dc7",
+      "size": "69.5 MB",
+      "build_number": 20,
       "release_notes": [
-        "同账号设备可在卡片直接连接，无需跳转远程协助。",
-        "提高全部、在线、收藏及分组筛选的文字对比度，适配浅色、深色和大字号。",
-        "完善连接进度、取消与失败重试；保留 IP 直连并明确远程开机助手要求。"
+        "新增开机测试与诊断：查看服务器接受、助手领取、发包回执及应用上线。",
+        "Mac 可在家庭网络代发开机信号；需保持 Mac 唤醒和 RDesk 运行。",
+        "支持选择已安装的兼容 Linux 路由器／NAS 助手。AX3000T 原厂固件尚未适配，物理及隔夜开机待实测。"
       ]
     },
     {
@@ -86,28 +86,28 @@
     }
   ],
   "files": {
-    "RDesk-2.2.2-android.apk": {
-      "sha256": "21a3add78544b738ca85bbe61a7c38429947583649c12abeb7412f8dc58f9590",
-      "bytes": 72734124
+    "RDesk-2.2.3-android.apk": {
+      "sha256": "43ac1e99bcb1c70678045c62db9a8e1c9bb03faf868686796e8cea8c159f7dc7",
+      "bytes": 72832568
     },
-    "RDesk-2.2.2-macos-arm64.dmg": {
-      "sha256": "f54c6be4cd8ead03fe158c634c54465ea5e4aa0a979b810371a02343e8a47e98",
-      "bytes": 11298004
+    "RDesk-2.2.3-macos-arm64.dmg": {
+      "sha256": "4614c832eb8eeab2dadc6223c02687f561a5642bf4971ce3ddf57f6a05a73a4e",
+      "bytes": 17176569
     },
-    "RDesk-2.2.2-macos-x64.zip": {
-      "sha256": "b5babe815b30e6fc2721e180fd9806a30fdec3c02c8ae141021bcec3c618d065",
-      "bytes": 11339279
+    "RDesk-2.2.3-windows-x64-setup.exe": {
+      "sha256": "9648b94d57b0631bbf5c6fa40bdc884b8d65186716baa9e6e0defcbdfbedcaf7",
+      "bytes": 12210839
     },
-    "RDesk-2.2.2-windows-x64-portable.zip": {
-      "sha256": "02bd9d854f522ed600e04215f8837b85a21c98fb8b8dd3e1ac9f1ad695ae68ea",
-      "bytes": 14174916
+    "RDesk-2.2.3-windows-x64-portable.zip": {
+      "sha256": "5c513a378a8572965d1c440a4be125fd24bad6e6fd18e66b28e57dace0ce1917",
+      "bytes": 14185348
     },
-    "RDesk-2.2.2-windows-x64-setup.exe": {
-      "sha256": "e3d0450b23da0aca175d81ede008b075d2e1b4f833cd79c4f96ad103319e2efa",
-      "bytes": 12203451
+    "RDesk-2.2.3-macos-x64.zip": {
+      "sha256": "f71f4a467bba12a63d3acd28c4a38031cd8cfe487a032e07f7ec592f00a2d87a",
+      "bytes": 16757398
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": "Windows、Android、Mac 已更新至 2.2.2：设备卡片直接连接，筛选文字更清晰。2.2.1 可在应用内检查更新；更早版本请从官网安装。iPhone 商店仍为 2.1.0。",
+  "service_notice": "Windows、Android、Mac 2.2.3 已提供开机测试与诊断，Mac 可作为家中助手。原厂 AX3000T 尚未适配；外网和隔夜物理开机需要实测。iPhone 商店版本未随本次更新，本地测试版需连接设备安装。",
   "schema_version": 1
 }
