@@ -40,6 +40,7 @@ class ConnectionProvider extends ChangeNotifier {
   }
 
   Future<String?> connect(String deviceId, String password) async {
+    if (_connectionState == SessionState.connecting) return null;
     _connectionState = SessionState.connecting;
     _errorMessage = null;
     notifyListeners();
@@ -66,6 +67,7 @@ class ConnectionProvider extends ChangeNotifier {
 
   /// Direct IP connection (LAN / Tailscale) — bypasses signaling server.
   Future<String?> connectDirectIp(String address, {String? password}) async {
+    if (_connectionState == SessionState.connecting) return null;
     _connectionState = SessionState.connecting;
     _errorMessage = null;
     notifyListeners();

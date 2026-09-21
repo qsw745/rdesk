@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/device_directory_entry.dart';
+import '../models/session.dart';
+import '../providers/session_provider.dart';
+import '../widgets/device_connection_dialog.dart';
 import '../providers/auth_provider.dart';
 import '../providers/address_book_provider.dart';
 import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/wake_provider.dart';
 import '../utils/device_directory.dart';
+import '../utils/device_address.dart';
 
 class MyDevicesScreen extends StatefulWidget {
   final String initialFilter;
@@ -23,6 +27,7 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   Timer? _timer;
   late String _filter;
   String _query = '';
+  String? _connectingKey;
   bool _refreshing = false, _foreground = true;
   @override
   void initState() {
@@ -76,31 +81,51 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   }
 
   Future<void> _connect(DeviceDirectoryEntry item) async {
-    final current = normalizedEndpointScope(
-        context.read<SettingsProvider>().signalingServer);
-    if (item.endpointScope != null && item.endpointScope != current) {
+    final connection = context.read<ConnectionProvider>();
+    if (_connectingKey != null ||
+        connection.connectionState == SessionState.connecting) return;
+    final settings = context.read<SettingsProvider>();
+    final auth = context.read<AuthProvider>();
+    final session = context.read<SessionProvider>();
+    final scope = normalizedEndpointScope(settings.signalingServer);
+    final token = auth.session?.token;
+    if (!isDirectDeviceAddress(item.deviceId) &&
+        item.endpointScope != null &&
+        item.endpointScope != scope) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('这台设备属于另一台服务器，请先在网络设置中切换服务器。')));
       return;
     }
-    if (item.endpointScope == null) {
-      final confirm = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-                  title: const Text('确认连接来源'),
-                  content: const Text('这是旧版本保存的设备，未记录服务器。使用当前服务器查找此设备？'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('取消')),
-                    FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('继续连接'))
-                  ]));
-      if (confirm != true || !mounted) return;
+    setState(() => _connectingKey = item.key);
+    try {
+      final result = await showDialog<DeviceConnectionResult>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => DeviceConnectionDialog(device: item),
+      );
+      if (result == null) return;
+      if (!mounted ||
+          auth.session?.token != token ||
+          normalizedEndpointScope(settings.signalingServer) != scope ||
+          ModalRoute.of(context)?.isCurrent != true) {
+        await connection.disconnect(result.sessionId);
+        return;
+      }
+      session.setSession(
+          SessionInfo(
+            sessionId: result.sessionId,
+            peerId: item.deviceId,
+            peerHostname: item.name,
+            peerOs: connection.peerPlatformForSession(result.sessionId) ??
+                item.platform,
+            state: SessionState.active,
+            connectedAt: DateTime.now(),
+          ),
+          accessPassword: result.password);
+      context.go('/remote/${Uri.encodeComponent(result.sessionId)}');
+    } finally {
+      if (mounted) setState(() => _connectingKey = null);
     }
-    context.read<ConnectionProvider>().prepareQuickConnect(item.deviceId);
-    context.go('/assist');
   }
 
   Future<void> _favorite(DeviceDirectoryEntry item) async {
@@ -219,21 +244,24 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                         prefixIcon: Icon(Icons.search),
                         isDense: true)),
                 const SizedBox(height: 12),
-                Row(children: [
-                  for (final value in ['全部', '在线', '收藏'])
-                    Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                            label: Text(value),
-                            selected: _filter == value,
-                            onSelected: (_) =>
-                                setState(() => _filter = value))),
-                  const Spacer(),
-                  IconButton(
-                      onPressed: _refresh,
-                      icon: const Icon(Icons.refresh),
-                      tooltip: '刷新设备'),
-                ]),
+                Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      for (final value in ['全部', '在线', '收藏'])
+                        Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                                label: Text(value),
+                                selected: _filter == value,
+                                onSelected: (_) =>
+                                    setState(() => _filter = value))),
+                      IconButton(
+                          onPressed: _refresh,
+                          icon: const Icon(Icons.refresh),
+                          tooltip: '刷新设备'),
+                    ]),
               ])),
           if (!auth.isLoggedIn)
             Padding(
@@ -275,6 +303,11 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   Widget _device(DeviceDirectoryEntry item, WakeProvider wake) {
     final target = item.wakeTarget;
     final windows = item.platform.toLowerCase().contains('windows');
+    final ios = {'ios', 'ipados'}.contains(item.platform.toLowerCase());
+    final local = context.read<ConnectionProvider>().localDevice?.deviceId ==
+        item.deviceId;
+    final canConnect = !windows && !ios && !local;
+    final colors = Theme.of(context).colorScheme;
     final source = item.endpointScope == null ? ' · 来源未记录' : '';
     final status = target != null && !target.setupComplete
         ? '已配对 · 待完成开机设置'
@@ -303,9 +336,21 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                               fontWeight: FontWeight.w600, fontSize: 16)),
                       const SizedBox(height: 6),
                       Text('$status$source',
-                          style: const TextStyle(fontSize: 13)),
+                          style: TextStyle(
+                              fontSize: 14, color: colors.onSurfaceVariant)),
+                      if (local || windows || ios)
+                        Text(
+                            local
+                                ? '本机'
+                                : windows
+                                    ? '支持远程开机 · 暂不支持被远控'
+                                    : '暂不支持被远控',
+                            style: TextStyle(
+                                fontSize: 13, color: colors.onSurfaceVariant)),
                       const SizedBox(height: 3),
-                      Text(item.deviceId, style: const TextStyle(fontSize: 13)),
+                      Text('ID ${item.deviceId}',
+                          style: TextStyle(
+                              fontSize: 13, color: colors.onSurfaceVariant)),
                     ])),
               ]);
               final actions = Wrap(
@@ -339,10 +384,17 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                                               : wake.error ?? '开机请求失败')));
                                 },
                           child: const Text('开机')),
-                    if (!windows)
-                      FilledButton.tonal(
-                          onPressed: () => _connect(item),
-                          child: const Text('连接')),
+                    if (canConnect)
+                      FilledButton(
+                          onPressed: _connectingKey != null ||
+                                  context
+                                          .watch<ConnectionProvider>()
+                                          .connectionState ==
+                                      SessionState.connecting
+                              ? null
+                              : () => _connect(item),
+                          child:
+                              Text(_connectingKey == item.key ? '连接中…' : '连接')),
                   ]);
               return box.maxWidth < 520
                   ? Column(

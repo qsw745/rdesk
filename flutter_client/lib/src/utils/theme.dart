@@ -165,13 +165,22 @@ class AppTheme {
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: primaryBlue.withValues(alpha: 0.08),
-        selectedColor: primaryBlue.withValues(alpha: 0.14),
-        secondarySelectedColor: accentPurple.withValues(alpha: 0.14),
+        backgroundColor: const Color(0xFFE8EDF4),
+        selectedColor: deepBlue,
+        secondarySelectedColor: deepBlue,
+        checkmarkColor: Colors.white,
         side: BorderSide.none,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        labelStyle: TextStyle(
+            color: WidgetStateColor.resolveWith((states) =>
+                states.contains(WidgetState.selected)
+                    ? Colors.white
+                    : textDark),
+            fontSize: 14,
+            fontWeight: FontWeight.w600),
+        secondaryLabelStyle: const TextStyle(
+            color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
       ),
       dividerTheme: DividerThemeData(
         color: Colors.grey.shade100,
@@ -312,13 +321,24 @@ class AppTheme {
         ),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: Colors.white.withValues(alpha: 0.08),
-        selectedColor: primaryBlue.withValues(alpha: 0.2),
-        secondarySelectedColor: accentPurple.withValues(alpha: 0.22),
+        backgroundColor: const Color(0xFF30394B),
+        selectedColor: const Color(0xFFB4CEFF),
+        secondarySelectedColor: const Color(0xFFB4CEFF),
+        checkmarkColor: const Color(0xFF102444),
         side: BorderSide.none,
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
-        labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        labelStyle: TextStyle(
+            color: WidgetStateColor.resolveWith((states) =>
+                states.contains(WidgetState.selected)
+                    ? const Color(0xFF102444)
+                    : const Color(0xFFF1F5FF)),
+            fontSize: 14,
+            fontWeight: FontWeight.w600),
+        secondaryLabelStyle: const TextStyle(
+            color: Color(0xFF102444),
+            fontSize: 14,
+            fontWeight: FontWeight.w600),
       ),
       dividerTheme: DividerThemeData(
         color: Colors.grey.shade800,

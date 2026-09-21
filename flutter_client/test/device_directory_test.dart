@@ -51,6 +51,8 @@ void main() {
     expect(rows.length, 2);
     expect(rows.first.deviceId, 'pc');
     expect(rows.first.online, true);
+    expect(rows.first.accountOwned, true);
+    expect(rows.last.accountOwned, false);
   });
   test('不同服务器和无来源旧记录不能混成当前设备', () {
     final rows = mergeDeviceDirectory(

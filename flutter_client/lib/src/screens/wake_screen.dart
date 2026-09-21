@@ -104,6 +104,11 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                     onPressed: wake.refresh,
                                     child: const Text('重新检测')),
                               ]),
+                            ExpansionTile(
+                              title: const Text('为什么需要家中开机助手？'),
+                              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              children: const [Text('电脑关机后，需要家庭网络中仍在线的设备代发开机信号。当前 RDesk 支持安卓助手；它和电脑连接同一路由器即可，不必放在旁边。iPhone、电脑都可以在外发起开机。路由器助手尚未支持，不能直接复用其他软件的助手。')],
+                            ),
                             if (wake.targets.isEmpty)
                               _panel([
                                 const Icon(Icons.desktop_windows_rounded,
@@ -115,7 +120,7 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                         fontSize: 24,
                                         fontWeight: FontWeight.bold)),
                                 const SizedBox(height: 12),
-                                const Text('首次配置一次，以后点一下就能发起开机。',
+                                const Text('在家配置完成后，外出也能发起开机。',
                                     textAlign: TextAlign.center),
                                 const SizedBox(height: 24),
                                 FilledButton(

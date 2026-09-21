@@ -33,6 +33,7 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
       String? platform,
       bool? online,
       bool? favorite,
+      bool? accountOwned,
       DateTime? lastSeen,
       WakeTarget? wake}) {
     final key = deviceDirectoryKey(source, id);
@@ -46,6 +47,7 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
         endpointScope: normalizedEndpointScope(source),
         online: online ?? old?.online ?? false,
         favorite: favorite ?? old?.favorite ?? false,
+        accountOwned: accountOwned ?? old?.accountOwned ?? false,
         lastSeen: lastSeen ?? old?.lastSeen,
         wakeTarget: wake ?? old?.wakeTarget);
   }
@@ -65,6 +67,7 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
         name: d.hostname,
         platform: d.platform,
         online: true,
+        accountOwned: true,
         lastSeen: d.updatedAt);
   }
   for (final s in saved) {

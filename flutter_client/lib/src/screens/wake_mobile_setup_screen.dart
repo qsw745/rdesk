@@ -109,7 +109,7 @@ class _WakeMobileSetupScreenState extends State<WakeMobileSetupScreen>
                                                       .titleLarge),
                                               const SizedBox(height: 12),
                                               const Text(
-                                                  '安卓手机需连接与电脑相同的家庭 Wi-Fi，并长期供电。外出时仍由它代发开机信号。'),
+                                                  '当前版本由家中安卓手机代发开机信号。它只需和电脑连接同一路由器、保持联网供电，不需要放在电脑旁边。'),
                                               const SizedBox(height: 16),
                                               if (helpers.isEmpty)
                                                 const Text(
