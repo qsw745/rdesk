@@ -1,30 +1,30 @@
 {
-  "date": "2026-09-20",
+  "date": "2026-09-21",
   "wake_service_ready": true,
-  "source_commit": "aaf604badb807d5da4571568426e0f2c7f25f6fb",
+  "source_commit": "389e4c4acc750a0bb8f0b82e242d8d6d1242bd24",
   "platforms": [
     {
       "id": "macos",
       "symbol": "M",
       "tag": "Apple 芯片 / Intel",
       "name": "macOS",
-      "version": "2.2.1",
+      "version": "2.2.2",
       "requirements": "macOS 12 或更高版本",
       "capability": "可控制其他设备，也可共享本机桌面；支持发起远程开机请求。",
       "button": "下载 Apple 芯片版",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.1-macos-x64.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-macos-x64.zip",
         "label": "下载 Intel 版（ZIP）"
       },
       "note": "两个版本的应用均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.1-macos-arm64.dmg",
-      "sha256": "69e45e09afbbb88dfc6df2e6a6ef0e332ed0d8286f5572797a96ad98e110e87e",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-macos-arm64.dmg",
+      "sha256": "f54c6be4cd8ead03fe158c634c54465ea5e4aa0a979b810371a02343e8a47e98",
       "size": "10.8 MB",
-      "build_number": 18,
+      "build_number": 19,
       "release_notes": [
-        "新增启动和回到前台时的新版本提醒，可关闭或忽略版本。",
-        "设置 → 关于可手动检查更新，下载支持进度、取消和完整性校验。",
-        "确认后打开系统安装程序；不会静默替换正在运行的应用。"
+        "同账号设备可在卡片直接连接，无需跳转远程协助。",
+        "提高全部、在线、收藏及分组筛选的文字对比度，适配浅色、深色和大字号。",
+        "完善连接进度、取消与失败重试；保留 IP 直连并明确远程开机助手要求。"
       ]
     },
     {
@@ -32,23 +32,23 @@
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.2.1",
+      "version": "2.2.2",
       "requirements": "Windows 10 / 11 · x64",
       "capability": "可控制其他设备、原生检测有线网卡并生成手机配对二维码；当前尚不支持共享 Windows 桌面。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.1-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.1-windows-x64-setup.exe",
-      "sha256": "3dfa4fd65b7d1e8c8fd8ef1c3bf58478c425561fb2257d39beb895b2bcc375a7",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-windows-x64-setup.exe",
+      "sha256": "e3d0450b23da0aca175d81ede008b075d2e1b4f833cd79c4f96ad103319e2efa",
       "size": "11.6 MB",
-      "build_number": 18,
+      "build_number": 19,
       "release_notes": [
-        "新增启动和回到前台时的新版本提醒，可关闭或忽略版本。",
-        "设置 → 关于可手动检查更新，下载支持进度、取消和完整性校验。",
-        "确认后打开系统安装程序；不会静默替换正在运行的应用。"
+        "同账号设备可在卡片直接连接，无需跳转远程协助。",
+        "提高全部、在线、收藏及分组筛选的文字对比度，适配浅色、深色和大字号。",
+        "完善连接进度、取消与失败重试；保留 IP 直连并明确远程开机助手要求。"
       ]
     },
     {
@@ -56,19 +56,19 @@
       "symbol": "A",
       "tag": "手机 / 平板",
       "name": "Android",
-      "version": "2.2.1",
+      "version": "2.2.2",
       "requirements": "Android 7.0 或更高版本",
       "capability": "可扫码配对 Windows、发起开机，也可作为家中长期在线的开机助手；支持远程控制与屏幕共享。",
       "button": "下载安卓 APK",
       "note": "下载后打开 APK，按系统提示允许本次来源安装。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.1-android.apk",
-      "sha256": "48006ab68a26afd58ffaa18936f7c4242fb15c77c0132849436ccfb3d9b0b970",
-      "size": "69.3 MB",
-      "build_number": 18,
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.2.2-android.apk",
+      "sha256": "21a3add78544b738ca85bbe61a7c38429947583649c12abeb7412f8dc58f9590",
+      "size": "69.4 MB",
+      "build_number": 19,
       "release_notes": [
-        "新增启动和回到前台时的新版本提醒，可关闭或忽略版本。",
-        "设置 → 关于可手动检查更新，下载支持进度、取消和完整性校验。",
-        "确认后打开系统安装程序；不会静默替换正在运行的应用。"
+        "同账号设备可在卡片直接连接，无需跳转远程协助。",
+        "提高全部、在线、收藏及分组筛选的文字对比度，适配浅色、深色和大字号。",
+        "完善连接进度、取消与失败重试；保留 IP 直连并明确远程开机助手要求。"
       ]
     },
     {
@@ -82,32 +82,32 @@
       "capability": "可控制其他设备或分享屏幕；当前上架版尚不包含新的远程开机功能。",
       "url": "https://apps.apple.com/cn/app/id6796165712",
       "button": "前往 App Store",
-      "note": "商店仍为 2.1.0；包含扫码配对和更新入口的 2.2.1 仅为本地测试版，尚未提交 App Store。"
+      "note": "商店仍为 2.1.0；2.2.2 已完成本地构建，尚未提交 App Store。"
     }
   ],
   "files": {
-    "RDesk-2.2.1-android.apk": {
-      "sha256": "48006ab68a26afd58ffaa18936f7c4242fb15c77c0132849436ccfb3d9b0b970",
-      "bytes": 72717740
+    "RDesk-2.2.2-android.apk": {
+      "sha256": "21a3add78544b738ca85bbe61a7c38429947583649c12abeb7412f8dc58f9590",
+      "bytes": 72734124
     },
-    "RDesk-2.2.1-macos-arm64.dmg": {
-      "sha256": "69e45e09afbbb88dfc6df2e6a6ef0e332ed0d8286f5572797a96ad98e110e87e",
-      "bytes": 11289065
+    "RDesk-2.2.2-macos-arm64.dmg": {
+      "sha256": "f54c6be4cd8ead03fe158c634c54465ea5e4aa0a979b810371a02343e8a47e98",
+      "bytes": 11298004
     },
-    "RDesk-2.2.1-macos-x64.zip": {
-      "sha256": "9ea0865b5f591912ef126733463c149ec5886ee97c0d4384e1bddb44283f09ac",
-      "bytes": 11333205
+    "RDesk-2.2.2-macos-x64.zip": {
+      "sha256": "b5babe815b30e6fc2721e180fd9806a30fdec3c02c8ae141021bcec3c618d065",
+      "bytes": 11339279
     },
-    "RDesk-2.2.1-windows-x64-portable.zip": {
-      "sha256": "7a1cc35fbc018f9d6d6e7cdf55a2630828f1677302cffe5149c2ab95eb3f5bee",
-      "bytes": 14169008
+    "RDesk-2.2.2-windows-x64-portable.zip": {
+      "sha256": "02bd9d854f522ed600e04215f8837b85a21c98fb8b8dd3e1ac9f1ad695ae68ea",
+      "bytes": 14174916
     },
-    "RDesk-2.2.1-windows-x64-setup.exe": {
-      "sha256": "3dfa4fd65b7d1e8c8fd8ef1c3bf58478c425561fb2257d39beb895b2bcc375a7",
-      "bytes": 12198210
+    "RDesk-2.2.2-windows-x64-setup.exe": {
+      "sha256": "e3d0450b23da0aca175d81ede008b075d2e1b4f833cd79c4f96ad103319e2efa",
+      "bytes": 12203451
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": "Windows、Android、Mac 已更新至 2.2.1，新增应用内检查更新。旧版请先从官网手动安装一次。iPhone 商店仍为 2.1.0。",
+  "service_notice": "Windows、Android、Mac 已更新至 2.2.2：设备卡片直接连接，筛选文字更清晰。2.2.1 可在应用内检查更新；更早版本请从官网安装。iPhone 商店仍为 2.1.0。",
   "schema_version": 1
 }
