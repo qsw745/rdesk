@@ -66,6 +66,8 @@ rdesk-wake-helper inspect --state /etc/rdesk-wake-helper
 
 在 Mac 或其他管理电脑读取账号下电脑的开机时间线（只读，不发送开机请求）：
 
+先把相应平台成品重命名为 `rdesk-wake-helper` 并赋予执行权限。例如 Apple Silicon Mac 用 `rdesk-wake-helper-0.1.0-darwin-arm64`，Intel Mac 用 `darwin-amd64`；这是本地编译的实验命令行工具，不是已公证的 App 安装器。
+
 ```sh
 umask 077
 python3 tools/wake-helper/credentials.py | ./rdesk-wake-helper diagnose > 开机诊断.txt
