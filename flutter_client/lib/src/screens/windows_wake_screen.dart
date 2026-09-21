@@ -193,7 +193,7 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
                                       }),
                                       const SizedBox(height: 16),
                                       const Text(
-                                          '电脑需插网线、保持供电。外出开机还需要一台留在家中 Wi-Fi 下的安卓手机。'),
+                                          '电脑需插网线、保持供电。家中安卓、运行中的 Mac 或已适配的 Linux 路由器可代发开机信号。'),
                                     ]))))));
   }
 
@@ -353,6 +353,16 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
                 ? '配置已保存，可以在手机上测试开机。'
                 : '请在手机上继续选择家中助手、核对 BIOS 并测试。'),
         const SizedBox(height: 16),
+        if (target != null)
+          TextButton.icon(
+              onPressed: () async {
+                wake.setVisible(false);
+                await context
+                    .push('/wake/test/${Uri.encodeComponent(target.id)}');
+                if (mounted) wake.setVisible(true);
+              },
+              icon: const Icon(Icons.fact_check_outlined),
+              label: const Text('开机测试与诊断')),
         OutlinedButton(
             onPressed: () async {
               await p.retryRestore();

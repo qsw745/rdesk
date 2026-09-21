@@ -30,4 +30,15 @@ if ! grep -Fq "flags=0x10000(runtime)" <<<"$SIGNATURE_INFO"; then
   exit 1
 fi
 
+APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Contents/Info.plist")"
+if [[ "$APP_BUILD" =~ ^[0-9]+$ && "$APP_BUILD" -ge 20 ]]; then
+  HELPER="$APP_PATH/Contents/Helpers/rdesk-wake-helper"
+  [[ -x "$HELPER" ]] || { echo "安装包缺少开机助手" >&2; exit 1; }
+  codesign --verify --strict "$HELPER"
+  HELPER_INFO="$(codesign -dv --verbose=4 "$HELPER" 2>&1)"
+  grep -Fq "TeamIdentifier=$EXPECTED_TEAM_ID" <<<"$HELPER_INFO"
+  grep -Fq "Authority=$EXPECTED_IDENTITY" <<<"$HELPER_INFO"
+  grep -Fq "flags=0x10000(runtime)" <<<"$HELPER_INFO"
+fi
+
 echo "macOS 安装签名验证通过：$APP_PATH"

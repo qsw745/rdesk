@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/wake.dart';
 import '../providers/wake_provider.dart';
@@ -109,11 +110,11 @@ class _WakeMobileSetupScreenState extends State<WakeMobileSetupScreen>
                                                       .titleLarge),
                                               const SizedBox(height: 12),
                                               const Text(
-                                                  '当前版本由家中安卓手机代发开机信号。它只需和电脑连接同一路由器、保持联网供电，不需要放在电脑旁边。'),
+                                                  '选择家中安卓、运行中的 Mac，或已安装助手的兼容 Linux 路由器／NAS。助手必须和 Windows 在同一局域网并保持在线。'),
                                               const SizedBox(height: 16),
                                               if (helpers.isEmpty)
                                                 const Text(
-                                                    '尚无家中助手\n在留家的安卓手机安装 RDesk，登录同一账号，打开“远程开机 → 作为家中开机助手”。'),
+                                                    '尚无家中助手\n在家中安卓或 Mac 的 RDesk 登录同一账号并启用助手；Linux 路由器需先完成独立助手安装。'),
                                               for (final helper in helpers)
                                                 RadioListTile<String>(
                                                     value: helper.id,
@@ -125,7 +126,7 @@ class _WakeMobileSetupScreenState extends State<WakeMobileSetupScreen>
                                                     title: Text(helper.name),
                                                     subtitle: Text(helper.online
                                                         ? '在线'
-                                                        : '离线 · 请检查家中手机')),
+                                                        : '离线 · 请检查助手设备')),
                                               if (_agent != null && !valid)
                                                 const Text(
                                                     '原助手已停用或被移除，请明确选择新的助手。'),
@@ -199,6 +200,18 @@ class _WakeMobileSetupScreenState extends State<WakeMobileSetupScreen>
                                                           () => _step = 0),
                                                   child: const Text('上一步')),
                                             ] else ...[
+                                              OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    wake.setVisible(false);
+                                                    await context.push(
+                                                        '/wake/test/${Uri.encodeComponent(target.id)}');
+                                                    if (mounted)
+                                                      wake.setVisible(true);
+                                                  },
+                                                  icon: const Icon(Icons
+                                                      .fact_check_outlined),
+                                                  label:
+                                                      const Text('打开完整测试与诊断')),
                                               Text('测试远程开机',
                                                   style: Theme.of(context)
                                                       .textTheme

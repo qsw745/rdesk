@@ -49,6 +49,9 @@ func command(args []string) error {
 		fmt.Println(version)
 		return nil
 	}
+	if args[0] == "app-networks" {
+		return printAppNetworks()
+	}
 	if args[0] == "interfaces" {
 		return interfaces()
 	}
@@ -74,7 +77,7 @@ func command(args []string) error {
 		}
 		return diagnose(ctx, api, *target, os.Stdout)
 	}
-	if args[0] != "enroll" && args[0] != "run" && args[0] != "inspect" {
+	if args[0] != "enroll" && args[0] != "run" && args[0] != "inspect" && args[0] != "app-run" {
 		return fault("unknown_command")
 	}
 	if err := privateDir(*dir); err != nil {
@@ -88,6 +91,9 @@ func command(args []string) error {
 		return err
 	}
 	defer lock.Close()
+	if args[0] == "app-run" {
+		return appRun(ctx, *dir, os.Stdin)
+	}
 	if args[0] == "enroll" {
 		return enroll(ctx, *dir, strings.TrimRight(*origin, "/"), *name, *iface, *cidr)
 	}

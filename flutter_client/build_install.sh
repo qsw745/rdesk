@@ -81,7 +81,11 @@ install_macos_app() {
 
 build_macos() {
   echo "━━━ 构建 macOS (release) ━━━"
-  flutter build macos --release
+  flutter build macos --release --config-only
+  xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \
+    -configuration Release -derivedDataPath build/macos -jobs 2 \
+    ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES
+  bash ../scripts/bundle_macos_wake_helper.sh "$MAC_APP_PATH" "$MAC_SIGN_IDENTITY"
   sign_macos_app
   echo "━━━ 安装 macOS ━━━"
   install_macos_app

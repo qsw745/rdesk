@@ -4,6 +4,7 @@ import '../screens/remote_desktop_screen.dart';
 import '../screens/file_manager_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/wake_screen.dart';
+import '../screens/wake_test_screen.dart';
 import '../screens/windows_wake_screen.dart';
 import '../screens/wake_pairing_scan_screen.dart';
 import '../screens/wake_mobile_setup_screen.dart';
@@ -68,6 +69,11 @@ final appRouter = GoRouter(
     GoRoute(
         path: '/connection-settings',
         redirect: (_, __) => '/settings?section=network'),
+    GoRoute(
+        path: '/wake/test/:id',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (_, state) =>
+            WakeTestScreen(targetId: state.pathParameters['id']!)),
     GoRoute(
         path: '/wake/scan',
         parentNavigatorKey: rootNavigatorKey,

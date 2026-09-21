@@ -43,13 +43,17 @@ Flutter 默认产出的是 **adhoc 签名**（`TeamIdentifier=not set`），必�
 
 ## 二、签名
 
-签名必须**从内到外**：先签所有内嵌 framework/dylib，最后签主 App。
+2.2.3 起必须先运行 `bash scripts/bundle_macos_wake_helper.sh "$APP" "$ID"`，本地编译并签名内嵌 Mac 开机助手。仅运行 Flutter 构建不会包含该助手。
+
+签名必须**从内到外**：先签 helper 和所有内嵌 framework/dylib，最后签主 App。
 顺序颠倒会导致外层签名失效。
 
 ```bash
 APP=flutter_client/build/macos/Build/Products/Release/rdesk.app
 ID="Developer ID Application: qi shiwei (6N5T3G6H33)"
 ENT=flutter_client/macos/Runner/Release.entitlements
+
+bash scripts/bundle_macos_wake_helper.sh "$APP" "$ID"
 
 for f in "$APP/Contents/Frameworks/"*; do
   codesign --force --sign "$ID" --options runtime --timestamp "$f"

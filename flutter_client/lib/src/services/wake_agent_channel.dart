@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'desktop_wake_agent.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -24,12 +25,25 @@ class WakeAgentStatus {
 
 class WakeAgentChannel {
   int _generation = 0;
+  final desktop = DesktopWakeAgent();
   static const _channel = MethodChannel('com.qsw.rdesk/wake_agent');
   Future<WakeAgentStatus> status() async => Platform.isAndroid
       ? WakeAgentStatus.fromMap(await _channel.invokeMapMethod('status') ?? {})
-      : const WakeAgentStatus();
+      : Platform.isMacOS
+          ? WakeAgentStatus(
+              enabled: desktop.enabled,
+              networkReady: desktop.ready,
+              agentId: desktop.agentId,
+              endpoint: desktop.endpoint,
+              ownerId: desktop.owner,
+              errorCode: desktop.error)
+          : const WakeAgentStatus();
   Future<void> prepare() async {
-    if (!Platform.isAndroid) throw StateError('请在家中的安卓手机启用助手');
+    if (Platform.isMacOS) {
+      if (desktop.selected == null) throw StateError('请先选择家庭网络');
+      return;
+    }
+    if (!Platform.isAndroid) throw StateError('请在家中的安卓手机或 Mac 启用助手');
     if (!await Permission.notification.request().isGranted) {
       throw StateError('请允许通知，以便查看助手状态和随时停止');
     }
@@ -40,6 +54,11 @@ class WakeAgentChannel {
       required String ownerId,
       required String agentId,
       required String token}) async {
+    if (Platform.isMacOS) {
+      await desktop.start(
+          endpoint: endpoint, ownerId: ownerId, agentId: agentId, token: token);
+      return;
+    }
     final gen = _generation;
     await _channel.invokeMethod('start', {
       'endpoint': endpoint,
@@ -61,6 +80,7 @@ class WakeAgentChannel {
 
   Future<void> stop() async {
     ++_generation;
+    if (Platform.isMacOS) await desktop.stop();
     if (Platform.isAndroid) await _channel.invokeMethod('stop');
   }
 

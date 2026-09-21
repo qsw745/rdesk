@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/wake.dart';
+import '../widgets/mac_wake_helper_panel.dart';
 import '../utils/platform_capabilities.dart';
 import '../providers/wake_provider.dart';
 import '../services/rdesk_bridge_service.dart';
@@ -106,8 +107,12 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                               ]),
                             ExpansionTile(
                               title: const Text('为什么需要家中开机助手？'),
-                              childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                              children: const [Text('电脑关机后，需要家庭网络中仍在线的设备代发开机信号。当前 RDesk 支持安卓助手；它和电脑连接同一路由器即可，不必放在旁边。iPhone、电脑都可以在外发起开机。路由器助手尚未支持，不能直接复用其他软件的助手。')],
+                              childrenPadding:
+                                  const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              children: const [
+                                Text(
+                                    '电脑关机后，需要家庭网络中仍在线的设备代发开机信号。可使用家中安卓、保持运行的 Mac，或已安装 RDesk 助手的兼容 Linux 路由器／NAS。iPhone 和电脑可在外发起开机。原厂路由器需先确认安装能力，不能直接复用 UU 的助手。')
+                              ],
                             ),
                             if (wake.targets.isEmpty)
                               _panel([
@@ -146,6 +151,8 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                       : null,
                                   icon: const Icon(Icons.settings_outlined),
                                   label: const Text('配置远程开机')),
+                            if (defaultTargetPlatform == TargetPlatform.macOS)
+                              MacWakeHelperPanel(wake: wake),
                             if (defaultTargetPlatform == TargetPlatform.android)
                               _panel([
                                 SwitchListTile(
@@ -195,10 +202,18 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
             onPressed: () => _details(wake, target)),
       ]),
       if (requests.isNotEmpty) _notice(wakePhaseLabel(requests.first.phase)),
-      if (!target.agentOnline) _notice('请检查留在家中的安卓手机是否联网、开机助手是否开启。'),
+      if (!target.agentOnline) _notice('请检查家中的手机、Mac 或路由器助手是否联网并运行。'),
       if (requests.isNotEmpty && requests.first.phase == WakePhase.unconfirmed)
         _notice('尚未收到电脑应用的上线信号。电脑可能已启动，请确认 RDesk 已运行；也可在“更多”查看记录。'),
       const SizedBox(height: 16),
+      TextButton.icon(
+          onPressed: () async {
+            wake.setVisible(false);
+            await context.push('/wake/test/${Uri.encodeComponent(target.id)}');
+            if (mounted) wake.setVisible(true);
+          },
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('开机测试与诊断')),
       if (!target.setupComplete)
         FilledButton(
             onPressed: () =>
@@ -281,7 +296,7 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                                                   EdgeInsets
                                                                       .all(20),
                                                               child: Text(
-                                                                  '请先在家中安卓手机启用助手')),
+                                                                  '请先启用家中手机、Mac 或兼容路由器助手')),
                                                       ]));
                                           if (id != null) {
                                             await current.rebind(target, id);
