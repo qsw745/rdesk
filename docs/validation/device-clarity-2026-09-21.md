@@ -18,7 +18,7 @@
 
 官网版本目录 `/opt/rdesk-website/releases/20260921-2.2.2`；切换前备份链接 `/opt/rdesk-website/backups/20260921-device-clarity-2.2.2/previous-current.txt`。原子切换 current，保留旧版安装包 URL；不改域名根入口、账号服务或转发协议。
 
-线上版本清单与本地逐字段一致，浏览器刷新已显示 2.2.2；生产 AppUpdateService 对各平台清单解析、Windows 实际下载与校验通过。公开文件完整校验记录在本轮 evidence 目录。
+线上版本清单与本地逐字段一致，浏览器刷新已显示 2.2.2；生产 AppUpdateService 对各平台清单解析、Windows 实际下载与校验通过。5 个公开安装包的 HEAD 200、Range 206、完整下载长度及 SHA-256 全部通过；官网、下载、支持、隐私、API 健康和域名根入口均 200，旧版下载链接仍可用。记录在本轮 evidence 目录。
 
 RDesk 当前开机助手仍为安卓端。远程开机原理不限定 Android，但尚未实现路由器助手，未证明小米 AX3000 固件兼容；不能复用 UU 私有助手。助手与电脑只需同一家庭网络，不需要紧挨电脑。Windows 仍不支持被远控；实体开机和隔夜稳定性未进行本轮验收。
 
