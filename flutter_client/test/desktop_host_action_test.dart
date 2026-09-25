@@ -15,7 +15,7 @@ void main() {
   });
 
   test(
-    '展开所有窗口通过 RDesk 原生进程发送 Control+Up',
+    '展开所有窗口通过 RDesk 原生进程启动 Mission Control 执行器',
     () async {
       MethodCall? receivedCall;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -28,17 +28,16 @@ void main() {
           .performRemoteAction('show_all_windows');
 
       expect(result, isTrue);
-      expect(receivedCall?.method, 'performKeyPress');
+      expect(receivedCall?.method, 'launchMissionControlAction');
       expect(receivedCall?.arguments, <String, Object>{
-        'keyCode': 126,
-        'modifiers': <String>['control'],
+        'action': 'show_all_windows',
       });
     },
     skip: !Platform.isMacOS,
   );
 
   test(
-    '显示桌面通过 RDesk 原生进程发送 F11',
+    '显示桌面通过 RDesk 原生进程启动 Mission Control 执行器',
     () async {
       MethodCall? receivedCall;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -51,10 +50,9 @@ void main() {
           await DesktopHostService.instance.performRemoteAction('show_desktop');
 
       expect(result, isTrue);
-      expect(receivedCall?.method, 'performKeyPress');
+      expect(receivedCall?.method, 'launchMissionControlAction');
       expect(receivedCall?.arguments, <String, Object>{
-        'keyCode': 103,
-        'modifiers': <String>[],
+        'action': 'show_desktop',
       });
     },
     skip: !Platform.isMacOS,

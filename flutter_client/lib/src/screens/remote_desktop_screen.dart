@@ -35,6 +35,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
   );
 
   late final RemoteToolbarController _toolbarController;
+  late final SessionProvider _screenSession;
   bool _showHint = true;
   bool? _lastAutoClipboardSync;
   bool _handledRemoteTermination = false;
@@ -42,6 +43,8 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
   @override
   void initState() {
     super.initState();
+    _screenSession = context.read<SessionProvider>();
+    _screenSession.resumeScreenViewing(widget.sessionId);
     _toolbarController = RemoteToolbarController()
       ..addListener(_handleToolbarChanged);
     Future<void>.delayed(const Duration(seconds: 4), () {
@@ -57,6 +60,7 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
 
   @override
   void dispose() {
+    unawaited(_screenSession.pauseScreenViewing(widget.sessionId));
     _toolbarController
       ..removeListener(_handleToolbarChanged)
       ..dispose();

@@ -22,14 +22,9 @@ void main() {
     );
   });
 
-  test('macOS 窗口与桌面动作映射为系统快捷键', () {
-    final showAllWindows = macRemoteKeyStrokeForAction('show_all_windows');
-    final showDesktop = macRemoteKeyStrokeForAction('show_desktop');
-
-    expect(showAllWindows?.keyCode, 126);
-    expect(showAllWindows?.modifiers, {MacRemoteModifier.control});
-    expect(showDesktop?.keyCode, 103);
-    expect(showDesktop?.modifiers, isEmpty);
+  test('macOS 窗口与桌面动作不退回可配置系统快捷键', () {
+    expect(macRemoteKeyStrokeForAction('show_all_windows'), isNull);
+    expect(macRemoteKeyStrokeForAction('show_desktop'), isNull);
   });
 
   test('未知动作不生成键盘事件', () {

@@ -28,6 +28,41 @@ class DesktopHostPlugin {
   /// Currently selected display index (0 = main display).
   private static var _selectedDisplayIndex = 0
 
+  // Capture intent is separate from host availability. All lifecycle state is
+  // owned by the main actor / Flutter platform thread.
+  private static var _captureEnabled = false
+  private static var _captureGeneration = 0
+  private static var _captureRequestID = 0
+  private static var _captureTask: Task<Void, Never>?
+  private static var _pendingCaptureResult: FlutterResult?
+  private static var _captureRequests = 0
+  private static var _encodedFrames = 0
+
+  /// Migrate away from the retired CLI capture path. Only remove our own
+  /// regular temporary file; never follow a symlink or inspect its image.
+  private static func clearLegacyScreenshot() {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory())
+      .appendingPathComponent("rdesk_desktop_frame.jpg")
+    let manager = FileManager.default
+    guard let attributes = try? manager.attributesOfItem(atPath: url.path),
+          attributes[.type] as? FileAttributeType == .typeRegular else { return }
+    do {
+      try manager.removeItem(at: url)
+      NSLog("[RDeskCapture] retired CLI frame removed")
+    } catch {
+      NSLog("[RDeskCapture] retired CLI frame cleanup failed: \(error)")
+    }
+  }
+
+  private static func cancelCapture() {
+    _captureRequestID += 1
+    _captureTask?.cancel()
+    _captureTask = nil
+    let pending = _pendingCaptureResult
+    _pendingCaptureResult = nil
+    pending?(nil)
+  }
+
   // MARK: Permission state tracking
 
   /// True after SCKit capture succeeds at least once this launch.
@@ -48,6 +83,7 @@ class DesktopHostPlugin {
   private static var _accessibilityPermissionRequested = false
 
   static func register(with messenger: FlutterBinaryMessenger) {
+    clearLegacyScreenshot()
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
     channel.setMethodCallHandler { call, result in
       switch call.method {
@@ -60,8 +96,25 @@ class DesktopHostPlugin {
         // Called after user navigates to Settings — clear cooldown to allow immediate retry.
         _lastDenialTime = nil
         result(nil)
+      case "setCaptureEnabled":
+        let args = call.arguments as? [String: Any]
+        let generation = args?["generation"] as? Int ?? 0
+        guard generation >= _captureGeneration else { result(nil); return }
+        cancelCapture()
+        _captureGeneration = generation
+        _captureEnabled = args?["enabled"] as? Bool ?? false
+        if !_captureEnabled { clearLegacyScreenshot() }
+        NSLog("[RDeskCapture] enabled=\(_captureEnabled) generation=\(generation) requests=\(_captureRequests) encoded=\(_encodedFrames)")
+        result(nil)
+      case "captureDiagnostics":
+        result(["enabled": _captureEnabled, "pending": _captureTask != nil,
+                "requests": _captureRequests, "encoded": _encodedFrames])
       case "captureScreen":
         let args = call.arguments as? [String: Any]
+        guard _captureEnabled, args?["generation"] as? Int == _captureGeneration else {
+          result(nil)
+          return
+        }
         let maxDim = args?["maxDimension"] as? Int ?? 1920
         let quality = args?["quality"] as? Double ?? 0.5
         captureScreen(maxDimension: maxDim, quality: quality, result: result)
@@ -93,6 +146,15 @@ class DesktopHostPlugin {
         }
         let modifiers = args["modifiers"] as? [String] ?? []
         result(performKeyPress(keyCode: keyCode, modifiers: modifiers))
+      case "launchMissionControlAction":
+        guard
+          let args = call.arguments as? [String: Any],
+          let action = args["action"] as? String
+        else {
+          result(false)
+          return
+        }
+        result(launchMissionControlAction(action))
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -105,7 +167,12 @@ class DesktopHostPlugin {
   /// untrusted child executable instead of the RDesk accessibility grant. The
   /// child can exit successfully while TCC silently drops every event.
   private static func performKeyPress(keyCode: Int, modifiers: [String]) -> Bool {
-    guard AXIsProcessTrusted() else {
+    let accessibilityTrusted = AXIsProcessTrusted()
+    NSLog(
+      "[RDesk] performKeyPress requested: keyCode=\(keyCode) " +
+      "modifiers=\(modifiers) accessibilityTrusted=\(accessibilityTrusted)"
+    )
+    guard accessibilityTrusted else {
       NSLog("[RDesk] performKeyPress blocked: accessibility permission missing")
       return false
     }
@@ -145,7 +212,54 @@ class DesktopHostPlugin {
     keyUp.flags = flags
     keyDown.post(tap: .cghidEventTap)
     keyUp.post(tap: .cghidEventTap)
+    NSLog("[RDesk] performKeyPress posted: keyCode=\(keyCode) flags=\(flags.rawValue)")
     return true
+  }
+
+  /// Launches macOS' own Mission Control helper with the action argument used
+  /// by the installed system app. This is independent of configurable keyboard
+  /// shortcuts and runs from RDesk's active Aqua session.
+  private static func launchMissionControlAction(_ action: String) -> Bool {
+    let argument: String
+    switch action {
+    case "show_all_windows":
+      argument = "0"
+    case "show_desktop":
+      argument = "1"
+    default:
+      return false
+    }
+
+    let executablePath = "/usr/bin/open"
+    guard FileManager.default.isExecutableFile(atPath: executablePath) else {
+      NSLog("[RDesk] LaunchServices helper missing: \(executablePath)")
+      return false
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = [
+      "-b", "com.apple.exposelauncher", "--args", argument,
+    ]
+    do {
+      try process.run()
+      process.waitUntilExit()
+      guard process.terminationStatus == 0 else {
+        NSLog(
+          "[RDesk] launchMissionControlAction rejected: " +
+          "action=\(action) status=\(process.terminationStatus)"
+        )
+        return false
+      }
+      NSLog(
+        "[RDesk] launchMissionControlAction accepted: " +
+        "action=\(action) argument=\(argument)"
+      )
+      return true
+    } catch {
+      NSLog("[RDesk] launchMissionControlAction failed: \(error)")
+      return false
+    }
   }
 
   // MARK: Display listing (CG-based, no TCC prompt)
@@ -205,8 +319,18 @@ class DesktopHostPlugin {
       return
     }
 
+    guard _captureEnabled, _captureTask == nil else { result(nil); return }
     if #available(macOS 14.0, *) {
-      captureWithSCKit(maxDimension: maxDimension, quality: quality, result: result)
+      _pendingCaptureResult = result
+      _captureRequestID += 1
+      let requestID = _captureRequestID
+      captureWithSCKit(maxDimension: maxDimension, quality: quality, result: { value in
+        guard requestID == _captureRequestID else { return }
+        let pending = _pendingCaptureResult
+        _pendingCaptureResult = nil
+        _captureTask = nil
+        pending?(value)
+      })
     } else {
       result(FlutterError(code: "CAPTURE_FAILED", message: "macOS 14+ required", details: nil))
     }
@@ -214,9 +338,14 @@ class DesktopHostPlugin {
 
   @available(macOS 14.0, *)
   private static func captureWithSCKit(maxDimension: Int, quality: Double, result: @escaping FlutterResult) {
-    Task { @MainActor in
+    let generation = _captureGeneration
+    _captureTask = Task { @MainActor in
       do {
+        try Task.checkCancellation()
+        guard _captureEnabled, generation == _captureGeneration else { return }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        try Task.checkCancellation()
+        guard _captureEnabled, generation == _captureGeneration else { return }
 
         // If we get here without error, SCKit permission is granted.
         if !_screenCaptureEverSucceeded {
@@ -253,29 +382,33 @@ class DesktopHostPlugin {
         config.pixelFormat = kCVPixelFormatType_32BGRA
         config.showsCursor = true
 
+        _captureRequests += 1
+        if _captureRequests == 1 || _captureRequests % 50 == 0 {
+          NSLog("[RDeskCapture] screenshot request=\(_captureRequests) generation=\(generation)")
+        }
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        try Task.checkCancellation()
+        guard _captureEnabled, generation == _captureGeneration else { return }
         let w = image.width
         let h = image.height
         let img = image
 
-        // Encode JPEG in memory and return bytes directly (no disk I/O).
-        DispatchQueue.global(qos: .userInitiated).async {
-          let mutableData = NSMutableData()
-          guard let dest = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.jpeg" as CFString, 1, nil) else {
-            DispatchQueue.main.async { result(FlutterError(code: "CAPTURE_FAILED", message: "JPEG dest fail", details: nil)) }
-            return
-          }
-          CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
-          guard CGImageDestinationFinalize(dest) else {
-            DispatchQueue.main.async { result(FlutterError(code: "CAPTURE_FAILED", message: "JPEG encode fail", details: nil)) }
-            return
-          }
-          let jpegBytes = FlutterStandardTypedData(bytes: mutableData as Data)
-          DispatchQueue.main.async {
-            result(["bytes": jpegBytes, "width": w, "height": h])
-          }
+        // Encoding and stop are serialized on the main actor: after a stop
+        // acknowledgement, an old screenshot cannot start encoding or return.
+        let mutableData = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(mutableData as CFMutableData, "public.jpeg" as CFString, 1, nil) else {
+          result(FlutterError(code: "CAPTURE_FAILED", message: "JPEG dest fail", details: nil))
+          return
         }
+        CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else {
+          result(FlutterError(code: "CAPTURE_FAILED", message: "JPEG encode fail", details: nil))
+          return
+        }
+        _encodedFrames += 1
+        result(["bytes": FlutterStandardTypedData(bytes: mutableData as Data), "width": w, "height": h])
       } catch {
+        guard !Task.isCancelled, _captureEnabled, generation == _captureGeneration else { return }
         let msg = error.localizedDescription
         let isTCC = msg.contains("TCC") || msg.contains("permission") ||
                     msg.contains("denied") || msg.contains("not authorized") ||

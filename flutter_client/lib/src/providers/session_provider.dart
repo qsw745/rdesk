@@ -36,6 +36,34 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   final _bridge = RdeskBridgeService.instance;
   SessionInfo? _currentSession;
+  bool _screenViewing = false;
+  int _frameBindingGeneration = 0;
+  Future<void> _viewTransition = Future<void>.value();
+
+  /// Only the visible remote desktop owns a frame subscription. File manager
+  /// keeps the authenticated session but releases its screen demand.
+  void resumeScreenViewing(String sessionId) {
+    if (_currentSession?.sessionId != sessionId || _screenViewing) return;
+    _screenViewing = true;
+    unawaited(_bindFrameStream(_currentSession!));
+  }
+
+  Future<void> pauseScreenViewing(String sessionId) {
+    if (_currentSession?.sessionId != sessionId) return _viewTransition;
+    _screenViewing = false;
+    ++_frameBindingGeneration;
+    _pendingFrameNotify?.cancel();
+    _pendingFrameNotify = null;
+    _currentFrame = null;
+    final subscription = _frameSubscription;
+    _frameSubscription = null;
+    _viewTransition = _viewTransition.then((_) async {
+      await subscription?.cancel();
+      await _bridge.stopScreenViewing(sessionId);
+    });
+    return _viewTransition;
+  }
+
   Uint8List? _currentFrame;
   int _frameWidth = 0;
   int _frameHeight = 0;
@@ -98,6 +126,9 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   DateTime? get lastFrameReceivedAt => _lastFrameReceivedAt;
 
   void setSession(SessionInfo session, {String? accessPassword}) {
+    final oldSession = _currentSession;
+    if (oldSession != null) unawaited(pauseScreenViewing(oldSession.sessionId));
+    _screenViewing = false;
     _currentSession = session;
     _sessionPassword = accessPassword;
     _currentFrame = null;
@@ -111,7 +142,6 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     _reconnectFailureStreak = 0;
     _deviceMissingStreak = 0;
     notifyListeners();
-    unawaited(_bindFrameStream(session));
     unawaited(_fetchDisplayList(session.sessionId));
   }
 
@@ -213,6 +243,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void clearSession() {
+    final session = _currentSession;
+    if (session != null) unawaited(pauseScreenViewing(session.sessionId));
     _currentSession = null;
     _sessionPassword = null;
     _currentFrame = null;
@@ -416,7 +448,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     // 一次失败上。等看门狗慢慢发现要好几秒，期间画面是黑的。这里主动重建。
     final stale = lastFrame == null ||
         DateTime.now().difference(lastFrame) > _resumeRebindThreshold;
-    if (wasBackgrounded &&
+    if (_screenViewing &&
+        wasBackgrounded &&
         stale &&
         !_bridge.isSessionTerminated(session.sessionId)) {
       _connectionStatusLabel = '重连中';
@@ -427,6 +460,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    final session = _currentSession;
+    if (session != null) unawaited(pauseScreenViewing(session.sessionId));
     WidgetsBinding.instance.removeObserver(this);
     _stopClipboardSync(notify: false);
     _pendingFrameNotify?.cancel();
@@ -435,14 +470,26 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _bindFrameStream(SessionInfo session) async {
+    if (!_screenViewing || _currentSession?.sessionId != session.sessionId) {
+      return;
+    }
+    final generation = ++_frameBindingGeneration;
+    await _viewTransition;
     await _frameSubscription?.cancel();
+    if (!_screenViewing ||
+        generation != _frameBindingGeneration ||
+        _currentSession?.sessionId != session.sessionId) {
+      return;
+    }
     _frameSubscription = _bridge
         .watchSessionFrames(
       session.sessionId,
       peerId: session.peerId,
     )
         .listen((frame) {
-      if (_currentSession?.sessionId != session.sessionId) {
+      if (!_screenViewing ||
+          generation != _frameBindingGeneration ||
+          _currentSession?.sessionId != session.sessionId) {
         return;
       }
       if (frame == null) {

@@ -18,6 +18,50 @@ import '../widgets/incoming_connection_dialog.dart';
 class DesktopHostProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
   final _service = DesktopHostService.instance;
+  final int lanPort;
+  DesktopHostProvider({this.lanPort = 21116});
+
+  bool _hostingEnabled = false;
+  bool _disposed = false;
+  int _hostGeneration = 0;
+  int _captureGeneration = 0;
+  Future<void> _hostTransition = Future<void>.value();
+  final _clock = Stopwatch()..start();
+  static const screenLeaseMs = 10000;
+  final Map<String, int> _lanScreenLeases = {};
+  int _relayLeaseUntil = 0;
+  int _relayViewers = 0;
+  int _relayCaptureEpoch = 0;
+  bool _relayDemandBusy = false;
+  Timer? _demandTimer;
+  Timer? _relayDemandTimer;
+  RelayFrameUpload? _frameUpload;
+  int _uploadedFrames = 0;
+  String? _relayDemandError;
+
+  bool get hostingEnabled => _hostingEnabled && !_disposed;
+  bool get captureRunning => _service.captureRunning;
+  int get activeViewerCount =>
+      _lanScreenLeases.length +
+      (_clock.elapsedMilliseconds < _relayLeaseUntil ? _relayViewers : 0);
+  bool get _hasRelayViewer =>
+      hostingEnabled &&
+      _relayViewers > 0 &&
+      _clock.elapsedMilliseconds < _relayLeaseUntil;
+  bool get _needsCapture =>
+      hostingEnabled &&
+      (_lanScreenLeases.values
+              .any((until) => until > _clock.elapsedMilliseconds) ||
+          _hasRelayViewer);
+  bool _hostCurrent(int generation) =>
+      hostingEnabled && generation == _hostGeneration;
+  bool _captureCurrent(int generation) =>
+      _needsCapture && generation == _captureGeneration;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
 
   AndroidHostState _state = const AndroidHostState(
     state: 'idle',
@@ -57,14 +101,15 @@ class DesktopHostProvider extends ChangeNotifier {
   AndroidHostFrame? get previewFrame => _previewFrame;
   String? get lanRelayEndpoint => _lanRelayEndpoint;
   bool get busy => _busy;
-  String? get error => _error;
+  String? get error => _error ?? _relayDemandError;
   bool get hostRegistered => (_relayHostToken?.isNotEmpty ?? false);
   DateTime? get lastHostRegistrationAt => _lastHostRegistrationAt;
   String? get hostRegistrationError => _lastHostRegistrationError;
   int get registrationAttempts => _registrationAttempts;
   String? get localDeviceId => _localDevice?.deviceId;
   bool get canDisconnectViewers =>
-      _state.isRunning &&
+      hostingEnabled &&
+      activeViewerCount > 0 &&
       _localDevice != null &&
       (_relayHostToken?.isNotEmpty ?? false);
 
@@ -78,51 +123,154 @@ class DesktopHostProvider extends ChangeNotifier {
     _ensureHostRecoveryLoop();
   }
 
-  Future<void> startHosting() async {
-    await _ensureLocalDeviceInfo();
-    await _run(() async {
-      _state = await _service.startHosting();
-      await _refreshPermissionState();
-      _ensurePreviewPolling();
-      _ensureRegistrationTimer();
-      try {
-        await _ensureLanRelay();
-        debugPrint(
-            '[RDesk] DesktopHost: LAN relay started at $_lanRelayEndpoint');
-      } catch (e) {
-        debugPrint('[RDesk] DesktopHost: LAN relay failed: $e');
-        // Desktop sandbox/network environments can block local HTTP bind.
-        // Continue with server-relay-only mode so account direct connect
-        // still works.
-      }
-      await _registerPreviewHost();
-      _ensureRelayCommandPolling();
-    });
+  Future<void> startHosting() {
+    if (_disposed || hostingEnabled) return _hostTransition;
+    _hostingEnabled = true;
+    final generation = ++_hostGeneration;
+    _hostTransition = _hostTransition.then((_) => _run(() async {
+          if (!_hostCurrent(generation)) return;
+          await _ensureLocalDeviceInfo();
+          if (!_hostCurrent(generation)) return;
+          final state = await _service.startHosting();
+          if (!_hostCurrent(generation)) return;
+          _state = state;
+          _ensureRegistrationTimer();
+          _ensureDemandPolling();
+          try {
+            await _ensureLanRelay();
+          } catch (e) {
+            debugPrint('[RDesk] DesktopHost: LAN relay failed: $e');
+          }
+          if (!_hostCurrent(generation)) return;
+          await _registerPreviewHost();
+          if (_hostCurrent(generation)) _ensureRelayCommandPolling();
+        }));
+    return _hostTransition;
   }
 
-  Future<void> stopHosting() async {
-    await _run(() async {
-      _state = await _service.stopHosting();
-      if (!_state.isRunning) {
-        _previewTimer?.cancel();
-        _previewTimer = null;
-        _registrationTimer?.cancel();
-        _registrationTimer = null;
-        _relayCommandTimer?.cancel();
-        _relayCommandTimer = null;
-        final oldToken = _relayHostToken;
-        _relayHostToken = null;
-        _lastHostRegistrationAt = null;
-        _lastUploadedFrameTimestampMs = null;
-        if (_localDevice != null && oldToken != null) {
-          try {
-            await _bridge.unregisterPreviewHost(_localDevice!.deviceId,
-                hostToken: oldToken);
-          } catch (_) {}
-        }
-        await _closeLanRelay();
-      }
+  Future<void> stopHosting() {
+    // Revoke intent synchronously, before any outstanding async work resumes.
+    _hostingEnabled = false;
+    ++_hostGeneration;
+    _stopDemandPolling();
+    _registrationTimer?.cancel();
+    _registrationTimer = null;
+    _relayCommandTimer?.cancel();
+    _relayCommandTimer = null;
+    _hostTransition = _hostTransition.then((_) => _run(() async {
+          _state = await _service.stopHosting();
+          final oldToken = _relayHostToken;
+          _relayHostToken = null;
+          _lastHostRegistrationAt = null;
+          await _closeLanRelay();
+          if (_localDevice != null && oldToken != null) {
+            try {
+              await _bridge
+                  .unregisterPreviewHost(_localDevice!.deviceId,
+                      hostToken: oldToken)
+                  .timeout(const Duration(seconds: 3));
+            } catch (_) {}
+          }
+        }));
+    return _hostTransition;
+  }
+
+  void _stopDemandPolling() {
+    _demandTimer?.cancel();
+    _demandTimer = null;
+    _relayDemandTimer?.cancel();
+    _relayDemandTimer = null;
+    _lanScreenLeases.clear();
+    _lanSessionTokens.clear();
+    _relayLeaseUntil = 0;
+    _relayViewers = 0;
+    _relayDemandError = null;
+    _stopCapture();
+  }
+
+  void _stopCapture() {
+    ++_captureGeneration;
+    _previewTimer?.cancel();
+    _previewTimer = null;
+    _frameUpload?.cancel();
+    _frameUpload = null;
+    _previewFrame = null;
+    _lastUploadedFrameTimestampMs = null;
+    _emptyFrameStreak = 0;
+    _error = null;
+    unawaited(_service.stopCapture().catchError((Object e) {
+      debugPrint('[RDeskCapture] stop failed: $e');
+    }));
+    debugPrint('[RDeskCapture] stopped uploaded=$_uploadedFrames');
+    notifyListeners();
+  }
+
+  void _ensureDemandPolling() {
+    if (!hostingEnabled) return;
+    _demandTimer ??= Timer.periodic(const Duration(milliseconds: 250), (_) {
+      _lanScreenLeases
+          .removeWhere((_, until) => until <= _clock.elapsedMilliseconds);
+      _syncCaptureDemand();
     });
+    _relayDemandTimer ??= Timer.periodic(
+        const Duration(seconds: 1), (_) => unawaited(_pollScreenDemand()));
+    unawaited(_pollScreenDemand());
+  }
+
+  void _syncCaptureDemand() {
+    if (!_hasRelayViewer) {
+      _frameUpload?.cancel();
+      _frameUpload = null;
+    } else {
+      _frameUpload ??= RelayFrameUpload();
+    }
+    if (!_needsCapture) {
+      if (_previewTimer != null || captureRunning || _previewFrame != null) {
+        _stopCapture();
+      }
+      return;
+    }
+    if (_previewTimer == null || !captureRunning) _ensurePreviewPolling();
+  }
+
+  Future<void> _pollScreenDemand() async {
+    final generation = _hostGeneration;
+    final device = _localDevice;
+    final token = _relayHostToken;
+    if (!hostingEnabled ||
+        _relayDemandBusy ||
+        device == null ||
+        token == null) {
+      return;
+    }
+    _relayDemandBusy = true;
+    final sentAt = _clock.elapsedMilliseconds;
+    try {
+      final demand = await _bridge.pollHostedScreenDemand(
+          deviceId: device.deviceId, hostToken: token);
+      if (!_hostCurrent(generation) || token != _relayHostToken) return;
+      if (_relayCaptureEpoch != demand.epoch) {
+        // A new audience must never receive a frame captured for an old one.
+        _stopCapture();
+        _relayCaptureEpoch = demand.epoch;
+      }
+      _relayViewers = demand.viewers;
+      // Deduct response time conservatively; a slow response cannot extend a lease.
+      _relayLeaseUntil = sentAt + demand.expiresInMs.clamp(0, screenLeaseMs);
+      _relayDemandError = null;
+      _syncCaptureDemand();
+      notifyListeners();
+    } catch (e) {
+      if (!_hostCurrent(generation)) return;
+      if (e is HttpException && e.message.contains('需更新')) {
+        _relayDemandError = e.message;
+        notifyListeners();
+      }
+      // Keep the last proven lease only until its original finite deadline.
+      _syncCaptureDemand();
+    } finally {
+      _relayDemandBusy = false;
+    }
   }
 
   /// Reset permission denied latch and restart capture polling.
@@ -132,18 +280,21 @@ class DesktopHostProvider extends ChangeNotifier {
     _error = null;
     _emptyFrameStreak = 0;
     await _refreshPermissionState();
-    if (_state.isRunning) {
-      _ensurePreviewPolling();
+    if (hostingEnabled) {
+      _syncCaptureDemand();
     }
     notifyListeners();
   }
 
   Future<void> refresh() async {
     await _run(() async {
-      _state = await _service.getState();
+      final generation = _hostGeneration;
+      final state = await _service.getState();
+      if (!_hostCurrent(generation)) return;
+      _state = state;
       await _refreshPermissionState();
-      if (_state.isRunning) {
-        _ensurePreviewPolling();
+      if (_hostCurrent(generation)) {
+        _syncCaptureDemand();
         _ensureRelayCommandPolling();
         _ensureRegistrationTimer();
       }
@@ -152,6 +303,11 @@ class DesktopHostProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _hostingEnabled = false;
+    ++_hostGeneration;
+    _disposed = true;
+    _stopDemandPolling();
+    unawaited(_service.stopHosting().catchError((Object _) => _state));
     _previewTimer?.cancel();
     _registrationTimer?.cancel();
     _relayCommandTimer?.cancel();
@@ -163,10 +319,12 @@ class DesktopHostProvider extends ChangeNotifier {
   Future<bool> disconnectCurrentViewer() async {
     final device = _localDevice;
     final hostToken = _relayHostToken;
-    if (!_state.isRunning || device == null) {
+    if (!hostingEnabled || device == null) {
       return false;
     }
 
+    final generation = ++_hostGeneration;
+    _stopDemandPolling();
     await _run(() async {
       // 1) Unregister from relay to remove preview entry AND all viewer
       //    sessions atomically.  Relay-connected viewers will get 401.
@@ -191,7 +349,9 @@ class DesktopHostProvider extends ChangeNotifier {
       _relayHostToken = null;
       _lastUploadedFrameTimestampMs = null;
 
-      // 3) Re-open LAN relay and re-register fresh
+      // 3) Re-open only if the user still wants hosting.
+      if (!_hostCurrent(generation)) return;
+      _ensureDemandPolling();
       await _ensureLanRelay();
       await _registerPreviewHost();
       _ensureRelayCommandPolling();
@@ -220,7 +380,7 @@ class DesktopHostProvider extends ChangeNotifier {
 
   void _ensureHostRecoveryLoop() {
     _hostRecoveryTimer?.cancel();
-    if (!Platform.isMacOS) return;
+    if (_disposed || !Platform.isMacOS) return;
     _hostRecoveryTimer = Timer.periodic(
       const Duration(seconds: 8),
       (_) => unawaited(_maintainHostAvailability()),
@@ -229,39 +389,22 @@ class DesktopHostProvider extends ChangeNotifier {
   }
 
   Future<void> _maintainHostAvailability() async {
-    if (_busy) return;
-    if (_localDevice == null) {
-      await _ensureLocalDeviceInfo();
-    }
-    if (!_state.isRunning) {
-      // Always retry start on desktop so permission prompts / guide can
-      // reappear and hosting can auto-recover after app relaunch.
-      await startHosting();
-      return;
-    }
-
-    // Ensure capture polling is always running when hosting.
-    if (_previewTimer == null && _state.isRunning) {
-      _ensurePreviewPolling();
-    }
-
+    if (!hostingEnabled || _busy) return;
+    final generation = _hostGeneration;
+    _syncCaptureDemand();
     if (_lanRelayServer == null) {
       try {
         await _ensureLanRelay();
       } catch (_) {}
     }
-
-    if ((_relayHostToken == null || _relayHostToken!.isEmpty) &&
-        _state.isRunning) {
-      try {
-        _ensureRegistrationTimer();
-        await _registerPreviewHost();
-      } catch (_) {}
-    }
+    if (!_hostCurrent(generation)) return;
+    _ensureRegistrationTimer();
+    _ensureDemandPolling();
+    if (_relayHostToken == null) await _registerPreviewHost();
   }
 
   void _ensureRegistrationTimer() {
-    if (_registrationTimer != null) return;
+    if (!hostingEnabled || _registrationTimer != null) return;
     _registrationTimer = Timer.periodic(
       const Duration(seconds: 10),
       (_) => unawaited(_registerPreviewHost()),
@@ -269,21 +412,33 @@ class DesktopHostProvider extends ChangeNotifier {
   }
 
   void _ensurePreviewPolling() {
+    if (!_needsCapture) return;
     _previewTimer?.cancel();
-    if (!_state.isRunning) return;
-    unawaited(_pollPreviewFrame());
-    _previewTimer = Timer.periodic(
-      const Duration(milliseconds: 100), // ~10 fps for desktop
-      (_) => unawaited(_pollPreviewFrame()),
-    );
+    final generation = ++_captureGeneration;
+    _frameUpload?.cancel();
+    _frameUpload = _hasRelayViewer ? RelayFrameUpload() : null;
+    unawaited(_service.startCapture().then((_) {
+      if (_captureCurrent(generation)) unawaited(_pollPreviewFrame());
+    }).catchError((Object e) {
+      if (_captureCurrent(generation)) {
+        _error = _formatError(e);
+        notifyListeners();
+      }
+    }));
+    _previewTimer = Timer.periodic(const Duration(milliseconds: 100),
+        (_) => unawaited(_pollPreviewFrame()));
+    debugPrint(
+        '[RDeskCapture] start viewers=$activeViewerCount generation=$generation');
   }
 
   Future<void> _pollPreviewFrame() async {
     // Prevent overlapping captures — SCKit doesn't handle concurrent calls well.
-    if (_captureInFlight) return;
+    if (!_needsCapture || _captureInFlight) return;
+    final generation = _captureGeneration;
     _captureInFlight = true;
     try {
       final frame = await _service.getLatestFrame();
+      if (!_captureCurrent(generation)) return;
       if (frame != null) {
         _emptyFrameStreak = 0;
         if (_error != null) {
@@ -297,8 +452,8 @@ class DesktopHostProvider extends ChangeNotifier {
             _state.isRunning) {
           unawaited(_registerPreviewHost());
         }
-        await _uploadRelayFrame(frame);
-      } else if (_state.isRunning) {
+        await _uploadRelayFrame(frame, generation);
+      } else if (_needsCapture) {
         _emptyFrameStreak++;
         if (_emptyFrameStreak >= 8) {
           final now = DateTime.now();
@@ -317,6 +472,7 @@ class DesktopHostProvider extends ChangeNotifier {
         }
       }
     } catch (error) {
+      if (!_captureCurrent(generation)) return;
       final message = _formatError(error);
       if (_error != message) {
         _error = message;
@@ -324,6 +480,7 @@ class DesktopHostProvider extends ChangeNotifier {
       }
       if (error is DesktopPermissionException &&
           (error.code == 'screen_recording_denied')) {
+        // Retry only while a current authenticated screen lease remains.
         // Native side uses a 30s cooldown before retrying SCKit,
         // so we don't need to stop polling. The native call returns
         // immediately with PERMISSION_DENIED during cooldown (no popup).
@@ -339,7 +496,7 @@ class DesktopHostProvider extends ChangeNotifier {
 
   void _ensureRelayCommandPolling() {
     _relayCommandTimer?.cancel();
-    if (!_state.isRunning || _relayHostToken == null || _localDevice == null) {
+    if (!hostingEnabled || _relayHostToken == null || _localDevice == null) {
       return;
     }
     unawaited(_pollRelayCommand());
@@ -352,12 +509,13 @@ class DesktopHostProvider extends ChangeNotifier {
   // ---------- LAN HTTP relay (same as Android) ----------
 
   Future<void> _ensureLanRelay() async {
+    if (!hostingEnabled) return;
+    final generation = _hostGeneration;
     if (_lanRelayServer != null) {
       debugPrint('[RDesk] LAN relay already running at $_lanRelayEndpoint');
       return;
     }
 
-    const lanPort = 21116;
     debugPrint('[RDesk] LAN relay: binding to 0.0.0.0:$lanPort ...');
     HttpServer server;
     try {
@@ -368,28 +526,45 @@ class DesktopHostProvider extends ChangeNotifier {
           '[RDesk] LAN relay: port $lanPort occupied, using random port');
       server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
     }
+    if (!_hostCurrent(generation)) {
+      await server.close(force: true);
+      return;
+    }
     _lanRelayServer = server;
     final localIp = await _resolveLocalIpv4();
+    if (!_hostCurrent(generation)) {
+      await _closeLanRelay();
+      return;
+    }
     debugPrint('[RDesk] LAN relay: localIp=$localIp, port=${server.port}');
     _lanRelayEndpoint = localIp != null
         ? '$localIp:${server.port}'
         : '127.0.0.1:${server.port}';
     debugPrint('[RDesk] LAN relay endpoint: $_lanRelayEndpoint');
     notifyListeners();
-    await _registerPreviewHost();
 
     unawaited(
       server.forEach((request) async {
         final response = request.response;
         response.headers.set('Cache-Control', 'no-store');
 
+        if (!_hostCurrent(generation)) {
+          response.statusCode = HttpStatus.serviceUnavailable;
+          await response.close();
+          return;
+        }
         // --- Unauthenticated endpoints ---
 
         if (request.uri.path == '/health') {
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{
             'state': _state.state,
-            'running': _state.isRunning,
+            'running': hostingEnabled,
+            'hostingEnabled': hostingEnabled,
+            'activeViewers': activeViewerCount,
+            'captureRunning': captureRunning,
+            'uploadedFrames': _uploadedFrames,
+            'capture': await _service.captureDiagnostics(),
             'hasPermission': _state.hasPermission,
             'hasFrame': _previewFrame != null,
             'endpoint': _lanRelayEndpoint,
@@ -436,6 +611,10 @@ class DesktopHostProvider extends ChangeNotifier {
           final sessionToken = List.generate(32, (_) => rng.nextInt(256))
               .map((b) => b.toRadixString(16).padLeft(2, '0'))
               .join();
+          if (!_hostCurrent(generation)) {
+            await response.close();
+            return;
+          }
           _lanSessionTokens.add(sessionToken);
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{
@@ -457,7 +636,23 @@ class DesktopHostProvider extends ChangeNotifier {
           return;
         }
 
-        if (request.uri.path == '/frame.jpg') {
+        if ((request.uri.path == '/session/close' ||
+                request.uri.path == '/session/screen/stop') &&
+            request.method == 'POST') {
+          if (request.uri.path == '/session/close') {
+            _lanSessionTokens.remove(token);
+          }
+          _lanScreenLeases.remove(token);
+          _syncCaptureDemand();
+          response.headers.contentType = ContentType.json;
+          response.write(jsonEncode({'ok': true}));
+          await response.close();
+          return;
+        }
+
+        if (request.uri.path == '/frame.jpg' && request.method == 'GET') {
+          _lanScreenLeases[token] = _clock.elapsedMilliseconds + screenLeaseMs;
+          _syncCaptureDemand();
           final frame = _previewFrame;
           if (frame == null || frame.bytes.isEmpty) {
             response.statusCode = HttpStatus.serviceUnavailable;
@@ -470,6 +665,8 @@ class DesktopHostProvider extends ChangeNotifier {
           response.headers.set('X-RDesk-Height', frame.height.toString());
           response.headers
               .set('X-RDesk-Timestamp', frame.timestampMs.toString());
+          response.headers
+              .set('X-RDesk-Captured-At', frame.timestampMs.toString());
           response.add(frame.bytes);
           await response.close();
           return;
@@ -514,7 +711,9 @@ class DesktopHostProvider extends ChangeNotifier {
             await response.close();
             return;
           }
+          debugPrint('[RDesk] LAN remote action received: $action');
           final ok = await _service.performRemoteAction(action);
+          debugPrint('[RDesk] LAN remote action completed: $action ok=$ok');
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{'ok': ok}));
           await response.close();
@@ -645,6 +844,8 @@ class DesktopHostProvider extends ChangeNotifier {
     // Revoke tokens first so in-flight requests get 401 (triggering viewer
     // termination) before the TCP listener is torn down.
     _lanSessionTokens.clear();
+    _lanScreenLeases.clear();
+    _syncCaptureDemand();
     if (server != null) {
       // Give in-flight requests a moment to receive 401 before closing.
       await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -694,7 +895,7 @@ class DesktopHostProvider extends ChangeNotifier {
   // ---------- signaling server registration ----------
 
   Future<void> _registerPreviewHost() async {
-    if (_relayRegisterBusy) return;
+    if (!hostingEnabled || _relayRegisterBusy) return;
     _relayRegisterBusy = true;
     try {
       await _registerPreviewHostInner();
@@ -704,37 +905,22 @@ class DesktopHostProvider extends ChangeNotifier {
   }
 
   Future<void> _registerPreviewHostInner() async {
+    final generation = _hostGeneration;
     _ensureRegistrationTimer();
     final device = await _ensureLocalDeviceInfo();
-    if (device == null || !_state.isRunning) return;
+    if (device == null || !_hostCurrent(generation)) return;
     final endpoint = (_lanRelayEndpoint?.trim().isNotEmpty ?? false)
         ? _lanRelayEndpoint!
         : '127.0.0.1:0';
     _registrationAttempts++;
 
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    final latestFrame = _previewFrame;
-    final hasUsableFrame = latestFrame != null &&
-        nowMs >= latestFrame.timestampMs &&
-        (nowMs - latestFrame.timestampMs) <
-            const Duration(seconds: 5).inMilliseconds;
-    // Keep host registration alive even when frames are temporarily unavailable.
-    // This allows same-account direct connect to establish quickly while the
-    // capture pipeline warms up.
-    if (!hasUsableFrame && _error == null) {
-      _error = '桌面画面暂不可用，正在重试采集...';
-      notifyListeners();
-    }
-
-    if (_relayHostToken == null) {
-      // Cannot unregister without a valid host_token; skip.
-    }
-
+    // Registration is a heartbeat, independent of screen frames.
     final password = await _bridge.getActiveAccessPassword();
     final settings = await _bridge.loadSettings();
     final trustedViewerIds = await _bridge.listTrustedIncomingViewerIds();
     final authToken = await _bridge.getAccountToken();
 
+    if (!_hostCurrent(generation)) return;
     final oldToken = _relayHostToken;
     String? hostToken;
     try {
@@ -748,9 +934,20 @@ class DesktopHostProvider extends ChangeNotifier {
         trustedViewerIds: trustedViewerIds,
         authToken: authToken,
         hostToken: _relayHostToken,
+        onDemandCapture: true,
       );
+      if (!_hostCurrent(generation)) {
+        if (hostToken != null) {
+          try {
+            await _bridge.unregisterPreviewHost(device.deviceId,
+                hostToken: hostToken);
+          } catch (_) {}
+        }
+        return;
+      }
     } catch (error) {
       final message = _formatError(error);
+      if (!_hostCurrent(generation)) return;
       final formatted = '共享服务注册失败：$message';
       _lastHostRegistrationError = formatted;
       debugPrint(
@@ -783,10 +980,14 @@ class DesktopHostProvider extends ChangeNotifier {
     _ensureRelayCommandPolling();
   }
 
-  Future<void> _uploadRelayFrame(AndroidHostFrame frame) async {
+  Future<void> _uploadRelayFrame(AndroidHostFrame frame, int generation) async {
     final device = _localDevice;
     final hostToken = _relayHostToken;
-    if (device == null ||
+    final upload = _frameUpload;
+    if (!_captureCurrent(generation) ||
+        !_hasRelayViewer ||
+        upload == null ||
+        device == null ||
         hostToken == null ||
         hostToken.isEmpty ||
         _relayUploadBusy ||
@@ -803,16 +1004,23 @@ class DesktopHostProvider extends ChangeNotifier {
         width: frame.width,
         height: frame.height,
         timestampMs: frame.timestampMs,
+        captureEpoch: _relayCaptureEpoch,
+        upload: upload,
       );
+      if (!_captureCurrent(generation) || !_hasRelayViewer) return;
+      _uploadedFrames++;
       _lastUploadedFrameTimestampMs = frame.timestampMs;
     } catch (_) {
+      upload.cancel();
+      if (identical(_frameUpload, upload)) _frameUpload = null;
     } finally {
       _relayUploadBusy = false;
     }
   }
 
   Future<void> _pollRelayCommand() async {
-    if (_relayCommandBusy) return;
+    if (!hostingEnabled || _relayCommandBusy) return;
+    final generation = _hostGeneration;
     final device = _localDevice;
     final hostToken = _relayHostToken;
     if (device == null || hostToken == null || hostToken.isEmpty) return;
@@ -823,10 +1031,15 @@ class DesktopHostProvider extends ChangeNotifier {
         deviceId: device.deviceId,
         hostToken: hostToken,
       );
-      if (command == null || command.commandId.isEmpty) return;
+      if (!_hostCurrent(generation) ||
+          hostToken != _relayHostToken ||
+          command == null ||
+          command.commandId.isEmpty) {
+        return;
+      }
 
       debugPrint('[RDesk] _pollRelayCommand: got command kind=${command.kind} '
-          'id=${command.commandId} payload=${command.payload}');
+          'id=${command.commandId}');
       var ok = false;
       String? text;
       switch (command.kind) {
@@ -852,15 +1065,9 @@ class DesktopHostProvider extends ChangeNotifier {
                 presentation: IncomingConnectionPresentation.desktopBottomRight,
               );
               ok = action == IncomingConnectionAction.accept;
-              if (ok) {
-                await _refreshPermissionState();
-                if (!_state.hasPermission) {
-                  ok = false;
-                  text = 'host_screen_recording_permission_required';
-                  _error = '未授予屏幕录制权限，无法建立远程画面连接。';
-                  notifyListeners();
-                }
-              }
+              // Permission probing may be conservative on newer macOS.
+              // Accepting authorizes the session; only frame demand can capture.
+              if (!_hostCurrent(generation)) return;
             } else {
               text = 'host_ui_unavailable';
             }
@@ -891,7 +1098,9 @@ class DesktopHostProvider extends ChangeNotifier {
         case 'action':
           final action = command.payload['action'] as String?;
           if (action != null && action.isNotEmpty) {
+            debugPrint('[RDesk] Relay remote action received: $action');
             ok = await _service.performRemoteAction(action);
+            debugPrint('[RDesk] Relay remote action completed: $action ok=$ok');
           }
           break;
         case 'long_press':
@@ -944,6 +1153,7 @@ class DesktopHostProvider extends ChangeNotifier {
 
       debugPrint(
           '[RDesk] _pollRelayCommand: executing kind=${command.kind} result=$ok');
+      if (!_hostCurrent(generation)) return;
       await _bridge.submitHostedCommandResult(
         deviceId: device.deviceId,
         hostToken: hostToken,

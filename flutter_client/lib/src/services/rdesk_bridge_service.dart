@@ -142,6 +142,28 @@ class _ClockOffset {
   }
 }
 
+/// A capture generation owns its upload connections. Cancelling it also aborts
+/// requests waiting for a socket or response; it does not close control traffic.
+class RelayFrameUpload {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+  bool cancelled = false;
+  void cancel() {
+    cancelled = true;
+    client.close(force: true);
+  }
+
+  void check() {
+    if (cancelled) throw StateError('capture stopped');
+  }
+}
+
+class HostedScreenDemand {
+  final int epoch;
+  final int viewers;
+  final int expiresInMs;
+  const HostedScreenDemand(this.epoch, this.viewers, this.expiresInMs);
+}
+
 class RdeskBridgeService {
   RdeskBridgeService._();
 
@@ -721,12 +743,34 @@ class RdeskBridgeService {
     }
   }
 
+  Future<void> _notifyViewerEnd(Uri? uri) async {
+    if (uri == null) return;
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+    try {
+      await (() async {
+        final request = await client.postUrl(uri);
+        final response = await request.close();
+        await response.drain<void>();
+      })()
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      // A crash / broken network falls back to the finite host screen lease.
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> stopScreenViewing(String sessionId) =>
+      _notifyViewerEnd(_resolveControlUri(sessionId, '/session/screen/stop'));
+
   Future<void> disconnect(String sessionId) async {
+    final closeUri = _resolveControlUri(sessionId, '/session/close');
     _terminatedSessions.add(sessionId);
     _sessionPreviewEndpoints.remove(sessionId);
     _sessionTokens.remove(sessionId);
     _sessionPeerPlatforms.remove(sessionId);
-    closePersistentClients();
+    _sessionSocketFailureSince.remove(sessionId);
+    await _notifyViewerEnd(closeUri);
   }
 
   Future<List<ConnectionRecord>> listConnectionHistory() async {
@@ -1306,6 +1350,7 @@ class RdeskBridgeService {
     required List<String> trustedViewerIds,
     String? authToken,
     String? hostToken,
+    bool onDemandCapture = false,
   }) async {
     final settings = await loadSettings();
     final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
@@ -1326,14 +1371,19 @@ class RdeskBridgeService {
           'trusted_viewers': trustedViewerIds,
           'auth_token': authToken,
           'host_token': hostToken,
+          'on_demand_capture': onDemandCapture,
         }),
       );
-      final response = await request.close();
+      final response =
+          await request.close().timeout(const Duration(seconds: 3));
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('register failed: ${response.statusCode}',
             uri: apiBase);
       }
-      final body = await utf8.decoder.bind(response).join();
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 3));
       if (body.isEmpty) {
         return null;
       }
@@ -1358,7 +1408,8 @@ class RdeskBridgeService {
         'device_id': deviceId,
         'host_token': hostToken,
       }));
-      final response = await request.close();
+      final response =
+          await request.close().timeout(const Duration(seconds: 3));
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('unregister failed: ${response.statusCode}',
             uri: apiBase);
@@ -1386,12 +1437,16 @@ class RdeskBridgeService {
           'host_token': hostToken,
         }),
       );
-      final response = await request.close();
+      final response =
+          await request.close().timeout(const Duration(seconds: 3));
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
         return false;
       }
-      final body = await utf8.decoder.bind(response).join();
+      final body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(const Duration(seconds: 3));
       if (body.isEmpty) return true;
       final payload = jsonDecode(body) as Map<String, dynamic>;
       return payload['ok'] != false;
@@ -1413,9 +1468,12 @@ class RdeskBridgeService {
     required int width,
     required int height,
     required int timestampMs,
+    int? captureEpoch,
+    RelayFrameUpload? upload,
   }) async {
     final apiBase = await _signalingApiBase();
-    final client = _getHostClient;
+    upload?.check();
+    final client = upload?.client ?? _getHostClient;
 
     // 采集时刻换算到服务端时钟后再上报，观看端相减得到的才是真实链路耗时。
     final offset = _hostClockOffset;
@@ -1432,16 +1490,25 @@ class RdeskBridgeService {
           'width': width.toString(),
           'height': height.toString(),
           'timestamp_ms': normalizedTimestampMs.toString(),
+          if (captureEpoch != null) 'capture_epoch': captureEpoch.toString(),
         },
       ),
     );
+    if (upload?.cancelled == true) {
+      request.abort();
+      upload!.check();
+    }
     request.headers.contentType = ContentType('image', 'jpeg');
     request.contentLength = bytes.length;
     request.add(bytes);
-    final response = await request.close();
+    final response = await request.close().timeout(const Duration(seconds: 3));
     // 响应体必须读干净，否则这条连接无法被 keep-alive 复用，
     // 复用长连的意义就没了。
-    final body = await utf8.decoder.bind(response).join();
+    final body = await utf8.decoder
+        .bind(response)
+        .join()
+        .timeout(const Duration(seconds: 3));
+    upload?.check();
     final receivedAtMs = DateTime.now().millisecondsSinceEpoch;
     if (response.statusCode != HttpStatus.ok) {
       throw HttpException('frame upload failed: ${response.statusCode}',
@@ -1474,6 +1541,39 @@ class RdeskBridgeService {
       );
     } on FormatException {
       // 旧版服务端只回状态码，没有 JSON 体：保持未校准，行为与此前一致。
+    }
+  }
+
+  /// Authenticated host-only demand snapshot; no frame is needed for presence.
+  Future<HostedScreenDemand> pollHostedScreenDemand({
+    required String deviceId,
+    required String hostToken,
+  }) async {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+    try {
+      return await (() async {
+        final base = await _signalingApiBase();
+        final request = await client.getUrl(base.replace(
+          path: '/api/preview/host/viewers',
+          queryParameters: {'device_id': deviceId, 'host_token': hostToken},
+        ));
+        final response = await request.close();
+        if (response.statusCode == HttpStatus.notFound) {
+          throw const HttpException('中继服务器需更新以支持按需屏幕共享，局域网直连仍可用');
+        }
+        if (response.statusCode != HttpStatus.ok) {
+          throw HttpException('观看状态查询失败：${response.statusCode}');
+        }
+        final data =
+            jsonDecode(await utf8.decoder.bind(response).join()) as Map;
+        return HostedScreenDemand(
+            (data['capture_epoch'] as num).toInt(),
+            (data['viewers'] as num).toInt(),
+            (data['expires_in_ms'] as num).toInt());
+      })()
+          .timeout(const Duration(seconds: 2));
+    } finally {
+      client.close(force: true);
     }
   }
 
@@ -1580,6 +1680,8 @@ class RdeskBridgeService {
     );
     // Recheck after async gap — termination may have happened while awaiting.
     if (_terminatedSessions.contains(sessionId)) {
+      await _notifyViewerEnd(
+          resolved.endpoint?.replace(path: '/session/close'));
       return const PreviewResolveResult(
         found: false,
         authorized: false,
@@ -1589,7 +1691,12 @@ class RdeskBridgeService {
       );
     }
     if (resolved.found && resolved.authorized && resolved.endpoint != null) {
+      final previous = _sessionPreviewEndpoints[sessionId];
       _sessionPreviewEndpoints[sessionId] = resolved.endpoint!;
+      if (previous != null && previous != resolved.endpoint) {
+        // Replacing an endpoint must also release the old viewer's lease.
+        await _notifyViewerEnd(previous.replace(path: '/session/close'));
+      }
       // 重新拿到可用端点，先前的 socket 失败不再计入判死窗口。
       _sessionSocketFailureSince.remove(sessionId);
     }
