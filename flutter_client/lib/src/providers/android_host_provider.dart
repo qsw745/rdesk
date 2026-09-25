@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/device.dart';
 import '../services/rdesk_bridge_service.dart';
 import '../services/android_host_service.dart';
+import '../services/remote_file_access.dart';
 import '../utils/router.dart';
 import '../widgets/incoming_connection_dialog.dart';
 
@@ -51,6 +52,7 @@ class AndroidHostProvider extends ChangeNotifier {
   String? _lastRemoteGesture;
   String? _lastRemoteText;
   String? _lastRemoteClipboard;
+  String? _lastRemoteFileAccess;
 
   AndroidHostState get state => _state;
   AndroidHostFrame? get previewFrame => _previewFrame;
@@ -60,6 +62,10 @@ class AndroidHostProvider extends ChangeNotifier {
   String? get lastRemoteGesture => _lastRemoteGesture;
   String? get lastRemoteText => _lastRemoteText;
   String? get lastRemoteClipboard => _lastRemoteClipboard;
+
+  /// Most recent remote file-browsing attempt, shown to the host user so they
+  /// can see what the other side is looking at.
+  String? get lastRemoteFileAccess => _lastRemoteFileAccess;
   bool get busy => _busy;
   String? get error => _error;
   bool get canDisconnectViewers => _state.isRunning && _localDevice != null;
@@ -796,6 +802,17 @@ class AndroidHostProvider extends ChangeNotifier {
     return ok;
   }
 
+  void _noteRemoteFileActivity(String action, RemoteFileOutcome outcome) {
+    _lastRemoteFileAccess = outcome.allowed
+        ? '$action ${outcome.resolvedPath ?? outcome.requestedPath}（已允许）'
+        : '$action ${outcome.requestedPath}'
+            '（已拒绝：${outcome.reason?.message ?? _outcomeMessage(outcome)}）';
+    notifyListeners();
+  }
+
+  String _outcomeMessage(RemoteFileOutcome outcome) =>
+      outcome.payload['message'] as String? ?? '未知原因';
+
   Future<void> _pollRelayCommand() async {
     if (_relayCommandBusy) {
       return;
@@ -950,6 +967,26 @@ class AndroidHostProvider extends ChangeNotifier {
           break;
         case 'quality':
           ok = await _applyCaptureQualityPayload(command.payload);
+          break;
+        case 'file_list':
+          final requested =
+              command.payload['path'] as String? ?? remoteFileRootMarker;
+          final result = await _bridge.serveRemoteFileList(requested);
+          text = jsonEncode(result.payload);
+          ok = result.allowed;
+          _noteRemoteFileActivity('浏览', result);
+          break;
+        case 'file_receive':
+          final result = await _bridge.serveRemoteFileReceive(
+            deviceId: device.deviceId,
+            hostToken: hostToken,
+            fileId: command.payload['file_id'] as String? ?? '',
+            filename: command.payload['filename'] as String? ?? '',
+            remotePath: command.payload['remote_path'] as String? ?? '',
+          );
+          text = jsonEncode(result.payload);
+          ok = result.allowed;
+          _noteRemoteFileActivity('接收文件', result);
           break;
       }
 

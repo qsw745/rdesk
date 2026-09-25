@@ -1501,10 +1501,12 @@ async fn file_list_request(
 
     match forward_command(&state, &query, "file_list", json!({ "path": request.path })).await {
         Ok(result) => {
+            // The host answers with a JSON body that carries either the listing
+            // or a denial reason; pass its verdict through untouched.
             let listing = result.text.unwrap_or_else(|| "[]".to_string());
             (
                 StatusCode::OK,
-                Json(json!({ "ok": true, "files": listing, "command_id": command_id })),
+                Json(json!({ "ok": result.ok, "files": listing, "command_id": command_id })),
             )
                 .into_response()
         }
@@ -1522,7 +1524,10 @@ struct FileUploadQuery {
 
 #[derive(Debug, Deserialize)]
 struct FileDownloadQuery {
-    token: String,
+    /// Viewer session token, when the viewer fetches the blob.
+    token: Option<String>,
+    /// Host token, when the host fetches a blob that was pushed to it.
+    host_token: Option<String>,
 }
 
 async fn file_upload(
@@ -1545,12 +1550,14 @@ async fn file_upload(
         },
     );
 
-    // Tell the host to download this file
+    // Tell the host to fetch this file. The host validates the destination path
+    // against its own policy, so its verdict is what the viewer must be told —
+    // reporting success for a refused write would be a lie.
     let relay_query = RelayViewerQuery {
         device_id: query.device_id,
         token: query.token,
     };
-    let _ = forward_command(
+    let outcome = forward_command(
         &state,
         &relay_query,
         "file_receive",
@@ -1562,11 +1569,24 @@ async fn file_upload(
     )
     .await;
 
-    (
-        StatusCode::OK,
-        Json(json!({ "ok": true, "file_id": file_id })),
-    )
-        .into_response()
+    match outcome {
+        Ok(result) => {
+            // The host answered, so it is done with the blob.
+            state.file_store.remove(&file_id);
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "ok": result.ok,
+                    "file_id": file_id,
+                    "detail": result.text,
+                })),
+            )
+                .into_response()
+        }
+        // On a timeout the host may still be fetching a large file; leave the
+        // blob for the TTL sweep instead of pulling it out from under it.
+        Err(status) => status.into_response(),
+    }
 }
 
 async fn file_download(
@@ -1578,8 +1598,17 @@ async fn file_download(
         return StatusCode::NOT_FOUND.into_response();
     };
 
-    // Verify the requester has a valid viewer session for the file's device.
-    if !validate_viewer(&state, &blob.device_id, &query.token) {
+    // The blob may be fetched either by a viewer with a session for the file's
+    // device, or by that device's own host, which is the one told to receive it.
+    let authorized = query
+        .token
+        .as_deref()
+        .is_some_and(|token| validate_viewer(&state, &blob.device_id, token))
+        || query
+            .host_token
+            .as_deref()
+            .is_some_and(|token| validate_host(&state, &blob.device_id, token));
+    if !authorized {
         drop(blob);
         return StatusCode::UNAUTHORIZED.into_response();
     }

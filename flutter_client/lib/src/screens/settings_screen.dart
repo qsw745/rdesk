@@ -132,6 +132,12 @@ class SettingsScreen extends StatelessWidget {
               ),
 
               const SizedBox(height: 24),
+              const _SectionHeader(
+                  icon: Icons.folder_shared_outlined, label: '远程文件访问'),
+              const SizedBox(height: 10),
+              _RemoteFileAccessCard(settings: settings, isDark: isDark),
+
+              const SizedBox(height: 24),
               _SectionHeader(icon: Icons.devices_other_rounded, label: '受信设备'),
               const SizedBox(height: 10),
               _CardContainer(
@@ -653,6 +659,156 @@ class _SectionHeader extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// Host-side control over which directories a remote viewer may browse.
+///
+/// The list here is only the user's view of the policy — the actual check runs
+/// on this device when a `file_list` request arrives, so a crafted request
+/// cannot step around it.
+class _RemoteFileAccessCard extends StatelessWidget {
+  final SettingsProvider settings;
+  final bool isDark;
+
+  const _RemoteFileAccessCard({required this.settings, required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    final roots = settings.remoteFileRoots;
+    final enabled = settings.remoteFileAccessEnabled;
+
+    return _CardContainer(
+      isDark: isDark,
+      child: Column(
+        children: [
+          _SwitchTile(
+            icon: Icons.folder_shared_outlined,
+            iconColor: AppTheme.primaryBlue,
+            title: '允许远程浏览文件',
+            subtitle: '关闭后，主控端的任何目录请求都会被本机拒绝',
+            value: enabled,
+            onChanged: settings.setRemoteFileAccessEnabled,
+          ),
+          SettingsScreen._divider(isDark),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                Icon(Icons.rule_folder_outlined,
+                    size: 16, color: Colors.grey.shade500),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    roots.isEmpty
+                        ? '未配置目录，远程浏览将全部被拒绝'
+                        : '仅以下目录及其子目录可被远程浏览'
+                            '${settings.remoteFileRootsCustomized ? '' : '（默认）'}',
+                    style: TextStyle(
+                      color: roots.isEmpty
+                          ? AppTheme.warningAmber
+                          : Colors.grey.shade500,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (final root in roots)
+            ListTile(
+              dense: true,
+              leading: _SettingIcon(
+                icon: Icons.folder_outlined,
+                color: enabled ? AppTheme.successGreen : Colors.grey,
+              ),
+              title: Text(
+                root,
+                style: const TextStyle(fontSize: 13),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: IconButton(
+                tooltip: '移除目录',
+                icon: Icon(Icons.delete_outline_rounded,
+                    size: 20, color: AppTheme.errorRed.withValues(alpha: 0.7)),
+                onPressed: () => settings.removeRemoteFileRoot(root),
+              ),
+            ),
+          SettingsScreen._divider(isDark),
+          ListTile(
+            leading: const _SettingIcon(
+              icon: Icons.create_new_folder_outlined,
+              color: AppTheme.primaryBlue,
+            ),
+            title: const Text('添加目录', style: TextStyle(fontSize: 14)),
+            subtitle: Text('填写本机的绝对路径，例如 ${_pathHint()}',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+            trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+            onTap: () => _showAddRootDialog(context),
+          ),
+          if (settings.remoteFileRootsCustomized) ...[
+            SettingsScreen._divider(isDark),
+            ListTile(
+              leading: const _SettingIcon(
+                icon: Icons.restart_alt_rounded,
+                color: AppTheme.warningAmber,
+              ),
+              title: const Text('恢复默认目录', style: TextStyle(fontSize: 14)),
+              subtitle: Text('回到仅允许本机默认目录的设置',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+              onTap: settings.resetRemoteFileRoots,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _pathHint() {
+    if (kIsWeb) return '/home/user/Downloads';
+    if (Platform.isWindows) return r'C:\Users\me\Downloads';
+    if (Platform.isMacOS) return '/Users/me/Downloads';
+    return '/home/user/Downloads';
+  }
+
+  Future<void> _showAddRootDialog(BuildContext context) async {
+    final controller = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await showDialog<String?>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('添加可访问目录'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: '目录绝对路径',
+            hintText: _pathHint(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final result = await settings.addRemoteFileRoot(controller.text);
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext, result);
+              }
+            },
+            child: const Text('添加'),
+          ),
+        ],
+      ),
+    );
+
+    if (error != null && error.isNotEmpty) {
+      messenger.showSnackBar(SnackBar(content: Text(error)));
+    }
   }
 }
 
@@ -1231,6 +1387,9 @@ class AndroidHostCard extends StatelessWidget {
     if (host.lastRemoteClipboard != null) {
       items.add(MapEntry('远程剪贴板', host.lastRemoteClipboard));
     }
+    if (host.lastRemoteFileAccess != null) {
+      items.add(MapEntry('远程文件浏览', host.lastRemoteFileAccess));
+    }
     if (items.isEmpty) return [];
 
     return [
@@ -1390,6 +1549,10 @@ class _DesktopHostCard extends StatelessWidget {
                       host.lanRelayEndpoint!.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     _infoRow('局域网中继', host.lanRelayEndpoint!),
+                  ],
+                  if (host.lastRemoteFileAccess != null) ...[
+                    const SizedBox(height: 6),
+                    _infoRow('远程文件浏览', host.lastRemoteFileAccess!),
                   ],
                 ],
               ),

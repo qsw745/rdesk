@@ -6,6 +6,9 @@ import 'package:flutter/foundation.dart';
 import '../models/file_entry.dart';
 import '../services/rdesk_bridge_service.dart';
 
+/// Path the viewer sends to ask the host for "the top of what I may browse".
+const String remoteRootRequestPath = '/';
+
 class FileTransferProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
   List<FileEntry> _localFiles = [];
@@ -18,6 +21,11 @@ class FileTransferProvider extends ChangeNotifier {
   final Set<String> _selectedRemoteFiles = {};
   bool _isSelectionMode = false;
   String? _remoteError;
+  String? _remoteErrorCode;
+  bool _remoteIsRootListing = false;
+  String? _remoteRootPath;
+  String? _uploadError;
+  bool _uploadErrorIsDenial = false;
 
   List<FileEntry> get localFiles => _localFiles;
   List<FileEntry> get remoteFiles => _remoteFiles;
@@ -32,6 +40,26 @@ class FileTransferProvider extends ChangeNotifier {
       _selectedLocalFiles.isNotEmpty || _selectedRemoteFiles.isNotEmpty;
   String? get remoteError => _remoteError;
 
+  /// Machine-readable reason from the host when it refused the path.
+  String? get remoteErrorCode => _remoteErrorCode;
+
+  /// True when the host refused the path rather than failing to reach it.
+  bool get remoteAccessDenied => _remoteErrorCode != null;
+
+  /// True when the remote pane is showing the host's allowed roots rather than
+  /// a directory's contents.
+  bool get remoteIsRootListing => _remoteIsRootListing;
+
+  /// Directory the host opened for the virtual root, when it has a single
+  /// allowed root. Used to keep the breadcrumb inside the allowed range.
+  String? get remoteRootPath => _remoteRootPath;
+
+  /// Reason the most recent upload did not go through, until acknowledged.
+  String? get uploadError => _uploadError;
+
+  /// True when the last upload failed because the host refused the destination.
+  bool get uploadErrorIsDenial => _uploadErrorIsDenial;
+
   Future<void> loadLocalDir(String path) async {
     _localPath = path;
     _localFiles = await _bridge.listLocalDirectory(path);
@@ -40,13 +68,27 @@ class FileTransferProvider extends ChangeNotifier {
   }
 
   Future<void> loadRemoteDir(String sessionId, String path) async {
-    _remotePath = path;
     try {
-      _remoteFiles = await _bridge.listRemoteDirectory(sessionId, path);
+      final listing = await _bridge.listRemoteDirectory(sessionId, path);
+      _remoteFiles = listing.entries;
+      // Only move the browser once the host actually served the directory, so a
+      // refused path leaves the user where they were. The host reports the path
+      // it resolved to, which is what subsequent navigation must build on.
+      _remotePath = listing.path;
+      _remoteIsRootListing = listing.isRootListing;
+      if (path == remoteRootRequestPath && !listing.isRootListing) {
+        _remoteRootPath = listing.path;
+      }
       _remoteError = null;
+      _remoteErrorCode = null;
+    } on RemoteDirectoryException catch (e) {
+      _remoteFiles = [];
+      _remoteError = e.message;
+      _remoteErrorCode = e.code;
     } catch (e) {
       _remoteFiles = [];
       _remoteError = e.toString().replaceFirst('Exception: ', '');
+      _remoteErrorCode = null;
     }
     _selectedRemoteFiles.clear();
     notifyListeners();
@@ -98,7 +140,37 @@ class FileTransferProvider extends ChangeNotifier {
     notifyListeners();
 
     _simulateProgress(id, totalBytes);
-    await _bridge.uploadFile(sessionId, localPath, remotePath);
+    final result = await _bridge.uploadFile(sessionId, localPath, remotePath);
+    if (!result.ok) {
+      // The host may have refused the destination — never let that read as done.
+      _progressTimers.remove(id)?.cancel();
+      _markTransferFailed(id);
+      _uploadError = result.message ?? '上传失败';
+      _uploadErrorIsDenial = result.isDenied;
+      notifyListeners();
+    }
+  }
+
+  void _markTransferFailed(int id) {
+    final index = _transfers.indexWhere((transfer) => transfer.id == id);
+    if (index < 0) return;
+    final current = _transfers[index];
+    _transfers[index] = TransferProgress(
+      id: current.id,
+      fileName: current.fileName,
+      totalBytes: current.totalBytes,
+      transferredBytes: current.transferredBytes,
+      isUpload: current.isUpload,
+      state: TransferState.failed,
+    );
+  }
+
+  /// Clears the last upload error after the UI has shown it.
+  void clearUploadError() {
+    if (_uploadError == null) return;
+    _uploadError = null;
+    _uploadErrorIsDenial = false;
+    notifyListeners();
   }
 
   Future<void> downloadFile(
@@ -209,8 +281,9 @@ class FileTransferProvider extends ChangeNotifier {
   }
 
   void clearCompletedTransfers() {
-    _transfers.removeWhere(
-        (t) => t.state == TransferState.completed || t.state == TransferState.cancelled);
+    _transfers.removeWhere((t) =>
+        t.state == TransferState.completed ||
+        t.state == TransferState.cancelled);
     notifyListeners();
   }
 

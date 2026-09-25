@@ -22,7 +22,11 @@ class _FileManagerScreenState extends State<FileManagerScreen>
   late final TabController _tabController;
   bool _disconnectHandled = false;
   static const _terminalStates = {
-    '已被对端断开', '已离线', '设备离线', '密码已变更', '重连失败',
+    '已被对端断开',
+    '已离线',
+    '设备离线',
+    '密码已变更',
+    '重连失败',
   };
 
   @override
@@ -31,7 +35,7 @@ class _FileManagerScreenState extends State<FileManagerScreen>
     _tabController = TabController(length: 2, vsync: this);
     final provider = context.read<FileTransferProvider>();
     provider.loadLocalDir(provider.defaultLocalPath);
-    provider.loadRemoteDir(widget.sessionId, '/');
+    provider.loadRemoteDir(widget.sessionId, remoteRootRequestPath);
   }
 
   @override
@@ -50,12 +54,34 @@ class _FileManagerScreenState extends State<FileManagerScreen>
     });
   }
 
+  /// Surfaces a refused or failed upload once, then clears it.
+  void _reportUploadError(String? message) {
+    if (message == null) return;
+    final provider = context.read<FileTransferProvider>();
+    final denied = provider.uploadErrorIsDenial;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(denied ? '被控端拒绝了该上传：$message' : message),
+          backgroundColor: denied ? AppTheme.warningAmber : AppTheme.errorRed,
+        ),
+      );
+      provider.clearUploadError();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final statusLabel = context.select<SessionProvider, String>(
       (p) => p.connectionStatusLabel,
     );
     _checkDisconnect(statusLabel);
+    // Watch only the error field: the transfer list ticks several times a
+    // second while an upload runs.
+    _reportUploadError(
+      context.select<FileTransferProvider, String?>((p) => p.uploadError),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -70,10 +96,12 @@ class _FileManagerScreenState extends State<FileManagerScreen>
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (provider.transfers.any(
-                      (t) => t.state == TransferState.completed || t.state == TransferState.cancelled))
+                  if (provider.transfers.any((t) =>
+                      t.state == TransferState.completed ||
+                      t.state == TransferState.cancelled))
                     IconButton(
-                      icon: const Icon(Icons.cleaning_services_outlined, size: 20),
+                      icon: const Icon(Icons.cleaning_services_outlined,
+                          size: 20),
                       tooltip: '清除已完成',
                       onPressed: provider.clearCompletedTransfers,
                     ),
@@ -268,6 +296,67 @@ class _FileManagerScreenState extends State<FileManagerScreen>
   }
 }
 
+/// Shown in the remote pane when the host refused or could not serve a path.
+class _RemoteErrorNotice extends StatelessWidget {
+  final String message;
+  final bool denied;
+  final VoidCallback onRetry;
+
+  const _RemoteErrorNotice({
+    required this.message,
+    required this.denied,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = denied ? AppTheme.warningAmber : AppTheme.errorRed;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              denied ? Icons.lock_outline_rounded : Icons.cloud_off_rounded,
+              size: 44,
+              color: color,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              denied ? '被控端拒绝访问' : '无法读取远程目录',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            ),
+            if (denied) ...[
+              const SizedBox(height: 6),
+              Text(
+                '可访问范围由被控端在「设置 → 远程文件访问」中决定。',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('重试'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _FileBrowser extends StatelessWidget {
   final String title;
   final bool isLocal;
@@ -311,7 +400,8 @@ class _FileBrowser extends StatelessWidget {
                           if (isLocal) {
                             provider.loadLocalDir(provider.localPath);
                           } else {
-                            provider.loadRemoteDir(sessionId, provider.remotePath);
+                            provider.loadRemoteDir(
+                                sessionId, provider.remotePath);
                           }
                         },
                         visualDensity: VisualDensity.compact,
@@ -339,13 +429,23 @@ class _FileBrowser extends StatelessWidget {
         Expanded(
           child: Consumer<FileTransferProvider>(
             builder: (context, provider, _) {
-              final files = isLocal ? provider.localFiles : provider.remoteFiles;
+              final files =
+                  isLocal ? provider.localFiles : provider.remoteFiles;
+              if (!isLocal && provider.remoteError != null) {
+                return _RemoteErrorNotice(
+                  message: provider.remoteError!,
+                  denied: provider.remoteAccessDenied,
+                  onRetry: () =>
+                      provider.loadRemoteDir(sessionId, provider.remotePath),
+                );
+              }
               if (files.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.folder_open, size: 48, color: Colors.grey.shade400),
+                      Icon(Icons.folder_open,
+                          size: 48, color: Colors.grey.shade400),
                       const SizedBox(height: 12),
                       Text('目录为空',
                           style: TextStyle(color: Colors.grey.shade500)),
@@ -353,11 +453,13 @@ class _FileBrowser extends StatelessWidget {
                   ),
                 );
               }
-              final selected =
-                  isLocal ? provider.selectedLocalFiles : provider.selectedRemoteFiles;
+              final selected = isLocal
+                  ? provider.selectedLocalFiles
+                  : provider.selectedRemoteFiles;
               return ListView.separated(
                 itemCount: files.length,
-                separatorBuilder: (_, __) => const Divider(height: 1, indent: 66),
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, indent: 66),
                 itemBuilder: (context, index) {
                   final entry = files[index];
                   return FileListTileWidget(
@@ -417,8 +519,18 @@ class _FileBrowser extends StatelessWidget {
     FileTransferProvider provider,
   ) {
     final normalized = path.replaceAll('\\', '/');
-    final parts =
-        normalized.split('/').where((item) => item.isNotEmpty).toList();
+
+    // On the remote side the crumbs start at the host's allowed root: anything
+    // above it would be refused, so it is not offered as a destination.
+    final remoteRoot = isLocal ? null : provider.remoteRootPath;
+    final base = remoteRoot != null && normalized.startsWith(remoteRoot)
+        ? remoteRoot
+        : '';
+    final parts = normalized
+        .substring(base.length)
+        .split('/')
+        .where((item) => item.isNotEmpty)
+        .toList();
 
     final chips = <Widget>[];
 
@@ -427,12 +539,12 @@ class _FileBrowser extends StatelessWidget {
         padding: const EdgeInsets.only(right: 4),
         child: ActionChip(
           avatar: const Icon(Icons.home, size: 16),
-          label: const Text('根目录'),
+          label: Text(isLocal ? '根目录' : '可访问根'),
           onPressed: () {
             if (isLocal) {
               provider.loadLocalDir('/');
             } else {
-              provider.loadRemoteDir(sessionId, '/');
+              provider.loadRemoteDir(sessionId, remoteRootRequestPath);
             }
           },
         ),
@@ -440,7 +552,7 @@ class _FileBrowser extends StatelessWidget {
     );
 
     for (var i = 0; i < parts.length; i++) {
-      final segmentPath = '/${parts.sublist(0, i + 1).join('/')}';
+      final segmentPath = '$base/${parts.sublist(0, i + 1).join('/')}';
       chips.add(
         Padding(
           padding: const EdgeInsets.only(right: 4),

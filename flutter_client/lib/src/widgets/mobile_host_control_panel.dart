@@ -93,6 +93,9 @@ class MobileHostControlPanel extends StatelessWidget {
     if (host.lastRemoteClipboard != null) {
       items.add(MapEntry('远程剪贴板', host.lastRemoteClipboard));
     }
+    if (host.lastRemoteFileAccess != null) {
+      items.add(MapEntry('远程文件浏览', host.lastRemoteFileAccess));
+    }
     if (items.isEmpty) return const [];
 
     return [

@@ -9,6 +9,7 @@ import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/io.dart';
 
@@ -19,6 +20,7 @@ import '../models/device.dart';
 import '../models/file_entry.dart';
 import '../models/trusted_peer.dart';
 import '../utils/constants.dart';
+import 'remote_file_access.dart';
 
 class BridgeSettingsData {
   final String signalingServer;
@@ -29,6 +31,13 @@ class BridgeSettingsData {
   final String theme;
   final String? permanentPassword;
 
+  /// Whether this device serves remote file-browsing requests at all.
+  final bool remoteFileAccessEnabled;
+
+  /// Directories a remote viewer may browse. `null` means the user never
+  /// customized the list, so the platform default applies.
+  final List<String>? remoteFileAccessRoots;
+
   const BridgeSettingsData({
     required this.signalingServer,
     required this.relayServer,
@@ -37,7 +46,72 @@ class BridgeSettingsData {
     required this.rememberTrustedPeers,
     required this.theme,
     required this.permanentPassword,
+    required this.remoteFileAccessEnabled,
+    required this.remoteFileAccessRoots,
   });
+}
+
+/// One directory listing served by the remote host.
+class RemoteDirectoryListing {
+  const RemoteDirectoryListing({
+    required this.path,
+    required this.entries,
+    this.isRootListing = false,
+    this.truncated = false,
+  });
+
+  /// Path the host actually listed, which may differ from the request.
+  final String path;
+
+  final List<FileEntry> entries;
+
+  /// True when the entries are the host's allowed roots rather than a
+  /// directory's contents — their names are full paths.
+  final bool isRootListing;
+
+  /// True when the host capped an oversized directory.
+  final bool truncated;
+}
+
+/// Outcome of pushing one file to the remote host.
+class RemoteUploadResult {
+  const RemoteUploadResult({
+    required this.ok,
+    this.message,
+    this.code,
+    this.remotePath,
+  });
+
+  final bool ok;
+
+  /// User-facing reason, when the upload did not go through.
+  final String? message;
+
+  /// The host's machine-readable denial reason, when it refused the path.
+  final String? code;
+
+  /// Where the host actually stored the file, when it accepted it.
+  final String? remotePath;
+
+  /// True when the host refused the destination rather than failing to reach it.
+  bool get isDenied => code != null;
+}
+
+/// Failure while listing a directory on the remote host.
+///
+/// [code] carries the host's machine-readable reason (see
+/// `RemoteFileDenyReasonInfo.code`) when the host refused the path.
+class RemoteDirectoryException implements Exception {
+  const RemoteDirectoryException(this.message, {this.code});
+
+  final String message;
+  final String? code;
+
+  /// True when the host refused the path rather than failing to read it.
+  bool get isDenied => code != null;
+
+  @override
+  String toString() => message;
 }
 
 class RemoteFrameData {
@@ -121,6 +195,8 @@ class RdeskBridgeService {
   static const _accountUsernameKey = 'rdesk.account_username';
   static const _accountDisplayNameKey = 'rdesk.account_display_name';
   static const _chatPrefix = 'rdesk.chat.';
+  static const _remoteFileAccessEnabledKey = 'rdesk.remote_file_access_enabled';
+  static const _remoteFileAccessRootsKey = 'rdesk.remote_file_access_roots';
   static const _legacyServerSettings = <String>{
     'https://qisw.top',
     'http://qisw.top',
@@ -657,6 +733,9 @@ class RdeskBridgeService {
       rememberTrustedPeers: prefs.getBool(_rememberTrustedPeersKey) ?? true,
       theme: prefs.getString(_themeKey) ?? 'system',
       permanentPassword: await _secureStorage.read(key: _permanentPasswordKey),
+      remoteFileAccessEnabled:
+          prefs.getBool(_remoteFileAccessEnabledKey) ?? true,
+      remoteFileAccessRoots: prefs.getStringList(_remoteFileAccessRootsKey),
     );
   }
 
@@ -676,8 +755,21 @@ class RdeskBridgeService {
     bool? autoClipboardSync,
     bool? rememberTrustedPeers,
     String? theme,
+    bool? remoteFileAccessEnabled,
+    List<String>? remoteFileAccessRoots,
   }) async {
     final prefs = await _prefs;
+    if (remoteFileAccessEnabled != null) {
+      await prefs.setBool(_remoteFileAccessEnabledKey, remoteFileAccessEnabled);
+    }
+    if (remoteFileAccessRoots != null) {
+      // Stored even when empty: an empty list means "the user removed every
+      // directory", which must not silently fall back to the default root.
+      await prefs.setStringList(
+        _remoteFileAccessRootsKey,
+        remoteFileAccessRoots,
+      );
+    }
     if (signalingServer != null) {
       await prefs.setString(_signalingServerKey, signalingServer);
     }
@@ -1037,6 +1129,185 @@ class RdeskBridgeService {
     await _saveChatMessages(sessionId, messages);
   }
 
+  // ── Remote file access (host side) ──
+
+  List<String>? _cachedDefaultRemoteFileRoots;
+
+  /// Directories a remote viewer may browse when the user has not customized
+  /// the whitelist. Desktop defaults to the user's home directory; mobile
+  /// defaults to the app's own documents directory.
+  Future<List<String>> defaultRemoteFileRoots() async {
+    final cached = _cachedDefaultRemoteFileRoots;
+    if (cached != null) return cached;
+
+    final roots = <String>[];
+    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+      try {
+        final documents = await getApplicationDocumentsDirectory();
+        roots.add(documents.path);
+      } catch (_) {
+        // Leave the default empty: no root means no remote browsing at all,
+        // which is the safe direction to fail in.
+      }
+    } else {
+      final home = (Platform.environment['HOME'] ??
+              Platform.environment['USERPROFILE'] ??
+              '')
+          .trim();
+      // '/' would whitelist the entire filesystem — never default to it.
+      if (home.isNotEmpty && home != '/') {
+        roots.add(home);
+      }
+    }
+    final resolved = List<String>.unmodifiable(roots);
+    _cachedDefaultRemoteFileRoots = resolved;
+    return resolved;
+  }
+
+  /// Drops the user's whitelist so the platform default applies again.
+  Future<void> clearRemoteFileRootsOverride() async {
+    final prefs = await _prefs;
+    await prefs.remove(_remoteFileAccessRootsKey);
+  }
+
+  /// Effective whitelist: the user's list when set, otherwise the default.
+  Future<List<String>> resolveRemoteFileRoots() async =>
+      _resolveRemoteFileRoots(await loadSettings());
+
+  Future<List<String>> _resolveRemoteFileRoots(
+    BridgeSettingsData settings,
+  ) async {
+    final configured = settings.remoteFileAccessRoots;
+    if (configured == null) return defaultRemoteFileRoots();
+    return configured
+        .map((root) => root.trim())
+        .where((root) => root.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Future<RemoteFileAccessPolicy> loadRemoteFileAccessPolicy() async {
+    final settings = await loadSettings();
+    return RemoteFileAccessPolicy(
+      enabled: settings.remoteFileAccessEnabled,
+      allowedRoots: await _resolveRemoteFileRoots(settings),
+    );
+  }
+
+  /// Serves one remote directory listing request.
+  ///
+  /// Path validation happens here, on the host — the viewer UI is not a
+  /// security boundary, so every request is re-checked against the policy.
+  Future<RemoteFileListResult> serveRemoteFileList(String requestedPath) async {
+    RemoteFileAccessPolicy policy;
+    try {
+      policy = await loadRemoteFileAccessPolicy();
+    } catch (_) {
+      // Fail closed: a policy we cannot read grants nothing.
+      policy = const RemoteFileAccessPolicy(
+        enabled: false,
+        allowedRoots: <String>[],
+      );
+    }
+    return RemoteFileBrowser(policy).list(requestedPath);
+  }
+
+  /// Receives one file pushed by a remote viewer.
+  ///
+  /// The viewer's `remote_path` is validated against the same policy the
+  /// browser uses before a single byte is written, and the blob is only fetched
+  /// once the destination is known to be in bounds.
+  Future<RemoteFileWriteResult> serveRemoteFileReceive({
+    required String deviceId,
+    required String hostToken,
+    required String fileId,
+    required String filename,
+    required String remotePath,
+  }) async {
+    RemoteFileAccessPolicy policy;
+    try {
+      policy = await loadRemoteFileAccessPolicy();
+    } catch (_) {
+      // Fail closed: a policy we cannot read grants nothing.
+      policy = const RemoteFileAccessPolicy(
+        enabled: false,
+        allowedRoots: <String>[],
+      );
+    }
+
+    final writer = RemoteFileWriter(policy);
+    final target = await writer.resolveTarget(
+      remotePath: remotePath,
+      filename: filename,
+    );
+    if (!target.allowed) return target;
+
+    final Uint8List bytes;
+    try {
+      bytes = await _fetchUploadedBlob(
+        deviceId: deviceId,
+        hostToken: hostToken,
+        fileId: fileId,
+      );
+    } catch (e) {
+      return RemoteFileWriteResult(
+        allowed: false,
+        requestedPath: remotePath,
+        payload: <String, Object?>{
+          'ok': false,
+          'error': 'blob_fetch_failed',
+          'message': '被控端未能取回该文件：$e',
+        },
+      );
+    }
+
+    return writer.write(
+      remotePath: remotePath,
+      filename: filename,
+      bytes: bytes,
+    );
+  }
+
+  Future<Uint8List> _fetchUploadedBlob({
+    required String deviceId,
+    required String hostToken,
+    required String fileId,
+  }) async {
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.getUrl(
+        apiBase.replace(
+          path: '/api/file/download/$fileId',
+          queryParameters: <String, String>{
+            'device_id': deviceId,
+            'host_token': hostToken,
+          },
+        ),
+      );
+      final response = await request.close();
+      if (response.statusCode != HttpStatus.ok) {
+        throw HttpException(
+          '服务端返回 ${response.statusCode}',
+          uri: apiBase,
+        );
+      }
+      final chunks = await response.toList();
+      final builder = BytesBuilder(copy: false);
+      for (final chunk in chunks) {
+        builder.add(chunk);
+      }
+      return builder.takeBytes();
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Lists a directory on **this** device for the local file pane.
+  ///
+  /// Deliberately unrestricted: the user is browsing their own machine. Remote
+  /// viewers must go through [serveRemoteFileList] instead.
   Future<List<FileEntry>> listLocalDirectory(String path) async {
     final directory = Directory(path);
     if (!await directory.exists()) return [];
@@ -1069,25 +1340,24 @@ class RdeskBridgeService {
     return entries;
   }
 
-  Future<List<FileEntry>> listRemoteDirectory(
+  Future<RemoteDirectoryListing> listRemoteDirectory(
       String sessionId, String path) async {
     final endpoint = _sessionPreviewEndpoints[sessionId];
     if (endpoint == null) {
-      throw Exception('会话不存在或已断开，无法浏览远程目录');
+      throw const RemoteDirectoryException('会话不存在或已断开，无法浏览远程目录');
     }
 
     final params = endpoint.queryParameters;
     final deviceId = params['device_id'];
     final token = params['token'];
     if (deviceId == null || token == null) {
-      throw Exception('缺少远程设备凭据，无法浏览远程目录');
+      throw const RemoteDirectoryException('缺少远程设备凭据，无法浏览远程目录');
     }
 
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
-      final settings = await loadSettings();
-      final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 5);
       final request = await client.postUrl(
         apiBase.replace(path: '/api/file/list'),
       );
@@ -1098,51 +1368,114 @@ class RdeskBridgeService {
         'path': path,
       }));
       final response = await request.close();
-      if (response.statusCode == HttpStatus.ok) {
-        final body = await utf8.decoder.bind(response).join();
-        final data = jsonDecode(body);
-        final filesJson = data['files'];
-        if (filesJson is String) {
-          final list = jsonDecode(filesJson) as List;
-          return list
-              .map((e) => FileEntry(
-                    name: e['name'] ?? '',
-                    isDir: e['isDir'] == true,
-                    size: e['size'] ?? 0,
-                    modified: e['modified'] != null
-                        ? DateTime.fromMillisecondsSinceEpoch(e['modified'])
-                        : DateTime.now(),
-                  ))
-              .toList();
-        }
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode != HttpStatus.ok) {
+        throw RemoteDirectoryException(_remoteListingHttpMessage(
+          response.statusCode,
+        ));
       }
-      client.close();
+      final data = jsonDecode(body);
+      final filesJson = data is Map ? data['files'] : null;
+      if (filesJson is String) {
+        return _parseRemoteListing(filesJson, path);
+      }
+    } on RemoteDirectoryException {
+      rethrow;
     } catch (e) {
-      throw Exception('远程目录读取失败：$e');
+      throw RemoteDirectoryException('远程目录读取失败：$e');
+    } finally {
+      client.close();
     }
-    throw Exception('远程目录读取失败：服务端返回了无法解析的数据');
+    throw const RemoteDirectoryException('远程目录读取失败：服务端返回了无法解析的数据');
   }
 
-  Future<void> uploadFile(
+  String _remoteListingHttpMessage(int statusCode) => switch (statusCode) {
+        HttpStatus.unauthorized => '会话凭据已失效，无法浏览远程目录',
+        HttpStatus.notFound => '被控端不在线，无法浏览远程目录',
+        HttpStatus.gatewayTimeout => '被控端未响应文件浏览请求',
+        _ => '远程目录读取失败：服务端返回 $statusCode',
+      };
+
+  RemoteDirectoryListing _parseRemoteListing(
+    String filesJson,
+    String requestedPath,
+  ) {
+    final decoded = jsonDecode(filesJson);
+    // Current hosts answer with an object so denials can carry a reason and
+    // the host can report the path it actually resolved to; older hosts
+    // answered with a bare entry array.
+    if (decoded is Map) {
+      if (decoded['ok'] == false) {
+        final message = decoded['message'] as String?;
+        throw RemoteDirectoryException(
+          message ?? '被控端拒绝了该目录的访问',
+          code: decoded['error'] as String?,
+        );
+      }
+      return RemoteDirectoryListing(
+        // The host may have resolved the request elsewhere (the virtual root
+        // maps to the allowed root); follow it so the next hop is in bounds.
+        path: decoded['path'] as String? ?? requestedPath,
+        entries: _mapRemoteEntries(decoded['entries']),
+        isRootListing: decoded['root_listing'] == true,
+        truncated: decoded['truncated'] == true,
+      );
+    }
+    return RemoteDirectoryListing(
+      path: requestedPath,
+      entries: _mapRemoteEntries(decoded),
+    );
+  }
+
+  List<FileEntry> _mapRemoteEntries(Object? raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => FileEntry(
+            name: item['name'] as String? ?? '',
+            isDir: item['isDir'] == true,
+            size: (item['size'] as num?)?.toInt() ?? 0,
+            modified: item['modified'] is num
+                ? DateTime.fromMillisecondsSinceEpoch(
+                    (item['modified'] as num).toInt())
+                : DateTime.now(),
+          ),
+        )
+        .toList();
+  }
+
+  /// Pushes a local file to the remote host.
+  ///
+  /// The host decides whether the destination is allowed, so the reply must be
+  /// surfaced: a refused upload is a failure, not a silent no-op.
+  Future<RemoteUploadResult> uploadFile(
       String sessionId, String localPath, String remotePath) async {
     final endpoint = _sessionPreviewEndpoints[sessionId];
-    if (endpoint == null) return;
+    if (endpoint == null) {
+      return const RemoteUploadResult(ok: false, message: '会话不存在或已断开，无法上传');
+    }
 
     final params = endpoint.queryParameters;
     final deviceId = params['device_id'];
     final token = params['token'];
-    if (deviceId == null || token == null) return;
+    if (deviceId == null || token == null) {
+      return const RemoteUploadResult(ok: false, message: '缺少远程设备凭据，无法上传');
+    }
 
+    final file = File(localPath);
+    if (!await file.exists()) {
+      return const RemoteUploadResult(ok: false, message: '本地文件不存在');
+    }
+
+    final settings = await loadSettings();
+    final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final settings = await loadSettings();
-      final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
-      final file = File(localPath);
-      if (!await file.exists()) return;
       final bytes = await file.readAsBytes();
-      final filename = localPath.split('/').last;
+      final filename = localPath.split(Platform.pathSeparator).last;
 
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10);
       final request = await client.postUrl(
         apiBase.replace(
           path: '/api/file/upload',
@@ -1157,10 +1490,64 @@ class RdeskBridgeService {
       request.headers.contentType = ContentType('application', 'octet-stream');
       request.add(bytes);
       final response = await request.close();
-      await response.drain<void>();
+      final body = await utf8.decoder.bind(response).join();
+      if (response.statusCode != HttpStatus.ok) {
+        return RemoteUploadResult(
+          ok: false,
+          message: _remoteUploadHttpMessage(response.statusCode),
+        );
+      }
+      return _parseUploadResponse(body);
+    } catch (e) {
+      return RemoteUploadResult(ok: false, message: '上传失败：$e');
+    } finally {
       client.close();
-    } catch (_) {}
+    }
   }
+
+  String _remoteUploadHttpMessage(int statusCode) => switch (statusCode) {
+        HttpStatus.unauthorized => '会话凭据已失效，无法上传',
+        HttpStatus.notFound => '被控端不在线，无法上传',
+        HttpStatus.gatewayTimeout => '被控端未响应上传请求',
+        _ => '上传失败：服务端返回 $statusCode',
+      };
+
+  RemoteUploadResult _parseUploadResponse(String body) {
+    try {
+      final data = jsonDecode(body);
+      if (data is! Map) return const RemoteUploadResult(ok: true);
+      if (data['ok'] == false) {
+        return RemoteUploadResult(
+          ok: false,
+          message: _uploadDenialMessage(data['detail']) ?? '被控端拒绝了该上传',
+          code: _uploadDenialCode(data['detail']),
+        );
+      }
+      return RemoteUploadResult(
+        ok: true,
+        remotePath: _uploadDetail(data['detail'])?['path'] as String?,
+      );
+    } catch (_) {
+      return const RemoteUploadResult(ok: true);
+    }
+  }
+
+  /// The host's own JSON verdict, relayed verbatim in `detail`.
+  Map<String, Object?>? _uploadDetail(Object? detail) {
+    if (detail is! String || detail.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(detail);
+      return decoded is Map ? decoded.cast<String, Object?>() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _uploadDenialMessage(Object? detail) =>
+      _uploadDetail(detail)?['message'] as String?;
+
+  String? _uploadDenialCode(Object? detail) =>
+      _uploadDetail(detail)?['error'] as String?;
 
   Future<void> downloadFile(
       String sessionId, String remotePath, String localPath) async {

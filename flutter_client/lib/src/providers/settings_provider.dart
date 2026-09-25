@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/trusted_peer.dart';
@@ -17,6 +19,9 @@ class SettingsProvider extends ChangeNotifier {
   List<TrustedPeer> _trustedIncomingViewers = [];
   bool _lockAfterDisconnect = false;
   bool _unattendedMode = false;
+  bool _remoteFileAccessEnabled = true;
+  List<String> _remoteFileRoots = const [];
+  bool _remoteFileRootsCustomized = false;
 
   String get signalingServer => _signalingServer;
   String get relayServer => _relayServer;
@@ -31,6 +36,15 @@ class SettingsProvider extends ChangeNotifier {
   bool get lockAfterDisconnect => _lockAfterDisconnect;
   bool get unattendedMode => _unattendedMode;
 
+  /// Whether this device answers remote file-browsing requests at all.
+  bool get remoteFileAccessEnabled => _remoteFileAccessEnabled;
+
+  /// Directories a remote viewer may browse on this device.
+  List<String> get remoteFileRoots => List.unmodifiable(_remoteFileRoots);
+
+  /// False while the platform default is in effect.
+  bool get remoteFileRootsCustomized => _remoteFileRootsCustomized;
+
   Future<void> loadSettings() async {
     try {
       final settings = await _bridge.loadSettings();
@@ -41,6 +55,9 @@ class SettingsProvider extends ChangeNotifier {
       _rememberTrustedPeers = settings.rememberTrustedPeers;
       _theme = settings.theme;
       _permanentPassword = settings.permanentPassword;
+      _remoteFileAccessEnabled = settings.remoteFileAccessEnabled;
+      _remoteFileRootsCustomized = settings.remoteFileAccessRoots != null;
+      _remoteFileRoots = await _bridge.resolveRemoteFileRoots();
       _trustedPeers = await _bridge.listTrustedPeers();
       _trustedIncomingViewers = await _bridge.listTrustedIncomingViewers();
     } catch (_) {
@@ -118,6 +135,47 @@ class SettingsProvider extends ChangeNotifier {
     _unattendedMode = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('rdesk.unattended_mode', value);
+    notifyListeners();
+  }
+
+  Future<void> setRemoteFileAccessEnabled(bool value) async {
+    _remoteFileAccessEnabled = value;
+    await _bridge.saveSettings(remoteFileAccessEnabled: value);
+    notifyListeners();
+  }
+
+  /// Adds a directory to the remote-browsing whitelist.
+  ///
+  /// Returns an error message when the path cannot be used, or null on success.
+  Future<String?> addRemoteFileRoot(String rawPath) async {
+    final path = rawPath.trim();
+    if (path.isEmpty) return '请填写目录路径';
+    if (!Directory(path).existsSync()) return '目录不存在：$path';
+    if (_remoteFileRoots.contains(path)) return '该目录已在列表中';
+
+    await _saveRemoteFileRoots([..._remoteFileRoots, path]);
+    return null;
+  }
+
+  Future<void> removeRemoteFileRoot(String path) async {
+    await _saveRemoteFileRoots(
+      _remoteFileRoots.where((root) => root != path).toList(),
+    );
+  }
+
+  /// Restores the platform default whitelist (the user's home directory on
+  /// desktop, the app documents directory on mobile).
+  Future<void> resetRemoteFileRoots() async {
+    await _bridge.clearRemoteFileRootsOverride();
+    _remoteFileRootsCustomized = false;
+    _remoteFileRoots = await _bridge.resolveRemoteFileRoots();
+    notifyListeners();
+  }
+
+  Future<void> _saveRemoteFileRoots(List<String> roots) async {
+    await _bridge.saveSettings(remoteFileAccessRoots: roots);
+    _remoteFileRoots = List.unmodifiable(roots);
+    _remoteFileRootsCustomized = true;
     notifyListeners();
   }
 
