@@ -1659,6 +1659,29 @@ class RdeskBridgeService {
         length, (_) => alphabet[random.nextInt(alphabet.length)]).join();
   }
 
+  /// Test hook for the HTTP polling path — see `latency_metrics_test.dart`.
+  @visibleForTesting
+  Future<RemoteFrameData?> debugFetchRemotePreviewFrame(
+    String sessionId, {
+    required Uri endpoint,
+  }) {
+    return _fetchRemotePreviewFrame(sessionId, endpoint: endpoint);
+  }
+
+  /// Test hook for the WebSocket path — see `latency_metrics_test.dart`.
+  @visibleForTesting
+  RemoteFrameData? debugDecodeRemoteFramePacket(
+    Uint8List packet, {
+    int? receivedAtMs,
+    int? fallbackNetworkLatencyMs,
+  }) {
+    return _decodeRemoteFramePacket(
+      packet,
+      receivedAtMs: receivedAtMs,
+      fallbackNetworkLatencyMs: fallbackNetworkLatencyMs,
+    );
+  }
+
   Future<RemoteFrameData?> _fetchRemotePreviewFrame(
     String sessionId, {
     Uri? endpoint,
@@ -1714,21 +1737,22 @@ class RdeskBridgeService {
       final capturedAtMs =
           _parseFrameTimestampHeader(response, 'x-rdesk-captured-at') ??
               _parseFrameTimestampHeader(response, 'x-rdesk-timestamp');
-      final relayReceivedAtMs =
-          _parseFrameTimestampHeader(response, 'x-rdesk-relay-received-at');
+      // Frame age is a freshness diagnostic, not a latency measure. While the
+      // remote screen is static the host stops producing frames and the relay
+      // keeps re-serving the same snapshot, so this value grows without bound
+      // even though the network is idle-fast. Never surface it as "latency".
       final frameAgeMs = _boundedElapsedMs(receivedAtMs, capturedAtMs);
-      final requestLatencyMs =
-          stopwatch.elapsedMilliseconds.clamp(0, 9999).toInt();
+      // Network latency is measured entirely on the local clock (request issued
+      // → response body fully read), so it is immune both to host/relay clock
+      // skew and to stale snapshots.
       final networkLatencyMs =
-          _boundedElapsedMs(receivedAtMs, relayReceivedAtMs) ??
-              requestLatencyMs;
-      final latencyMs = frameAgeMs ?? networkLatencyMs;
+          stopwatch.elapsedMilliseconds.clamp(0, 9999).toInt();
 
       return RemoteFrameData(
         bytes: bytes,
         width: safeWidth,
         height: safeHeight,
-        latencyMs: latencyMs,
+        latencyMs: networkLatencyMs,
         networkLatencyMs: networkLatencyMs,
         frameAgeMs: frameAgeMs,
         latencyAvailable: true,
@@ -1774,19 +1798,21 @@ class RdeskBridgeService {
           height.toInt(),
           fallback: dims?.$2 ?? 0,
         );
+        // Diagnostic only — see _fetchRemotePreviewFrame for why frame age must
+        // not be reported as latency.
         final frameAgeMs = _boundedElapsedMs(nowMs, capturedAtMs.toInt());
-        final networkLatencyMs =
-            _boundedElapsedMs(nowMs, relayReceivedAtMs.toInt()) ??
-                fallbackNetworkLatencyMs;
-        final latencyMs = frameAgeMs ?? networkLatencyMs;
+        // Prefer the locally measured transport probe: unlike the relay→viewer
+        // timestamp delta it needs no clock agreement between the two hosts.
+        final networkLatencyMs = fallbackNetworkLatencyMs ??
+            _boundedElapsedMs(nowMs, relayReceivedAtMs.toInt());
         return RemoteFrameData(
           bytes: payload,
           width: safeWidth,
           height: safeHeight,
-          latencyMs: latencyMs,
+          latencyMs: networkLatencyMs,
           networkLatencyMs: networkLatencyMs,
           frameAgeMs: frameAgeMs,
-          latencyAvailable: latencyMs != null,
+          latencyAvailable: networkLatencyMs != null,
         );
       }
     }
@@ -1810,15 +1836,17 @@ class RdeskBridgeService {
           height.toInt(),
           fallback: dims?.$2 ?? 0,
         );
-        final latencyMs = _boundedElapsedMs(nowMs, timestampMs.toInt());
-        final displayLatencyMs = latencyMs ?? fallbackNetworkLatencyMs;
+        // The legacy header carries the host capture time only, which is a
+        // frame age — keep it as a diagnostic and report the measured RTT.
+        final frameAgeMs = _boundedElapsedMs(nowMs, timestampMs.toInt());
         return RemoteFrameData(
           bytes: payload,
           width: safeWidth,
           height: safeHeight,
-          latencyMs: displayLatencyMs,
-          networkLatencyMs: displayLatencyMs,
-          latencyAvailable: displayLatencyMs != null,
+          latencyMs: fallbackNetworkLatencyMs,
+          networkLatencyMs: fallbackNetworkLatencyMs,
+          frameAgeMs: frameAgeMs,
+          latencyAvailable: fallbackNetworkLatencyMs != null,
         );
       }
     }

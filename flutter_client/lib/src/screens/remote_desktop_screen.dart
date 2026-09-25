@@ -401,6 +401,11 @@ class _ConnectionQualityBadge extends StatelessWidget {
   }
 }
 
+/// Frame age beyond which the remote picture is treated as static.
+/// The host stops producing frames while nothing changes on screen, so a
+/// growing frame age means "nothing is moving", not "the network is slow".
+const _staticPictureThresholdMs = 1500;
+
 /// Latency badge — bottom-right corner.
 /// Uses Selector for efficient rebuilds.
 class _LatencyBadge extends StatelessWidget {
@@ -410,10 +415,18 @@ class _LatencyBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Selector<SessionProvider,
-        ({int? latency, bool online, bool reconnecting, String label})>(
+    return Selector<
+        SessionProvider,
+        ({
+          int? latency,
+          int? frameAge,
+          bool online,
+          bool reconnecting,
+          String label
+        })>(
       selector: (_, p) => (
         latency: p.currentSession?.latencyMs,
+        frameAge: p.currentSession?.frameAgeMs,
         online: p.isRemoteOnline,
         reconnecting: p.isReconnecting,
         label: p.connectionStatusLabel,
@@ -452,6 +465,9 @@ class _LatencyBadge extends StatelessWidget {
         }
 
         final latency = state.latency!;
+        final frameAge = state.frameAge;
+        final isPictureStatic =
+            frameAge != null && frameAge >= _staticPictureThresholdMs;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
@@ -486,6 +502,13 @@ class _LatencyBadge extends StatelessWidget {
                   fontSize: 12,
                 ),
               ),
+              if (isPictureStatic) ...[
+                const SizedBox(width: 8),
+                const Text(
+                  '画面静止',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
             ],
           ),
         );

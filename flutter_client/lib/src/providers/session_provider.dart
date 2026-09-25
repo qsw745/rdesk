@@ -355,6 +355,8 @@ class SessionProvider extends ChangeNotifier {
       _currentSession = _currentSession?.copyWith(
         latencyMs: frame.latencyMs,
         clearLatency: !frame.latencyAvailable,
+        frameAgeMs: frame.frameAgeMs,
+        clearFrameAge: frame.frameAgeMs == null,
         state: SessionState.active,
       );
 

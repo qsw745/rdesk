@@ -96,7 +96,7 @@ class DesktopViewerTopBar extends StatelessWidget {
                 Icon(
                   Icons.signal_cellular_alt,
                   size: 14,
-                  color: _signalColor(latency, isOnline),
+                  color: _signalColor(latency, isOnline, isDark),
                 ),
                 const SizedBox(width: 6),
                 ConnectionTimer(
@@ -127,9 +127,11 @@ class DesktopViewerTopBar extends StatelessWidget {
     );
   }
 
-  Color _signalColor(int? latency, bool online) {
+  Color _signalColor(int? latency, bool online, bool isDark) {
     if (!online) return Colors.redAccent;
-    if (latency == null) return Colors.white38;
+    // No measurement yet (the transport probe has not returned) — stay neutral
+    // and readable on both themes instead of near-invisible white.
+    if (latency == null) return isDark ? Colors.white38 : Colors.black38;
     if (latency < 50) return Colors.greenAccent;
     if (latency < 150) return Colors.amberAccent;
     return Colors.redAccent;
