@@ -30,7 +30,7 @@ class DesktopPermissionException implements Exception {
 /// A pure-Dart host service for desktop (macOS / Windows / Linux).
 ///
 /// On macOS it uses:
-///   • `screencapture` CLI for screen capture (JPEG).
+///   • Native ScreenCaptureKit for on-demand screen capture (JPEG).
 ///   • Python + Quartz CGEvent for mouse / keyboard simulation.
 ///   • `pbcopy` / `pbpaste` for clipboard.
 class DesktopHostService {
@@ -39,16 +39,38 @@ class DesktopHostService {
   static final DesktopHostService instance = DesktopHostService._();
   static const _desktopChannel = MethodChannel('com.qsw.rdesk/desktop_host');
 
-  bool _isRunning = false;
-  final String _capturePath =
-      '${Directory.systemTemp.path}/rdesk_desktop_frame.jpg';
+  bool _isRunning = false; // Hosting availability, independent of capture.
+  bool _captureEnabled = false;
+  int _captureGeneration = 0;
+  bool get captureRunning => _captureEnabled;
 
-  /// Once a screen capture succeeds, skip permission pre-checks to avoid
-  /// triggering macOS system dialogs on every frame poll.
-  bool _captureEverSucceeded = false;
+  /// Only the host's live screen demand may call this; hosting alone is idle.
+  Future<void> startCapture() async {
+    if (!_isRunning || _captureEnabled) return;
+    _captureEnabled = true;
+    final generation = ++_captureGeneration;
+    await _desktopChannel.invokeMethod('setCaptureEnabled', {
+      'enabled': true,
+      'generation': generation,
+    });
+  }
 
-  /// No longer used for latch — native side manages cooldown.
-  /// Kept for resetPermissionDenied API compatibility.
+  Future<void> stopCapture() async {
+    _captureEnabled = false;
+    final generation = ++_captureGeneration;
+    await _desktopChannel.invokeMethod('setCaptureEnabled', {
+      'enabled': false,
+      'generation': generation,
+    });
+  }
+
+  Future<Map<String, dynamic>> captureDiagnostics() async =>
+      await _desktopChannel
+          .invokeMapMethod<String, dynamic>('captureDiagnostics') ??
+      {};
+
+  bool _isCaptureCurrent(int generation) =>
+      _isRunning && _captureEnabled && generation == _captureGeneration;
 
   // ---------- state ----------
 
@@ -68,7 +90,7 @@ class DesktopHostService {
 
   Future<AndroidHostState> requestPermission() async {
     // On macOS, screen recording permission is requested automatically
-    // the first time screencapture runs. Nothing to do here.
+    // the first time a screen viewer requests capture. Nothing to do here.
     return getState();
   }
 
@@ -79,6 +101,7 @@ class DesktopHostService {
 
   Future<AndroidHostState> stopHosting() async {
     _isRunning = false;
+    await stopCapture();
     return getState();
   }
 
@@ -104,7 +127,7 @@ class DesktopHostService {
   // ---------- screen capture ----------
 
   Future<AndroidHostFrame?> getLatestFrame() async {
-    if (!_isRunning) return null;
+    if (!_isRunning || !_captureEnabled) return null;
 
     try {
       if (Platform.isMacOS) {
@@ -143,16 +166,18 @@ class DesktopHostService {
   }
 
   Future<AndroidHostFrame?> _captureMacOS() async {
+    final generation = _captureGeneration;
     try {
       // Use native ScreenCaptureKit via MethodChannel.
       // Returns JPEG bytes directly in memory — no disk I/O.
       final captureResult = await _desktopChannel
           .invokeMapMethod<String, dynamic>('captureScreen', {
+        'generation': generation,
         'maxDimension': _maxCaptureDimension,
         'quality': _jpegQuality,
       }).timeout(const Duration(seconds: 5));
 
-      if (captureResult == null) return null;
+      if (!_isCaptureCurrent(generation) || captureResult == null) return null;
 
       final width = captureResult['width'] as int? ?? 0;
       final height = captureResult['height'] as int? ?? 0;
@@ -182,7 +207,7 @@ class DesktopHostService {
         if (bytes.isEmpty) return null;
       }
 
-      _captureEverSucceeded = true;
+      if (!_isCaptureCurrent(generation)) return null;
       return AndroidHostFrame(
         bytes: bytes,
         width: width,
@@ -190,6 +215,7 @@ class DesktopHostService {
         timestampMs: DateTime.now().millisecondsSinceEpoch,
       );
     } on PlatformException catch (e) {
+      if (!_isCaptureCurrent(generation)) return null;
       if (e.code == 'PERMISSION_DENIED') {
         // Native side manages cooldown — just throw so the provider knows.
         throw DesktopPermissionException(
@@ -197,65 +223,19 @@ class DesktopHostService {
           e.message ?? '屏幕录制权限未授予，请在系统设置中授权后会自动恢复',
         );
       }
-      _captureEverSucceeded = false;
       throw DesktopPermissionException(
         'capture_failed',
         '屏幕采集失败：${e.message}',
       );
     } on TimeoutException {
-      // MethodChannel timed out — fall back to screencapture CLI.
-      debugPrint(
-          '[RDesk] Native capture timed out, falling back to screencapture CLI');
-      return _captureMacOSFallback();
-    } catch (e) {
-      // MethodChannel unavailable — fall back to screencapture CLI as last resort.
-      // But NOT for permission errors — those should propagate up.
-      if (e is DesktopPermissionException) rethrow;
-      debugPrint(
-          '[RDesk] Native capture unavailable, falling back to screencapture CLI: $e');
-      return _captureMacOSFallback();
+      if (!_isCaptureCurrent(generation)) return null;
+      // Cancel the native request. Never launch a second capture via CLI.
+      await stopCapture();
+      throw const DesktopPermissionException('capture_timeout', '屏幕采集超时');
+    } catch (error) {
+      if (!_isCaptureCurrent(generation)) return null;
+      rethrow;
     }
-  }
-
-  /// Fallback: use screencapture CLI (only if native channel is unavailable).
-  Future<AndroidHostFrame?> _captureMacOSFallback() async {
-    final result = await Process.run(
-      'screencapture',
-      ['-x', '-t', 'jpg', '-C', _capturePath],
-      runInShell: false,
-    );
-    if (result.exitCode != 0) {
-      _captureEverSucceeded = false;
-      return null; // Silently fail — don't trigger dialogs.
-    }
-
-    final file = File(_capturePath);
-    if (!file.existsSync()) return null;
-
-    _captureEverSucceeded = true;
-    var bytes = await file.readAsBytes();
-    if (bytes.isEmpty) return null;
-
-    final dims = _readJpegDimensions(bytes);
-    return AndroidHostFrame(
-      bytes: bytes,
-      width: dims.$1,
-      height: dims.$2,
-      timestampMs: DateTime.now().millisecondsSinceEpoch,
-    );
-  }
-
-  (int width, int height) _readJpegDimensions(Uint8List data) {
-    // Scan for SOF0 (0xFF 0xC0) or SOF2 (0xFF 0xC2) marker
-    for (var i = 0; i < data.length - 9; i++) {
-      if (data[i] == 0xFF && (data[i + 1] == 0xC0 || data[i + 1] == 0xC2)) {
-        final height = (data[i + 5] << 8) | data[i + 6];
-        final width = (data[i + 7] << 8) | data[i + 8];
-        if (width > 0 && height > 0) return (width, height);
-      }
-    }
-    // Fallback: assume common resolution
-    return (1920, 1080);
   }
 
   // ---------- input simulation ----------
@@ -359,6 +339,9 @@ class DesktopHostService {
 
   Future<bool> performRemoteAction(String action) async {
     if (!Platform.isMacOS) return false;
+    if (action == 'show_all_windows' || action == 'show_desktop') {
+      return _macSystemWindowAction(action);
+    }
     final remoteKey = macRemoteKeyStrokeForAction(action);
     if (remoteKey != null) {
       return _macKeyPress(remoteKey.keyCode, remoteKey.modifiers);
@@ -408,14 +391,6 @@ class DesktopHostService {
 
   Future<DesktopPermissionState> getPermissionState() async {
     if (!Platform.isMacOS) {
-      return const DesktopPermissionState(
-        screenRecordingGranted: true,
-        accessibilityGranted: true,
-      );
-    }
-
-    // If a capture has already succeeded, we know permission is granted.
-    if (_captureEverSucceeded) {
       return const DesktopPermissionState(
         screenRecordingGranted: true,
         accessibilityGranted: true,
@@ -588,12 +563,28 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Q
     return result.exitCode == 0;
   }
 
+  Future<bool> _macSystemWindowAction(String action) async {
+    try {
+      return await _desktopChannel.invokeMethod<bool>(
+            'launchMissionControlAction',
+            <String, Object>{'action': action},
+          ) ??
+          false;
+    } catch (error) {
+      debugPrint('[RDesk] launchMissionControlAction native channel failed: '
+          '$error');
+      return false;
+    }
+  }
+
   Future<bool> _macKeyPress(
     int keyCode, [
     Set<MacRemoteModifier> modifiers = const {},
   ]) async {
     try {
-      return await _desktopChannel.invokeMethod<bool>(
+      debugPrint('[RDesk] performKeyPress native request: '
+          'keyCode=$keyCode modifiers=${modifiers.map((e) => e.name).join(',')}');
+      final ok = await _desktopChannel.invokeMethod<bool>(
             'performKeyPress',
             <String, Object>{
               'keyCode': keyCode,
@@ -601,6 +592,8 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Q
             },
           ) ??
           false;
+      debugPrint('[RDesk] performKeyPress native result: ok=$ok');
+      return ok;
     } catch (error) {
       debugPrint('[RDesk] performKeyPress native channel failed: $error');
       return false;

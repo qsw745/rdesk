@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 const PREVIEW_TTL_MS: u64 = 30_000;
 const ACCOUNT_PRESENCE_TTL_MS: u64 = 75_000;
+const SCREEN_LEASE_MS: u64 = 10_000;
 const VIEWER_SESSION_TTL_MS: u64 = 30 * 60 * 1_000;
 const COMMAND_TTL_MS: u64 = 15_000;
 /// 被控端命令长轮询的挂起上限。必须明显小于 nginx 的 proxy_read_timeout（默认 60s）。
@@ -35,6 +36,9 @@ const HOST_COMMAND_LONG_POLL: Duration = Duration::from_secs(5);
 const HOST_COMMAND_POLL_TICK: Duration = Duration::from_millis(15);
 const AUTH_SESSION_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
 const MIN_PASSWORD_LEN: usize = 6;
+
+#[cfg(test)]
+mod capture_tests;
 
 #[derive(Debug, Parser)]
 #[command(name = "rdesk-server")]
@@ -57,6 +61,7 @@ struct AppState {
     account_presence: Arc<DashMap<String, AccountPresence>>,
     frames: Arc<DashMap<String, FrameSnapshot>>,
     viewer_sessions: Arc<DashMap<String, ViewerSession>>,
+    screen_demands: Arc<DashMap<String, ScreenDemand>>,
     command_queues: Arc<DashMap<String, VecDeque<PendingCommand>>>,
     command_waiters: Arc<DashMap<String, oneshot::Sender<CommandResult>>>,
     users: Arc<DashMap<String, UserRecord>>,
@@ -100,6 +105,7 @@ impl AppState {
             account_presence: Arc::new(DashMap::new()),
             frames: Arc::new(DashMap::new()),
             viewer_sessions: Arc::new(DashMap::new()),
+            screen_demands: Arc::new(DashMap::new()),
             command_queues: Arc::new(DashMap::new()),
             command_waiters: Arc::new(DashMap::new()),
             users: Arc::new(DashMap::new()),
@@ -132,6 +138,8 @@ struct PreviewRegistration {
     auto_accept: bool,
     trusted_viewers: Vec<String>,
     host_token: String,
+    #[serde(default)]
+    on_demand_capture: bool,
     updated_at_ms: u64,
 }
 
@@ -152,6 +160,13 @@ struct FrameSnapshot {
     captured_at_ms: u64,
     relay_received_at_ms: u64,
     updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ScreenDemand {
+    epoch: u64,
+    // Key separates HTTP and concurrent WS transports for the same auth token.
+    viewers: HashMap<String, (String, u64)>,
 }
 
 #[derive(Debug, Clone)]
@@ -203,6 +218,8 @@ struct RegisterPreviewRequest {
     password_hash: String,
     auto_accept: bool,
     trusted_viewers: Vec<String>,
+    #[serde(default)]
+    on_demand_capture: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -320,6 +337,7 @@ struct FrameUploadQuery {
     height: u32,
     #[serde(rename = "timestamp_ms")]
     timestamp_ms: Option<u64>,
+    capture_epoch: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -395,6 +413,8 @@ async fn main() -> Result<()> {
         .route("/debug", get(debug_state))
         .route("/frame.jpg", get(fetch_frame))
         .route("/session/trust", post(session_trust))
+        .route("/session/close", post(close_viewer_session))
+        .route("/session/screen/stop", post(stop_viewer_screen))
         .route("/input/tap", post(input_tap))
         .route("/input/action", post(input_action))
         .route("/input/long_press", post(input_long_press))
@@ -410,6 +430,7 @@ async fn main() -> Result<()> {
         .route("/api/preview/disconnect_viewers", post(disconnect_viewers))
         .route("/api/preview/resolve/:device_id", post(resolve_preview))
         .route("/api/preview/host/frame", post(upload_frame))
+        .route("/api/preview/host/viewers", get(host_screen_demand))
         .route("/api/preview/host/control/poll", get(poll_host_command))
         .route("/api/account/register", post(register_account))
         .route("/api/account/login", post(login_account))
@@ -843,6 +864,7 @@ async fn register_preview(
         auto_accept: request.auto_accept,
         trusted_viewers: request.trusted_viewers,
         host_token: host_token.clone(),
+        on_demand_capture: request.on_demand_capture,
         updated_at_ms: now_ms(),
     };
     state
@@ -971,7 +993,7 @@ async fn resolve_preview(
                         }
                     };
 
-                    if accepted {
+                    if accepted && validate_host(&state, &device_id, &host_token) {
                         // Host accepted – authorize the viewer.
                         let viewer_token = new_token();
                         state.viewer_sessions.insert(
@@ -1038,6 +1060,21 @@ async fn upload_frame(
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
+    // Serialize lease transitions and frame insertion. A stopped or replaced
+    // audience cannot receive an upload that was in flight for its predecessor.
+    let on_demand = state
+        .previews
+        .get(&query.device_id)
+        .is_some_and(|host| host.on_demand_capture);
+    let mut demand = state
+        .screen_demands
+        .entry(query.device_id.clone())
+        .or_default();
+    prune_screen_demand(&state, &query.device_id, &mut demand);
+    if on_demand && (demand.viewers.is_empty() || query.capture_epoch != Some(demand.epoch)) {
+        return StatusCode::CONFLICT.into_response();
+    }
+
     let received_at_ms = now_ms();
     let captured_at_ms = query
         .timestamp_ms
@@ -1090,6 +1127,10 @@ async fn fetch_frame(
 ) -> Response {
     if !validate_viewer(&state, &query.device_id, &query.token) {
         warn!(device_id = %query.device_id, "fetch_frame rejected: invalid viewer token");
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    if !renew_screen_lease(&state, &query.device_id, &query.token, &query.token) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
@@ -1284,6 +1325,129 @@ async fn list_displays(
     }
 }
 
+// Screen leases are created only by authenticated frame consumers. Resolving,
+// trusting, listing files, input commands and host heartbeats do not create one.
+fn clear_demand_frames(state: &AppState, device_id: &str) {
+    // Legacy Android/iOS hosts still upload independently; keep their existing
+    // warm-frame behavior until they adopt the demand protocol themselves.
+    if state
+        .previews
+        .get(device_id)
+        .is_some_and(|host| host.on_demand_capture)
+    {
+        state.frames.remove(device_id);
+    }
+}
+
+fn prune_screen_demand(state: &AppState, device_id: &str, demand: &mut ScreenDemand) {
+    let now = now_ms();
+    let had_viewers = !demand.viewers.is_empty();
+    demand
+        .viewers
+        .retain(|_, (token, until)| *until > now && state.viewer_sessions.contains_key(token));
+    if had_viewers && demand.viewers.is_empty() {
+        clear_demand_frames(state, device_id);
+    }
+}
+
+fn renew_screen_lease(state: &AppState, device_id: &str, token: &str, key: &str) -> bool {
+    let mut demand = state
+        .screen_demands
+        .entry(device_id.to_string())
+        .or_default();
+    prune_screen_demand(state, device_id, &mut demand);
+    // Recheck under the demand lock so /session/close cannot race this renewal.
+    if !validate_viewer(state, device_id, token) {
+        return false;
+    }
+    if demand.viewers.is_empty() {
+        demand.epoch += 1;
+        clear_demand_frames(state, device_id);
+    }
+    demand.viewers.insert(
+        key.to_string(),
+        (token.to_string(), now_ms() + SCREEN_LEASE_MS),
+    );
+    true
+}
+
+fn release_screen_lease(state: &AppState, device_id: &str, key: &str) {
+    if let Some(mut demand) = state.screen_demands.get_mut(device_id) {
+        demand.viewers.remove(key);
+        prune_screen_demand(state, device_id, &mut demand);
+        if demand.viewers.is_empty() {
+            clear_demand_frames(state, device_id);
+        }
+    }
+}
+
+fn screen_lease_alive(state: &AppState, device_id: &str, key: &str) -> bool {
+    state.screen_demands.get(device_id).is_some_and(|d| {
+        d.viewers.get(key).is_some_and(|(token, until)| {
+            *until > now_ms() && state.viewer_sessions.contains_key(token)
+        })
+    })
+}
+
+async fn host_screen_demand(
+    State(state): State<AppState>,
+    Query(query): Query<RelayHostQuery>,
+) -> Response {
+    if !validate_host(&state, &query.device_id, &query.host_token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let mut demand = state
+        .screen_demands
+        .entry(query.device_id.clone())
+        .or_default();
+    prune_screen_demand(&state, &query.device_id, &mut demand);
+    let until = demand
+        .viewers
+        .values()
+        .map(|(_, until)| *until)
+        .max()
+        .unwrap_or(0);
+    Json(
+        json!({"capture_epoch": demand.epoch, "viewers": demand.viewers.len(),
+        "expires_in_ms": until.saturating_sub(now_ms())}),
+    )
+    .into_response()
+}
+
+async fn stop_viewer_screen(
+    State(state): State<AppState>,
+    Query(query): Query<RelayViewerQuery>,
+) -> Response {
+    let mut demand = state
+        .screen_demands
+        .entry(query.device_id.clone())
+        .or_default();
+    if !validate_viewer(&state, &query.device_id, &query.token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    demand.viewers.retain(|_, (token, _)| token != &query.token);
+    if demand.viewers.is_empty() {
+        clear_demand_frames(&state, &query.device_id);
+    }
+    Json(GenericOkResponse { ok: true }).into_response()
+}
+
+async fn close_viewer_session(
+    State(state): State<AppState>,
+    Query(query): Query<RelayViewerQuery>,
+) -> Response {
+    let mut demand = state
+        .screen_demands
+        .entry(query.device_id.clone())
+        .or_default();
+    if !validate_viewer(&state, &query.device_id, &query.token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    state.viewer_sessions.remove(&query.token);
+    prune_screen_demand(&state, &query.device_id, &mut demand);
+    Json(GenericOkResponse { ok: true }).into_response()
+}
+
 async fn poll_host_command(
     State(state): State<AppState>,
     Query(query): Query<RelayHostQuery>,
@@ -1406,6 +1570,13 @@ async fn ws_host_handler(
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let device_id_clone = device_id.clone();
+    if state
+        .previews
+        .get(&device_id)
+        .is_some_and(|host| host.on_demand_capture)
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
     ws.on_upgrade(move |socket| handle_ws_host(socket, state, device_id_clone))
 }
 
@@ -1515,85 +1686,67 @@ async fn ws_viewer_handler(
 
 async fn handle_ws_viewer(socket: WebSocket, state: AppState, device_id: String, token: String) {
     let (mut ws_tx, mut ws_rx) = socket.split();
-    let broadcaster = state.get_or_create_broadcaster(&device_id);
-    let mut frame_rx = broadcaster.subscribe();
-
+    let key = format!("ws:{}", new_token());
+    if !renew_screen_lease(&state, &device_id, &token, &key) {
+        return;
+    }
+    let mut frames = state.get_or_create_broadcaster(&device_id).subscribe();
+    let mut ping = tokio::time::interval(Duration::from_secs(2));
     info!(device_id = %device_id, "WebSocket viewer connected");
-
-    let state_send = state.clone();
-    let device_id_send = device_id.clone();
-    let token_send = token.clone();
-    let send_task = tokio::spawn(async move {
-        let mut validity_check = tokio::time::interval(Duration::from_millis(500));
-        // The first tick completes immediately; consume it so the loop
-        // doesn't start with a redundant validation.
-        validity_check.tick().await;
-        loop {
-            tokio::select! {
-                frame = frame_rx.recv() => {
-                        match frame {
-                            Ok(frame) => {
-                                // Build binary message: RDF1 header + JPEG.
-                                let mut buf = Vec::with_capacity(28 + frame.bytes.len());
-                                buf.extend_from_slice(b"RDF1");
-                                buf.extend_from_slice(&frame.width.to_le_bytes());
-                                buf.extend_from_slice(&frame.height.to_le_bytes());
-                                buf.extend_from_slice(&frame.captured_at_ms.to_le_bytes());
-                                buf.extend_from_slice(&frame.relay_received_at_ms.to_le_bytes());
-                                buf.extend_from_slice(&frame.bytes);
-                                if ws_tx.send(Message::Binary(buf.into())).await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => break,
+    loop {
+        tokio::select! {
+            _ = ping.tick() => {
+                if !screen_lease_alive(&state, &device_id, &key) { break; }
+                if tokio::time::timeout(Duration::from_secs(2), ws_tx.send(Message::Ping(vec![]))).await
+                    .map_or(true, |result| result.is_err()) { break; }
+            }
+            frame = frames.recv() => {
+                if !screen_lease_alive(&state, &device_id, &key) { break; }
+                match frame {
+                    Ok(frame) => {
+                        let mut buf = Vec::with_capacity(28 + frame.bytes.len());
+                        buf.extend_from_slice(b"RDF1");
+                        buf.extend_from_slice(&frame.width.to_le_bytes());
+                        buf.extend_from_slice(&frame.height.to_le_bytes());
+                        buf.extend_from_slice(&frame.captured_at_ms.to_le_bytes());
+                        buf.extend_from_slice(&frame.relay_received_at_ms.to_le_bytes());
+                        buf.extend_from_slice(&frame.bytes);
+                        if tokio::time::timeout(Duration::from_secs(2), ws_tx.send(Message::Binary(buf))).await
+                            .map_or(true, |result| result.is_err()) { break; }
                     }
-                }
-                _ = validity_check.tick() => {
-                    // Periodically verify the viewer session is still valid.
-                    // When the host disconnects viewers, their tokens are
-                    // removed from viewer_sessions — this check detects that
-                    // and closes the WebSocket so the viewer exits promptly.
-                    if !validate_viewer(&state_send, &device_id_send, &token_send) {
-                        info!(device_id = %device_id_send, "WebSocket viewer session revoked, closing");
-                        break;
-                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
                 }
             }
-        }
-        let _ = ws_tx.close().await;
-        info!(device_id = %device_id_send, "WebSocket viewer frame send loop ended");
-    });
-
-    while let Some(Ok(msg)) = ws_rx.next().await {
-        if let Message::Text(text) = msg {
-            // Viewer sends commands as JSON
-            if let Ok(cmd) = serde_json::from_str::<Value>(&text) {
-                let kind = cmd.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-                let payload = cmd.get("payload").cloned().unwrap_or(json!({}));
-
-                // Forward via WS if host has WS connection
-                if let Some(host_tx) = state.ws_host_cmd_tx.get(&device_id) {
-                    let command_id = new_token();
-                    let ws_cmd = json!({
-                        "command_id": command_id,
-                        "kind": kind,
-                        "payload": payload,
-                    });
-                    let _ = host_tx.send(ws_cmd.to_string());
-                } else {
-                    // Fallback: use HTTP command queue
-                    let query = RelayViewerQuery {
-                        device_id: device_id.clone(),
-                        token: token.clone(),
-                    };
-                    let _ = forward_command(&state, &query, kind, payload).await;
+            message = ws_rx.next() => {
+                match message {
+                    Some(Ok(Message::Pong(_))) => {
+                        if !screen_lease_alive(&state, &device_id, &key) { break; }
+                        if !renew_screen_lease(&state, &device_id, &token, &key) { break; }
+                    }
+                    Some(Ok(Message::Text(text))) => {
+                        if !validate_viewer(&state, &device_id, &token) { break; }
+                        if let Ok(cmd) = serde_json::from_str::<Value>(&text) {
+                            let kind = cmd.get("kind").and_then(Value::as_str).unwrap_or("");
+                            let payload = cmd.get("payload").cloned().unwrap_or(json!({}));
+                            if let Some(host_tx) = state.ws_host_cmd_tx.get(&device_id) {
+                                let _ = host_tx.send(json!({
+                                    "command_id": new_token(), "kind": kind, "payload": payload,
+                                }).to_string());
+                            } else {
+                                let query = RelayViewerQuery { device_id: device_id.clone(), token: token.clone() };
+                                let _ = forward_command(&state, &query, kind, payload).await;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {}
                 }
             }
         }
     }
-
-    send_task.abort();
+    release_screen_lease(&state, &device_id, &key);
+    let _ = tokio::time::timeout(Duration::from_secs(1), ws_tx.close()).await;
     info!(device_id = %device_id, "WebSocket viewer disconnected");
 }
 
@@ -1899,6 +2052,11 @@ fn cleanup_expired(state: AppState) {
         state.viewer_sessions.remove(&token);
     }
 
+    for mut demand in state.screen_demands.iter_mut() {
+        let device_id = demand.key().clone();
+        prune_screen_demand(&state, &device_id, &mut demand);
+    }
+
     let stale_auth_sessions: Vec<String> = state
         .auth_sessions
         .iter()
@@ -1958,6 +2116,10 @@ fn remove_preview_state(state: &AppState, device_id: &str) {
 }
 
 fn disconnect_viewers_for_device(state: &AppState, device_id: &str) {
+    let mut demand = state
+        .screen_demands
+        .entry(device_id.to_string())
+        .or_default();
     let tokens: Vec<String> = state
         .viewer_sessions
         .iter()
@@ -1967,6 +2129,8 @@ fn disconnect_viewers_for_device(state: &AppState, device_id: &str) {
     for token in tokens {
         state.viewer_sessions.remove(&token);
     }
+    demand.viewers.clear();
+    state.frames.remove(device_id);
 }
 
 fn unresolved_response() -> Json<ResolvePreviewResponse> {

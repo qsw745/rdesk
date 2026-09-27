@@ -1,0 +1,292 @@
+{
+  "lan": {
+    "startup_authenticated_idle": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 0,
+      "capture": {
+        "encoded": 0,
+        "enabled": false,
+        "pending": false,
+        "requests": 0
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "authorized_jpegs": 11,
+    "active": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 1,
+      "captureRunning": true,
+      "uploadedFrames": 0,
+      "capture": {
+        "enabled": true,
+        "pending": true,
+        "requests": 19,
+        "encoded": 19
+      },
+      "hasPermission": true,
+      "hasFrame": true,
+      "platform": "macos"
+    },
+    "screen_stop": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 0,
+      "capture": {
+        "enabled": false,
+        "pending": false,
+        "requests": 19,
+        "encoded": 19
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "rapid_reconnect_cycles": 3,
+    "abnormal_disconnect": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 0,
+      "capture": {
+        "enabled": false,
+        "pending": false,
+        "requests": 149,
+        "encoded": 146
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "final_stop_time": "2026-09-07 00:36:09",
+    "final_stop": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 0,
+      "capture": {
+        "enabled": false,
+        "pending": false,
+        "requests": 156,
+        "encoded": 152
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    }
+  },
+  "relay": {
+    "authenticated_idle": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 0,
+      "capture": {
+        "enabled": false,
+        "requests": 0,
+        "encoded": 0,
+        "pending": false
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "http_jpegs": 16,
+    "http_active": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 1,
+      "captureRunning": true,
+      "uploadedFrames": 21,
+      "capture": {
+        "encoded": 21,
+        "enabled": true,
+        "requests": 22,
+        "pending": true
+      },
+      "hasPermission": true,
+      "hasFrame": true,
+      "platform": "macos"
+    },
+    "http_stopped": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 21,
+      "capture": {
+        "encoded": 29,
+        "enabled": false,
+        "requests": 29,
+        "pending": false
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "ws_frames": 25,
+    "ws_closed": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 46,
+      "capture": {
+        "encoded": 58,
+        "enabled": false,
+        "requests": 58,
+        "pending": false
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "http_fallback_jpegs": 10,
+    "http_closed": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 60,
+      "capture": {
+        "encoded": 78,
+        "pending": false,
+        "enabled": false,
+        "requests": 78
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "rapid_ws_reconnect_cycles": 3,
+    "unresponsive_ws": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 98,
+      "capture": {
+        "encoded": 137,
+        "enabled": false,
+        "requests": 137,
+        "pending": false
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "final_stop_time": "2026-09-07 00:42:23",
+    "final": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 98,
+      "capture": {
+        "encoded": 137,
+        "enabled": false,
+        "requests": 137,
+        "pending": false
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    }
+  },
+  "controller": {
+    "controller_active_local_host": {
+      "state": "running",
+      "running": true,
+      "hostingEnabled": true,
+      "activeViewers": 0,
+      "captureRunning": false,
+      "uploadedFrames": 0,
+      "capture": {
+        "requests": 0,
+        "encoded": 0,
+        "enabled": false,
+        "pending": false
+      },
+      "hasPermission": true,
+      "hasFrame": false,
+      "platform": "macos"
+    },
+    "remote_fixture": {
+      "frames": 183,
+      "screen_stops": 0,
+      "session_closes": 0
+    },
+    "file_page": {
+      "before": {
+        "frames": 712,
+        "screen_stops": 1,
+        "session_closes": 0
+      },
+      "after": {
+        "frames": 712,
+        "screen_stops": 1,
+        "session_closes": 0
+      },
+      "local_capture": {
+        "enabled": false,
+        "pending": false,
+        "requests": 0,
+        "encoded": 0
+      }
+    },
+    "returned_to_screen": {
+      "fixture": {
+        "frames": 1001,
+        "screen_stops": 1,
+        "session_closes": 0
+      },
+      "local_capture": {
+        "encoded": 0,
+        "pending": false,
+        "enabled": false,
+        "requests": 0
+      }
+    }
+  },
+  "manual-stop": {
+    "started_at": "2026-09-07 00:44:11",
+    "wait_seconds": 12,
+    "listener_stopped": true,
+    "new_capture_calls": 0
+  },
+  "final-idle": {
+    "wait_seconds": 10,
+    "native": {
+      "pending": false,
+      "requests": 0,
+      "enabled": false,
+      "encoded": 0
+    },
+    "uploaded_frames": 0,
+    "hosting_enabled": true,
+    "new_system_capture_calls": 0,
+    "legacy_cache_removed": true
+  }
+}

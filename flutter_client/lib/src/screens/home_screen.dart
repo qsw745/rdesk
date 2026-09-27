@@ -1184,7 +1184,7 @@ class _DesktopHostStatusCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isRunning = host.state.isRunning;
+    final isRunning = host.hostingEnabled;
     final endpoint = host.lanRelayEndpoint;
 
     return Container(
@@ -1239,7 +1239,7 @@ class _DesktopHostStatusCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      isRunning ? '正在运行 — 可被远程连接' : '未运行',
+                      isRunning ? (host.captureRunning ? '正在共享屏幕' : '在线待命 · 未采集屏幕') : '未运行',
                       style: TextStyle(
                         fontSize: 12,
                         color: isRunning ? Colors.teal : Colors.grey,
@@ -1265,7 +1265,7 @@ class _DesktopHostStatusCard extends StatelessWidget {
                         size: 8),
                     const SizedBox(width: 6),
                     Text(
-                      isRunning ? '运行中' : '已停止',
+                      isRunning ? (host.captureRunning ? '共享中' : '待命中') : '已停止',
                       style: TextStyle(
                         color: isRunning ? AppTheme.successGreen : Colors.grey,
                         fontSize: 12,

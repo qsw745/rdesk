@@ -1111,12 +1111,14 @@ class _DesktopHostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = context.read<SettingsProvider>();
-    final running = host.state.isRunning;
+    final running = host.hostingEnabled;
     final hasPermission = host.state.hasPermission;
     final registered = host.hostRegistered;
     final statusText = !running
         ? '共享服务未启动'
-        : (!hasPermission ? '缺少屏幕录制权限' : (registered ? '共享服务在线' : '共享服务注册中'));
+        : (host.captureRunning
+            ? (hasPermission ? '正在共享屏幕' : '共享等待屏幕录制权限')
+            : (registered ? '在线待命 · 未采集屏幕' : '共享服务注册中'));
     final statusColor = registered
         ? AppTheme.successGreen
         : running
