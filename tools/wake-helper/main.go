@@ -187,9 +187,10 @@ func run(ctx context.Context, dir string, c Config) error {
 	if err != nil {
 		return err
 	}
-	defer closeSender()
+	defer func() { closeSender() }()
 	log := &EventLog{dir: dir}
-	engine := &Engine{api: newAPI(c.Origin, c.Token), journal: journal, send: send, check: c.checkNetwork, log: log}
+	// The engine runs on this goroutine, so the sender can be rebuilt between polls.
+	engine := &Engine{api: newAPI(c.Origin, c.Token), journal: journal, send: func(b []byte) error { return send(b) }, check: c.checkNetwork, log: log}
 	log.write("started", "", "", 0)
 	defer log.write("stopped", "", "", 0)
 	fmt.Println("开机助手运行中。诊断保存在私有目录 events.jsonl；Ctrl+C 停止。")
@@ -197,8 +198,14 @@ func run(ctx context.Context, dir string, c Config) error {
 	lastHealth := time.Now()
 	for ctx.Err() == nil {
 		if err = c.checkNetwork(); err != nil {
-			log.write("network_changed", "", "network_changed", 0)
-			return err
+			log.write("network_paused", "", "network_changed", 0)
+			closeSender()
+			closeSender = func() {}
+			if !resumeOnSameNetwork(ctx, c, func(s func([]byte) error, closer func()) { send, closeSender = s, closer }) {
+				return nil
+			}
+			log.write("network_restored", "", "", 0)
+			continue
 		}
 		err = engine.recover(ctx)
 		if err == nil {
@@ -248,6 +255,33 @@ func run(ctx context.Context, dir string, c Config) error {
 		}
 	}
 	return nil
+}
+
+// Router restarts, Wi-Fi reassociation and DHCP renewal briefly remove the LAN.
+// Nothing is polled or sent while paused, and only the exact configured interface,
+// hardware address and IPv4 CIDR resume work, so no other network is ever used.
+func resumeOnSameNetwork(ctx context.Context, c Config, use func(func([]byte) error, func())) bool {
+	return waitForNetwork(ctx, c.checkNetwork, func() error {
+		s, closer, err := packetSender(c)
+		if err == nil {
+			use(s, closer)
+		}
+		return err
+	}, time.Second, 15*time.Second)
+}
+func waitForNetwork(ctx context.Context, check, reopen func() error, first, max time.Duration) bool {
+	delay := first
+	for {
+		if !wait(ctx, delay) {
+			return false
+		}
+		if check() == nil && reopen() == nil {
+			return true
+		}
+		if delay < max {
+			delay = min(delay*2, max)
+		}
+	}
 }
 func wait(ctx context.Context, d time.Duration) bool {
 	t := time.NewTimer(d)

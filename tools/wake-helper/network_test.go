@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNetworkConfiguration(t *testing.T) {
@@ -57,5 +59,32 @@ func TestDiagnosticMeaning(t *testing.T) {
 	}
 	if !strings.Contains(explain("failed", "network_changed"), "网络") {
 		t.Fatal("missing actionable error")
+	}
+}
+
+func TestNetworkPauseResumesOnlyOnSameLAN(t *testing.T) {
+	checks, reopens := 0, 0
+	ok := waitForNetwork(context.Background(), func() error {
+		checks++
+		if checks < 3 {
+			return fault("network_changed")
+		}
+		return nil
+	}, func() error {
+		reopens++
+		if reopens < 2 {
+			return fault("cannot_bind_lan_interface")
+		}
+		return nil
+	}, time.Millisecond, 2*time.Millisecond)
+	if !ok || checks != 4 || reopens != 2 {
+		t.Fatalf("resume=%v checks=%d reopens=%d", ok, checks, reopens)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(10 * time.Millisecond); cancel() }()
+	reopened := false
+	if waitForNetwork(ctx, func() error { return fault("network_changed") }, func() error { reopened = true; return nil }, time.Millisecond, 2*time.Millisecond) || reopened {
+		t.Fatal("a different network must never reopen the sender, and stopping must end the pause")
 	}
 }

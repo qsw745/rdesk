@@ -3,6 +3,7 @@ import FlutterMacOS
 import ApplicationServices
 import CoreGraphics
 import ScreenCaptureKit
+import ServiceManagement
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -15,6 +16,7 @@ class MainFlutterWindow: NSWindow {
 
     // Register desktop host channel with binary messenger.
     DesktopHostPlugin.register(with: flutterViewController.engine.binaryMessenger)
+    LoginItemPlugin.register(with: flutterViewController.engine.binaryMessenger)
 
     super.awakeFromNib()
   }
@@ -320,5 +322,54 @@ class DesktopHostPlugin {
   private static func openSystemSettings(anchor: String) {
     guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else { return }
     NSWorkspace.shared.open(url)
+  }
+}
+
+// MARK: - LoginItemPlugin
+
+/// Lets a home Mac that relays wake requests start RDesk again after a restart.
+/// Only the user's explicit switch registers or removes the login item.
+class LoginItemPlugin {
+  static func register(with messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: "com.qsw.rdesk/login_item", binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      guard #available(macOS 13.0, *) else {
+        result(call.method == "status" || call.method == "set"
+          ? ["supported": false, "enabled": false, "requiresApproval": false]
+          : FlutterMethodNotImplemented)
+        return
+      }
+      let service = SMAppService.mainApp
+      switch call.method {
+      case "status":
+        result(state(service))
+      case "set":
+        do {
+          if call.arguments as? Bool == true {
+            if service.status != .enabled { try service.register() }
+          } else if service.status == .enabled || service.status == .requiresApproval {
+            try service.unregister()
+          }
+          result(state(service))
+        } catch {
+          NSLog("[RDesk] login item change failed: \(error.localizedDescription)")
+          result(FlutterError(code: "login_item_failed",
+                              message: "无法更改登录项，请在系统设置 → 通用 → 登录项中调整",
+                              details: nil))
+        }
+      case "openSettings":
+        SMAppService.openSystemSettingsLoginItems()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  @available(macOS 13.0, *)
+  private static func state(_ service: SMAppService) -> [String: Bool] {
+    ["supported": true,
+     "enabled": service.status == .enabled,
+     "requiresApproval": service.status == .requiresApproval]
   }
 }

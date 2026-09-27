@@ -34,6 +34,23 @@ class TestAgent extends WakeAgentChannel {
   }
 }
 
+class ResumableAgent extends TestAgent {
+  static const lan = {
+    'interface': 'en0',
+    'ipv4_cidr': '192.168.31.20/24',
+    'interface_hardware': 'aa:bb:cc:dd:ee:ff'
+  };
+  bool lanPresent = true;
+  int selections = 0;
+  @override
+  Map<String, String>? get resumeNetwork => lan;
+  @override
+  Future<bool> selectResumeNetwork(Map<String, dynamic> saved) async {
+    selections++;
+    return lanPresent && lan.keys.every((k) => saved[k] == lan[k]);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
@@ -202,5 +219,123 @@ void main() {
     expect(await wake.enableHelper('家中手机'), false);
     expect(wake.busy, false);
     expect(wake.error, '网络故障');
+  });
+
+  group('Mac 助手重新打开后自动恢复', () {
+    late HttpServer server;
+    late List<String> paths;
+    var enableMissing = false;
+    setUp(() async {
+      paths = [];
+      enableMissing = false;
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((r) async {
+        await r.drain<void>();
+        paths.add('${r.method} ${r.uri.path}');
+        Object body = <String, Object>{};
+        if (r.uri.path.endsWith('/enable') && enableMissing) {
+          r.response.statusCode = 404;
+          body = {'code': 'not_found'};
+        } else if (r.method == 'POST' &&
+            (r.uri.path.endsWith('/agents') ||
+                r.uri.path.endsWith('/enable'))) {
+          body = {'id': 'stable', 'token': 'device-token'};
+        } else if (r.method == 'GET') {
+          body = r.uri.path.endsWith('/targets')
+              ? {'targets': []}
+              : {'agents': []};
+        }
+        r.response.write(jsonEncode(body));
+        await r.response.close();
+      });
+    });
+    tearDown(() => server.close(force: true));
+
+    WakeProvider make(TestAgent agent) => WakeProvider(
+        api: WakeApi(
+            baseUri: () async => Uri.parse('http://127.0.0.1:${server.port}'),
+            accountToken: () async => 'account'),
+        agent: agent);
+    Future<void> settle() =>
+        Future<void>.delayed(const Duration(milliseconds: 300));
+
+    test('同一家庭网络在场时沿用原助手身份自动启动', () async {
+      final first = make(ResumableAgent());
+      await first.bindAccount('user', 'server');
+      expect(await first.enableHelper('家中 Mac'), true);
+      first.dispose();
+
+      final agent = ResumableAgent();
+      final wake = make(agent);
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await settle();
+      expect(agent.starts, 1);
+      expect(paths.where((p) => p == 'POST /api/wake/agents').length, 1);
+      expect(paths, contains('POST /api/wake/agents/stable/enable'));
+      expect(wake.error, isNull);
+    });
+
+    test('家庭网络不在场时不启动，并说明原因', () async {
+      final first = make(ResumableAgent());
+      await first.bindAccount('user', 'server');
+      expect(await first.enableHelper('家中 Mac'), true);
+      first.dispose();
+
+      final agent = ResumableAgent()..lanPresent = false;
+      final wake = make(agent);
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await settle();
+      expect(agent.selections, 1);
+      expect(agent.starts, 0);
+      expect(wake.error, contains('家庭网络当前不可用'));
+    });
+
+    test('主动停用或退出账号后不再自动恢复', () async {
+      for (final exit in [true, false]) {
+        final first = make(ResumableAgent());
+        await first.bindAccount('user', 'server');
+        expect(await first.enableHelper('家中 Mac'), true);
+        if (exit) {
+          await first.stopForAccountExit();
+        } else {
+          expect(await first.disableHelper(), true);
+        }
+        first.dispose();
+
+        final agent = ResumableAgent();
+        final wake = make(agent);
+        await wake.bindAccount('user', 'server');
+        await settle();
+        expect(agent.selections, 0, reason: exit ? '退出账号' : '主动停用');
+        expect(agent.starts, 0);
+        wake.dispose();
+      }
+    });
+
+    test('助手已在其他设备移除时不会自动新建', () async {
+      final first = make(ResumableAgent());
+      await first.bindAccount('user', 'server');
+      expect(await first.enableHelper('家中 Mac'), true);
+      first.dispose();
+      enableMissing = true;
+
+      final agent = ResumableAgent();
+      final wake = make(agent);
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await settle();
+      expect(agent.starts, 0);
+      expect(paths.where((p) => p == 'POST /api/wake/agents').length, 1);
+      expect(wake.error, contains('已在其他设备移除'));
+
+      final again = ResumableAgent();
+      final later = make(again);
+      addTearDown(later.dispose);
+      await later.bindAccount('user', 'server');
+      await settle();
+      expect(again.selections, 0);
+    });
   });
 }

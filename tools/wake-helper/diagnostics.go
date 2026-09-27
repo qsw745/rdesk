@@ -15,7 +15,7 @@ import (
 
 func explain(phase, code string) string {
 	errors := map[string]string{
-		"network_changed":             "助手的局域网接口或地址已变化。检查所选 LAN 和固定地址后重新配置；没有自动切换其他网络。",
+		"network_changed":             "助手的局域网接口或地址与登记时不同。期间暂停领取和发包，所选 LAN、网卡和地址恢复后自动继续；不会改用其他网络。长时间未恢复时检查固定地址或重新选择网络。",
 		"network_or_tls":              "助手到服务的网络或证书校验失败。检查联网、DNS、系统时间和 CA 证书；恢复网络后会退避重连。",
 		"permit_expired":              "发送授权在发包前或三次发送中途过期。查看本地发包计数；不要把此状态当作绝对未发包。",
 		"request_expired":             "请求已超过发送期限，未开始新的发送。请恢复连接后重新发起。",

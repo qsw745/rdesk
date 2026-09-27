@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../services/wake_agent_channel.dart';
 import '../models/wake.dart';
 import '../widgets/mac_wake_helper_panel.dart';
 import '../utils/platform_capabilities.dart';
@@ -105,11 +106,11 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                     onPressed: wake.refresh,
                                     child: const Text('重新检测')),
                               ]),
-                            ExpansionTile(
-                              title: const Text('为什么需要家中开机助手？'),
+                            const ExpansionTile(
+                              title: Text('为什么需要家中开机助手？'),
                               childrenPadding:
-                                  const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                              children: const [
+                                  EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              children: [
                                 Text(
                                     '电脑关机后，需要家庭网络中仍在线的设备代发开机信号。可使用家中安卓、保持运行的 Mac，或已安装 RDesk 助手的兼容 Linux 路由器／NAS。iPhone 和电脑可在外发起开机。原厂路由器需先确认安装能力，不能直接复用 UU 的助手。')
                               ],
@@ -158,9 +159,12 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
                                 SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('作为家中开机助手'),
-                                    subtitle: Text(wake.helper.enabled
-                                        ? '保持本机在家中 Wi-Fi，并持续供电'
-                                        : '将这台安卓手机留在家中，代发开机信号'),
+                                    subtitle: Text(wake.helper.errorCode != null
+                                        ? describeHelperError(
+                                            wake.helper.errorCode!)
+                                        : wake.helper.enabled
+                                            ? '保持本机在家中 Wi-Fi，并持续供电'
+                                            : '将这台安卓手机留在家中，代发开机信号'),
                                     value: wake.helper.enabled,
                                     onChanged: wake.busy
                                         ? null
@@ -851,11 +855,11 @@ class _WakeSetupScreenState extends State<WakeSetupScreen>
             _status('家庭 Wi-Fi', wake.helper.networkReady ? '通道可用' : '通道未就绪',
                 ok: wake.helper.networkReady),
           if (wake.helper.errorCode != null)
-            _notice('助手状态：${wake.helper.errorCode}', error: true),
+            _notice(describeHelperError(wake.helper.errorCode!), error: true),
           TextButton(
               onPressed: wake.agent.openBatterySettings,
               child: const Text('允许后台运行')),
-          const Text('在系统中将电池策略设为不限制，并允许自启动。切换 Wi-Fi、手机重启或强制停止后，请重新打开并启用助手。'),
+          const Text('在系统中将电池策略设为不限制，并允许自启动。Wi-Fi 短暂断开或路由器重启后，回到同一家庭 Wi-Fi 会自动继续；换到其他网络时暂停，不会在其他网络发送。手机重启或被强制停止后，请重新打开并启用助手。'),
         ]),
         _panel([
           const Text('接下来，到 Windows 电脑上继续',

@@ -44,6 +44,52 @@ class WakeProvider extends ChangeNotifier {
   String _key(Uri uri, String user) =>
       'rdesk.wake.helper.${sha256.convert(utf8.encode('$uri|$user'))}';
 
+  /// Helper id and LAN only; credentials are rotated by the server on resume.
+  String _resumeKey(Uri uri, String user) => '${_key(uri, user)}.resume';
+
+  Future<void> _forgetResume(String user, {Uri? endpoint}) async {
+    try {
+      final uri = endpoint ?? await api.endpoint();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_resumeKey(uri, user));
+    } catch (e) {
+      debugPrint('[RDesk] wake helper resume intent not cleared: $e');
+    }
+  }
+
+  /// Restarts a helper the user left enabled, only on the same LAN and only
+  /// with the helper identity it had; a removed helper is never recreated.
+  Future<void> _resumeHelper(int gen) async {
+    final user = _userId;
+    if (user == null || helper.enabled) return;
+    try {
+      final endpoint = await api.endpoint();
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_resumeKey(endpoint, user));
+      if (raw == null || !_current(gen)) return;
+      final saved = jsonDecode(raw);
+      if (saved is! Map<String, dynamic> || saved['agent_id'] is! String) {
+        await prefs.remove(_resumeKey(endpoint, user));
+        return;
+      }
+      if (!await agent.selectResumeNetwork(saved)) {
+        if (_current(gen)) {
+          error = '上次选择的家庭网络当前不可用，开机助手没有自动恢复';
+          _notify();
+        }
+        return;
+      }
+      if (!_current(gen)) return;
+      await enableHelper(saved['name'] as String? ?? '家中 Mac',
+          resumeAgentId: saved['agent_id'] as String);
+    } catch (e) {
+      if (_current(gen)) {
+        error = '开机助手没有自动恢复，请重新启用';
+        _notify();
+      }
+    }
+  }
+
   Future<void> bindAccount(String? userId, String server,
       {String? token}) async {
     pairing?.bindAccount(userId, server, token: token);
@@ -77,6 +123,7 @@ class WakeProvider extends ChangeNotifier {
       });
       if (!_current(gen)) return;
       if (userId != null) await windows?.resume(userId);
+      if (userId != null) unawaited(_resumeHelper(gen));
     } catch (_) {
       if (_current(gen)) error = '开机助手状态读取失败，请重新启用';
     }
@@ -89,6 +136,7 @@ class WakeProvider extends ChangeNotifier {
   /// Called before account credentials are removed. Generation changes immediately.
   Future<void> stopForAccountExit() async {
     final cancellation = pairing?.cancelForExit();
+    final user = _userId;
     ++_generation;
     _userId = null;
     _timer?.cancel();
@@ -101,6 +149,8 @@ class WakeProvider extends ChangeNotifier {
     await windows?.stop();
     await agent.stop();
     await _native(agent.stop);
+    // Account exit must never wait on storage or endpoint lookups.
+    if (user != null) unawaited(_forgetResume(user));
     await cancellation;
   }
 
@@ -184,7 +234,8 @@ class WakeProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> enableHelper(String name) => _mutate((scoped, gen) async {
+  Future<bool> enableHelper(String name, {String? resumeAgentId}) =>
+      _mutate((scoped, gen) async {
         final user = _userId!;
         await agent.prepare();
         if (!_current(gen)) return;
@@ -193,6 +244,10 @@ class WakeProvider extends ChangeNotifier {
         if (!_current(gen)) return;
         final key = _key(endpoint, user);
         final oldId = prefs.getString(key);
+        if (resumeAgentId != null && oldId != resumeAgentId) {
+          await prefs.remove(_resumeKey(endpoint, user));
+          throw StateError('开机助手已更换，请重新启用');
+        }
         await _native(agent.stop);
         if (!_current(gen)) return;
         WakeEnrollment? enrollment;
@@ -202,6 +257,10 @@ class WakeProvider extends ChangeNotifier {
             enrollment = await scoped.enableAgent(oldId, name);
           } on WakeApiException catch (e) {
             if (e.statusCode != 404) rethrow;
+            if (resumeAgentId != null) {
+              await prefs.remove(_resumeKey(endpoint, user));
+              throw StateError('开机助手已在其他设备移除，请重新启用');
+            }
           }
         }
         if (enrollment == null) {
@@ -226,6 +285,13 @@ class WakeProvider extends ChangeNotifier {
             if (!_current(gen)) await agent.stop();
           });
           if (_current(gen)) helper = await agent.status();
+          final network = agent.resumeNetwork;
+          if (_current(gen) && network != null) {
+            await prefs.setString(
+                _resumeKey(endpoint, user),
+                jsonEncode(
+                    {'agent_id': registered.id, 'name': name, ...network}));
+          }
         } catch (_) {
           if (_current(gen)) await _native(agent.stop);
           await rollback();
@@ -238,6 +304,7 @@ class WakeProvider extends ChangeNotifier {
   Future<bool> disableHelper() => _mutate((scoped, gen) async {
         final endpoint = await scoped.endpoint();
         final user = _userId!;
+        await _forgetResume(user, endpoint: endpoint);
         await _native(agent.stop);
         final prefs = await SharedPreferences.getInstance();
         final key = _key(endpoint, user);
@@ -283,7 +350,10 @@ class WakeProvider extends ChangeNotifier {
         if (_current(gen)) await refresh();
       });
   Future<bool> removeHelper(WakeAgent selected) => _mutate((scoped, gen) async {
-        if (helper.agentId == selected.id) await _native(agent.stop);
+        if (helper.agentId == selected.id) {
+          await _forgetResume(_userId!, endpoint: await scoped.endpoint());
+          await _native(agent.stop);
+        }
         await scoped.revokeAgent(selected.id);
         if (_current(gen)) await refresh();
       });

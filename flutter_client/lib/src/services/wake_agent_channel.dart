@@ -38,6 +38,25 @@ class WakeAgentChannel {
               ownerId: desktop.owner,
               errorCode: desktop.error)
           : const WakeAgentStatus();
+
+  /// LAN the Mac helper relays on; remembered so a restart resumes only there.
+  Map<String, String>? get resumeNetwork =>
+      Platform.isMacOS ? desktop.selected?.config : null;
+
+  /// Selects the remembered LAN again when the same interface, hardware
+  /// address and IPv4 CIDR are present now. Never falls back to another LAN.
+  Future<bool> selectResumeNetwork(Map<String, dynamic> saved) async {
+    if (!Platform.isMacOS) return false;
+    for (final network in await desktop.networks()) {
+      final config = network.config;
+      if (config.keys.every((k) => config[k] == saved[k])) {
+        desktop.selected = network;
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<void> prepare() async {
     if (Platform.isMacOS) {
       if (desktop.selected == null) throw StateError('请先选择家庭网络');
@@ -88,3 +107,20 @@ class WakeAgentChannel {
     if (Platform.isAndroid) await _channel.invokeMethod('openBatterySettings');
   }
 }
+
+/// Turns helper status codes from Android and the Mac helper into guidance.
+String describeHelperError(String code) => switch (code) {
+      'network_paused' => '已离开家庭 Wi-Fi，回到同一网络后自动继续',
+      'wifi_required' => '请先连接电脑所在的家庭 Wi-Fi',
+      'ipv4_required' => '当前 Wi-Fi 没有唯一的局域网 IPv4 地址，请检查路由器设置',
+      'network_changed' => '家庭网络与启用时不同，请回到原网络后重新启用',
+      'configuration_missing' => '助手配置已丢失，请重新启用',
+      'network' => '暂时连不上服务器，正在自动重试',
+      'start_failed' => '助手启动失败，请重试',
+      'unauthorized' || 'forbidden' || 'not_found' => '助手授权已失效或已被移除，请重新启用',
+      'expired' || 'conflict' => '上一条开机请求已过期或被取消，助手继续待命',
+      'rate_limited' => '请求过于频繁，稍后自动重试',
+      'storage' => '服务器暂时无法保存，稍后自动重试',
+      _ =>
+        code.contains(RegExp(r'[\u4e00-\u9fff]')) ? code : '助手异常（$code），请重新启用',
+    };
