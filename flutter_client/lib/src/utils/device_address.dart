@@ -5,8 +5,9 @@ bool isDirectDeviceAddress(String value) {
   final octets = parts.first.split('.');
   if (octets.length != 4 ||
       octets
-          .any((v) => !RegExp(r'^\d{1,3}$').hasMatch(v) || int.parse(v) > 255))
+          .any((v) => !RegExp(r'^\d{1,3}$').hasMatch(v) || int.parse(v) > 255)) {
     return false;
+  }
   if (parts.length == 2) {
     final port = int.tryParse(parts.last);
     if (port == null || port < 1 || port > 65535) return false;

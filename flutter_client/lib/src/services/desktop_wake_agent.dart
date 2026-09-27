@@ -23,8 +23,9 @@ class DesktopWakeAgent {
       '${File(Platform.resolvedExecutable).parent.parent.path}/Helpers/rdesk-wake-helper';
 
   Future<List<DesktopWakeNetwork>> networks() async {
-    if (!await File(executable).exists())
+    if (!await File(executable).exists()) {
       throw StateError('此安装包缺少 Mac 开机助手，请安装完整测试版');
+    }
     final result = await Process.run(executable, ['app-networks'])
         .timeout(const Duration(seconds: 5));
     if (result.exitCode != 0) throw StateError('无法读取家庭网络，请检查网络连接');
@@ -49,8 +50,9 @@ class DesktopWakeAgent {
     final dir = Directory('${root.path}/wake-helper/$key');
     await dir.create(recursive: true);
     final mode = await Process.run('/bin/chmod', ['700', dir.path]);
-    if (mode.exitCode != 0 || gen != _generation)
+    if (mode.exitCode != 0 || gen != _generation) {
       throw StateError('无法准备助手私有目录');
+    }
     final process =
         await Process.start(executable, ['app-run', '--state', dir.path]);
     if (gen != _generation) {
@@ -82,8 +84,9 @@ class DesktopWakeAgent {
         ready = false;
         error = '助手已停止，请检查家庭网络后重新启用';
       }
-      if (!started.isCompleted)
+      if (!started.isCompleted) {
         started.completeError(StateError('助手启动失败，请检查所选网络'));
+      }
     }));
     try {
       process.stdin.writeln(jsonEncode({

@@ -97,8 +97,9 @@ try { $prop=$nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction St
       '-Command',
       r"$v=Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RDesk' -ErrorAction SilentlyContinue; if ($v) { 'true' } else { 'false' }"
     ]);
-    if (result.exitCode != 0)
+    if (result.exitCode != 0) {
       throw const WakeApiException('startup', '无法读取登录启动设置');
+    }
     return result.stdout.toString().trim() == 'true';
   }
 

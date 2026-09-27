@@ -33,10 +33,10 @@ void main() {
       tester.view.physicalSize = Size(width, 900);
       await tester.pumpWidget(ChangeNotifierProvider.value(
           value: update,
-          child: MaterialApp(
+          child: const MaterialApp(
               home: MediaQuery(
                   data: MediaQueryData(textScaler: TextScaler.linear(2)),
-                  child: const Scaffold(
+                  child: Scaffold(
                       body: SingleChildScrollView(child: UpdateCard()))))));
       await tester.pumpAndSettle();
       expect(find.text('下载更新'), findsOneWidget);

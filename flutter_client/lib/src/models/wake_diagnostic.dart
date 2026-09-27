@@ -4,8 +4,9 @@ String wakeDiagnosticTime(int? ms) => ms == null
     ? '未收到'
     : DateTime.fromMillisecondsSinceEpoch(ms).toLocal().toIso8601String();
 String wakeNextStep(WakeRequest? request, bool helperOnline) {
-  if (request == null)
+  if (request == null) {
     return helperOnline ? '保存工作后自行让电脑睡眠或关机，再发送测试请求。' : '先让家中的助手在线，当前无法发送。';
+  }
   return switch (request.phase) {
     WakePhase.queued => '服务器已收到请求，等待家中助手领取。',
     WakePhase.claimed => '助手已领取，请等待发送回执。',

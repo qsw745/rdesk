@@ -1220,11 +1220,11 @@ class RdeskBridgeService {
         apiBase.replace(path: '/api/file/list'),
       );
       request.headers.contentType = ContentType.json;
-      request.write(jsonEncode({
+      _writeJson(request, {
         'device_id': deviceId,
         'token': token,
         'path': path,
-      }));
+      });
       final response = await request.close();
       if (response.statusCode == HttpStatus.ok) {
         final body = await utf8.decoder.bind(response).join();
@@ -1315,8 +1315,7 @@ class RdeskBridgeService {
       final request =
           await client.postUrl(apiBase.replace(path: '/api/preview/register'));
       request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, Object?>{
+      _writeJson(request, <String, Object?>{
           'device_id': deviceId,
           'endpoint': endpoint,
           'platform': platform,
@@ -1326,8 +1325,7 @@ class RdeskBridgeService {
           'trusted_viewers': trustedViewerIds,
           'auth_token': authToken,
           'host_token': hostToken,
-        }),
-      );
+        });
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('register failed: ${response.statusCode}',
@@ -1354,10 +1352,10 @@ class RdeskBridgeService {
       final request = await client
           .postUrl(apiBase.replace(path: '/api/preview/unregister'));
       request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(<String, String>{
+      _writeJson(request, <String, String>{
         'device_id': deviceId,
         'host_token': hostToken,
-      }));
+      });
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
         throw HttpException('unregister failed: ${response.statusCode}',
@@ -1380,12 +1378,10 @@ class RdeskBridgeService {
       final request = await client
           .postUrl(apiBase.replace(path: '/api/preview/disconnect_viewers'));
       request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, String>{
+      _writeJson(request, <String, String>{
           'device_id': deviceId,
           'host_token': hostToken,
-        }),
-      );
+        });
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
@@ -1538,13 +1534,11 @@ class RdeskBridgeService {
       ),
     );
     request.headers.contentType = ContentType.json;
-    request.write(
-      jsonEncode(<String, Object?>{
+    _writeJson(request, <String, Object?>{
         'command_id': commandId,
         'ok': ok,
         'text': text,
-      }),
-    );
+      });
     final response = await request.close();
     await response.drain<void>();
     if (response.statusCode != HttpStatus.ok) {
@@ -1601,11 +1595,20 @@ class RdeskBridgeService {
   }
 
   // ── Fast control command helper (reuses persistent client) ──
+  /// Sends a JSON body with an explicit Content-Length instead of chunked
+  /// encoding. Some VPN/TUN network extensions drop chunked request bodies on
+  /// LAN routes, which turned a correct password into "认证失败".
+  static void _writeJson(HttpClientRequest request, Object? body) {
+    final bytes = utf8.encode(jsonEncode(body));
+    request.contentLength = bytes.length;
+    request.add(bytes);
+  }
+
   Future<bool> _postControl(Uri uri, Map<String, dynamic> body) async {
     try {
       final request = await _getControlClient.postUrl(uri);
       request.headers.contentType = ContentType.json;
-      request.write(jsonEncode(body));
+      _writeJson(request, body);
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
         debugPrint('[RDesk] _postControl FAILED: ${response.statusCode} '
@@ -2267,7 +2270,7 @@ class RdeskBridgeService {
         request.headers
             .set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');
       }
-      request.write(jsonEncode(body));
+      _writeJson(request, body);
       final response = await request.close();
       final raw = await utf8.decoder.bind(response).join();
       if (response.statusCode != HttpStatus.ok) {
@@ -2394,16 +2397,14 @@ class RdeskBridgeService {
         apiBase.replace(path: '/api/preview/resolve/$deviceId'),
       );
       request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, String?>{
+      _writeJson(request, <String, String?>{
           'password_hash':
               password.isEmpty ? null : _hashAccessSecret(password),
           'requester_id': requesterId,
           'auth_token': authToken,
           'requester_hostname': requesterHostname,
           'requester_peer_os': requesterPeerOs,
-        }),
-      );
+        });
       final response = await request.close().timeout(timeout);
       if (response.statusCode != HttpStatus.ok) {
         return const PreviewResolveResult(
@@ -2474,14 +2475,12 @@ class RdeskBridgeService {
     try {
       final request = await _getControlClient.postUrl(trustUri);
       request.headers.contentType = ContentType.json;
-      request.write(
-        jsonEncode(<String, dynamic>{
+      _writeJson(request, <String, dynamic>{
           'deviceId': requester.deviceId,
           'hostname': requester.hostname,
           'peerOs': requester.os,
           if (password != null) 'password': password,
-        }),
-      );
+        });
       final response = await request.close();
       if (response.statusCode == HttpStatus.ok) {
         final body = await utf8.decoder.bind(response).join();

@@ -59,8 +59,9 @@ class AppUpdateService {
         final data = <int>[];
         await for (final chunk
             in response.timeout(const Duration(seconds: 15))) {
-          if (data.length + chunk.length > limit)
+          if (data.length + chunk.length > limit) {
             throw const UpdateFailure('更新清单过大');
+          }
           data.addAll(chunk);
         }
         return UpdateRelease.fromManifest(

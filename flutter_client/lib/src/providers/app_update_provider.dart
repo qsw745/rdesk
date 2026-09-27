@@ -95,8 +95,9 @@ class AppUpdateProvider extends ChangeNotifier {
   Future<AppVersion> _readInstalledVersion() async {
     final result = Completer<AppVersion>();
     _versionTimer = Timer(const Duration(seconds: 10), () {
-      if (!result.isCompleted)
+      if (!result.isCompleted) {
         result.completeError(const UpdateFailure('无法读取当前版本，请重试'));
+      }
     });
     installedVersion().then((value) {
       if (!result.isCompleted) result.complete(value);
@@ -130,7 +131,9 @@ class AppUpdateProvider extends ChangeNotifier {
     await initialize();
     if (_disposed ||
         busy ||
-        (!manual && (!automatic || now().isBefore(_nextCheck)))) return;
+        (!manual && (!automatic || now().isBefore(_nextCheck)))) {
+      return;
+    }
     phase = UpdatePhase.checking;
     if (manual) _ignored = null;
     message = null;
@@ -179,8 +182,9 @@ class AppUpdateProvider extends ChangeNotifier {
     _notify();
     try {
       await _removePackage();
-      if (_disposed || generation != _downloadGeneration)
+      if (_disposed || generation != _downloadGeneration) {
         throw const UpdateCancelled();
+      }
       final file = await service.download(selected, (bytes) {
         received = bytes;
         _notify();
@@ -256,8 +260,9 @@ class AppUpdateProvider extends ChangeNotifier {
   Future<void> _removePackage() async {
     final old = package;
     package = null;
-    if (old != null && await old.parent.exists())
+    if (old != null && await old.parent.exists()) {
       await old.parent.delete(recursive: true);
+    }
   }
 
   @override

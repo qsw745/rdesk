@@ -118,8 +118,9 @@ class PairApi extends WakeApi {
 
   @override
   Future<void> targetHeartbeat(String id, String token) async {
-    if (badHeartbeat)
+    if (badHeartbeat) {
       throw const WakeApiException('unauthorized', '凭据已失效', 401);
+    }
     expect(token, tokens.first);
   }
 }

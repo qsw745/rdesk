@@ -203,7 +203,7 @@ class ConnectionLogScreen extends StatelessWidget {
                                         const SizedBox(height: 4),
                                         Text(
                                           record.failureReason!,
-                                          style: TextStyle(
+                                          style: const TextStyle(
                                             color: AppTheme.errorRed,
                                             fontSize: 12,
                                           ),

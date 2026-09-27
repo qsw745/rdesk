@@ -317,8 +317,9 @@ class WakePairingProvider extends ChangeNotifier {
   Future<void> resetRemovedBinding() async {
     final gen = ++_generation;
     _timer?.cancel();
-    if (_user != null && _endpoint != null)
+    if (_user != null && _endpoint != null) {
       await vault.clear(_user!, _endpoint!);
+    }
     if (!_current(gen)) return;
     session = null;
     targetId = null;

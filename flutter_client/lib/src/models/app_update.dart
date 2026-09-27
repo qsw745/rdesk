@@ -92,8 +92,9 @@ class UpdateRelease {
             .toList()
         : <String>[];
     if (target.platform == 'ios') {
-      if (entry['url'] != storeUri.toString())
+      if (entry['url'] != storeUri.toString()) {
         throw const FormatException('商店地址无效');
+      }
       return UpdateRelease(
           version: version, platform: 'ios', uri: storeUri, notes: notes);
     }

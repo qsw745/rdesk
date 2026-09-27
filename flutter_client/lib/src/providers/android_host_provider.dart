@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../utils/lan_request_guard.dart';
 import '../models/device.dart';
 import '../services/rdesk_bridge_service.dart';
 import '../services/android_host_service.dart';
@@ -468,7 +469,7 @@ class AndroidHostProvider extends ChangeNotifier {
     await _registerPreviewHost();
 
     unawaited(
-      server.forEach((request) async {
+      server.forEach((request) => guardLanRequest(request, () async {
         final response = request.response;
         response.headers.set('Cache-Control', 'no-store');
 
@@ -775,7 +776,7 @@ class AndroidHostProvider extends ChangeNotifier {
         response.statusCode = HttpStatus.notFound;
         response.write('not found');
         await response.close();
-      }),
+      })),
     );
   }
 

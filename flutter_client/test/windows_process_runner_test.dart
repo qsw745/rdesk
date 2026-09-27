@@ -33,7 +33,7 @@ void main() {
     final check = await Process.run('powershell.exe', [
       '-NoProfile',
       '-Command',
-      "if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }"
+      'if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }'
     ]);
     expect(check.exitCode, 0, reason: '子进程必须先终止，检测才能返回');
   }, skip: !Platform.isWindows);
@@ -55,9 +55,10 @@ void main() {
       treeCleaned = true;
     });
     addTearDown(() async {
-      if (marker.existsSync())
+      if (marker.existsSync()) {
         Process.killPid(
             int.parse(marker.readAsStringSync()), ProcessSignal.sigkill);
+      }
       parent?.kill(ProcessSignal.sigkill);
       await runner.dispose();
       await dir.delete(recursive: true);

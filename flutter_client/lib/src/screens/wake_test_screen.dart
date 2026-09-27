@@ -84,7 +84,7 @@ class _WakeTestScreenState extends State<WakeTestScreen>
                                   '先保存电脑上的工作，自行睡眠或关机。外网测试时，让本手机关闭 Wi-Fi 使用蜂窝网络，家中助手保持在线。'),
                               const SizedBox(height: 16),
                               DropdownButtonFormField<String>(
-                                  value: _environment,
+                                  initialValue: _environment,
                                   decoration: const InputDecoration(
                                       labelText: '这次从哪里测试（手动选择）'),
                                   items: [
@@ -151,7 +151,7 @@ class _WakeTestScreenState extends State<WakeTestScreen>
                                 if (latest.errorCode != null)
                                   SelectableText('诊断代码：${latest.errorCode}'),
                                 DropdownButtonFormField<String>(
-                                    value: _observation,
+                                    initialValue: _observation,
                                     decoration: const InputDecoration(
                                         labelText: '实际观察结果（复制报告时包含）'),
                                     items: [
@@ -180,11 +180,12 @@ class _WakeTestScreenState extends State<WakeTestScreen>
                                             requests: requests,
                                             environment: _environment,
                                             observation: _observation)));
-                                    if (context.mounted)
+                                    if (context.mounted) {
                                       ScaffoldMessenger.of(context)
                                           .showSnackBar(const SnackBar(
                                               content: Text(
                                                   '诊断已复制，不含账号凭据、MAC 或 IP')));
+                                    }
                                   }),
                               const Text(
                                   '云端开机记录保留最近 7 天、最多 50 条。人工观察只加入本次复制的报告，请复制保存。退出页面不会自动关机或重发指令。'),

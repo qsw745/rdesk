@@ -104,7 +104,7 @@ class FileTransferProvider extends ChangeNotifier {
   Future<void> downloadFile(
       String sessionId, String remotePath, String localPath) async {
     final fileName = remotePath.split('/').last;
-    final totalBytes = 1024 * 1024; // estimate
+    const totalBytes = 1024 * 1024; // estimate
 
     final id = DateTime.now().millisecondsSinceEpoch;
     var transfer = TransferProgress(

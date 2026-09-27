@@ -152,7 +152,7 @@ class _FileManagerScreenState extends State<FileManagerScreen>
                 color: AppTheme.primaryBlue.withValues(alpha: 0.08),
                 child: Row(
                   children: [
-                    Icon(Icons.check_circle_outline,
+                    const Icon(Icons.check_circle_outline,
                         size: 18, color: AppTheme.primaryBlue),
                     const SizedBox(width: 8),
                     Text(

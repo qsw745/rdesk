@@ -209,7 +209,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: selectedGroup,
+                    initialValue: selectedGroup,
                     decoration: const InputDecoration(
                       labelText: '分组',
                       prefixIcon: Icon(Icons.folder_outlined, size: 20),
@@ -420,7 +420,7 @@ class _DeviceCard extends StatelessWidget {
                           ),
                           child: Text(
                             entry.group,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 11,
                               color: AppTheme.accentPurple,
                               fontWeight: FontWeight.w500,
@@ -553,9 +553,10 @@ class _DeviceCard extends StatelessWidget {
                     Navigator.pop(ctx);
                     final connectionProvider =
                         outerContext.read<ConnectionProvider>();
+                    final addressBook =
+                        outerContext.read<AddressBookProvider>();
                     await connectionProvider.connect(entry.deviceId, pw);
-                    outerContext.read<AddressBookProvider>().markConnected(
-                        entry.deviceId,
+                    addressBook.markConnected(entry.deviceId,
                         endpointScope: entry.endpointScope);
                   },
                   child: const Text('连接'),
@@ -624,7 +625,7 @@ class _DeviceCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: selectedGroup,
+                    initialValue: selectedGroup,
                     decoration: const InputDecoration(
                       labelText: '分组',
                       prefixIcon: Icon(Icons.folder_outlined, size: 20),

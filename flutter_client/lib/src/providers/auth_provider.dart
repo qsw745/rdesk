@@ -262,7 +262,9 @@ class AuthProvider extends ChangeNotifier {
     if (gen != _identityGeneration ||
         _session?.token != session.token ||
         normalizedEndpointScope((await _bridge.getApiBaseUri()).toString()) !=
-            normalizedEndpointScope(endpoint.toString())) return;
+            normalizedEndpointScope(endpoint.toString())) {
+      return;
+    }
     _devices = devices
         .where((item) => item.deviceId.trim() != localDevice.deviceId.trim())
         .toList();

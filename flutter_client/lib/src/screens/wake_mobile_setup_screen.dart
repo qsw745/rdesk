@@ -205,8 +205,9 @@ class _WakeMobileSetupScreenState extends State<WakeMobileSetupScreen>
                                                     wake.setVisible(false);
                                                     await context.push(
                                                         '/wake/test/${Uri.encodeComponent(target.id)}');
-                                                    if (mounted)
+                                                    if (mounted) {
                                                       wake.setVisible(true);
+                                                    }
                                                   },
                                                   icon: const Icon(Icons
                                                       .fact_check_outlined),

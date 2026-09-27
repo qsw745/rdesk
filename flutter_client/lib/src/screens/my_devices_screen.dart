@@ -55,8 +55,9 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
-    if (_foreground && mounted && TickerMode.valuesOf(context).enabled)
+    if (_foreground && mounted && TickerMode.valuesOf(context).enabled) {
       unawaited(_refresh());
+    }
   }
 
   @override
@@ -83,7 +84,9 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   Future<void> _connect(DeviceDirectoryEntry item) async {
     final connection = context.read<ConnectionProvider>();
     if (_connectingKey != null ||
-        connection.connectionState == SessionState.connecting) return;
+        connection.connectionState == SessionState.connecting) {
+      return;
+    }
     final settings = context.read<SettingsProvider>();
     final auth = context.read<AuthProvider>();
     final session = context.read<SessionProvider>();

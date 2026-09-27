@@ -325,9 +325,10 @@ class _WindowsWakeScreenState extends State<WindowsWakeScreen>
           .firstOrNull;
       if (existing != null && !await wake.remove(existing)) return;
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('无法核实旧配置，请联网后重试')));
+      }
       return;
     }
     if (gen != wake.identityGeneration) return;

@@ -12,13 +12,12 @@ import 'package:rdesk/src/screens/wake_screen.dart';
 import 'wake_provider_test.dart' show TestAgent;
 
 class ScreenWake extends WakeProvider {
-  ScreenWake({WindowsWakeService? windows})
+  ScreenWake({super.windows})
       : super(
             api: WakeApi(
                 baseUri: () async => Uri.parse('https://example.test'),
                 accountToken: () async => 'token'),
-            agent: TestAgent(),
-            windows: windows);
+            agent: TestAgent());
   @override
   Future<void> refresh() async {}
   void replaceAgents(List<WakeAgent> value) {
