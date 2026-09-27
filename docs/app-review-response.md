@@ -1,4 +1,84 @@
-# 第三次 Guideline 5.6 拒绝后的 build 13 整改与回复记录
+# RDesk App Review 拒审与回复记录
+
+## 2026-09-01 build 14：Guideline 2.1(b) / 1.5
+
+### 实时状态与处理结论（2026-09-04）
+
+- 提交：iOS 2.1.0 (14)，提交 ID
+  `063f45f8-0cb8-4e3e-9dc9-dbed7bc5b151`
+- Apple 审核设备：iPad Air 11-inch (M3)
+- Guideline 2.1(b)：Apple 认为 App 可能访问付费数字内容或服务，要求回答五个
+  商业模式问题。
+- Guideline 1.5：Apple 在审核时无法访问原 Support URL
+  `https://qisw.top/rdesk/support`。
+- ASC 当前已保存新的 Support URL：`https://qsw745.github.io/rdesk-support/`。
+  2026-09-04 复核 `GET` / `HEAD` 均为 HTTP 200，外部探测在美国洛杉矶及多个
+  欧洲节点也返回 200，页面明确说明当前版本完全免费并提供支持邮箱。
+- 源码与依赖复核未发现 StoreKit、IAP、订阅、会员、支付或付费解锁流程。
+  所有连接、中继、云设备同步、画面查看/控制、文件传输、剪贴板和账号功能均免费；
+  账号创建免费且可选，设备 ID 直连不要求账号。
+- Apple 没有指出 build 14 的新二进制问题，因此本轮继续使用 build 14。
+- 2026-09-04 回复前已使用 ASC 审核备注中的密码完成完整演示机检查：实体 Android
+  设备、RDesk 进程、MediaProjection、无障碍服务、密码认证、在线心跳、实时画面和
+  公共页面全部通过。
+- 2026-09-04 22:49 已向 Apple 发送下方英文回复；22:51 已重新提交 build 14，
+  ASC 回读状态为“等待审核”。这不代表已批准或已公开发布。
+
+### 本轮已发送英文回复（2026-09-04 22:49）
+
+```text
+Hello,
+
+Thank you for the review. RDesk 2.1.0 (14) is entirely free. The app does not
+contain paid digital content, subscriptions, memberships, paid unlocks, or any
+purchase flow, and it does not provide access to features purchased elsewhere.
+
+Answers to the Guideline 2.1(b) questions:
+
+1. There are no paid features or paid-feature users. All users receive the same
+free functionality.
+
+2. Users cannot purchase RDesk features anywhere. There is no purchase page,
+external payment link, StoreKit integration, or In-App Purchase product.
+
+3. The app does not provide access to any previously purchased features.
+
+4. No paid content, subscriptions, or features are unlocked inside the app,
+whether through In-App Purchase or an external purchase.
+
+5. Users may create an account for free inside the app under Me > Register.
+Account creation is optional: users can connect directly with a Device ID
+without an account. Cloud device sync is also free.
+
+All remote connection, relay, cloud device sync, screen viewing and control,
+file transfer, clipboard, and account features in this version are free.
+
+If we introduce paid digital features in a future version, we will implement
+and submit them in compliance with Apple's In-App Purchase requirements.
+
+For Guideline 1.5, we replaced the previous Support URL in App Store Connect
+with this globally distributed support page:
+
+https://qsw745.github.io/rdesk-support/
+
+The new page provides support information, contact details, capability
+boundaries, privacy information, and the free business-model statement. We
+verified both GET and HEAD requests and external availability, including from a
+United States node.
+
+The physical Android demo host and the review account listed in App Review
+Information are online and available for testing build 2.1.0 (14). Immediately
+before this reply, we verified the demo host identity, password authentication,
+fresh heartbeat, live 661 x 1440 screen frame, active MediaProjection session,
+Android Accessibility service, and public support/privacy pages.
+
+Thank you.
+```
+
+> 已在 ASC 消息区回读到该回复，并在重新提交后回读到 build 14 为“等待审核”。
+> 自动发布已选中，但只有 Apple 批准后才会触发；当前尚未批准或公开上架。
+
+## 历史：Guideline 5.6 与 build 13 整改
 
 > **三次被拒**，同一条 Guideline 5.6 – Developer Code of Conduct。Apple 三次
 > 发来的都是同一段模板文字（「App 包含在审核过程中似乎被刻意隐藏的功能」），
@@ -9,7 +89,7 @@
 > | 2026-08-06 | 2.1.0 (6) | 08-07 被拒；备注把 Android 模拟器说成实体手机，是当时已确认的不一致 |
 > | 2026-08-13 | 2.1.0 (11) | 08-14 再次被拒，措辞相同 |
 > | 2026-08-17 | 2.1.0 (12) | 08-18 第三次被拒，措辞相同；测试账号与真机演示环境均已提供 |
-> | 2026-08-18 | 2.1.0 (13) | 14:35 重新提交；ASC 提交 ID `063f45f8-0cb8-4e3e-9dc9-dbed7bc5b151`，当前等待审核 |
+> | 2026-08-18 | 2.1.0 (13) | 14:35 重新提交；当时为“等待审核”，后于 08-28 第四次被 Guideline 5.6 拒绝 |
 >
 > **三拒复查结论（2026-08-18）**：
 >
@@ -29,9 +109,10 @@
 >
 > 本文第二、三节保留 build 13 的实际发送稿。2026-08-18 已完成 build 13
 > 上传、出口合规、真机与审核主机复查、ASC 描述和备注替换、回复与重新提交；
-> live ASC 状态为“等待审核”，不代表已批准或已公开发布。
+> 当时 live ASC 状态为“等待审核”，不代表已批准或已公开发布；该状态后来已被
+> 2026-08-28 的第四次 Guideline 5.6 拒绝取代。
 
-## 2026-08-27 后续本地候选 build 14（未上传、未提交）
+## 2026-08-27 build 14 本地候选记录（后续已上传并提交）
 
 - 「操作」弹层由接近全屏改为竖屏约 64%、横屏约 78%，顶部保留退出、仅观看、
   指针模式和旋转，长内容在弹层内部滚动。
@@ -46,8 +127,8 @@
 - 2026-08-27 已在 iPhone 17 Pro Max（iOS 26.6）完成 Release 构建、安装和启动；
   本地产物主 App 与 Broadcast Extension 均为 2.1.0 (14)。这只证明本地包与安装链路，
   不等于 ASC 已上传或审核员已见到该版本。
-- 本节只记录本地工作树事实。build 14 尚未上传、未完成出口合规、未改 ASC 元数据、
-  未回复 Apple、未提交审核；第二、三节仍是 build 13 的历史实际发送稿。
+- 本节只保留当时的本地工作树事实。build 14 后续已上传并于 2026-08-29 提交；
+  2026-09-01 的 2.1(b) / 1.5 拒审与当前回复草稿见本文首节。
 
 ---
 
@@ -151,7 +232,7 @@
       首次拉帧即为 HTTP 200、34,088 字节、661×1440，隐私页和支持页均为 200。
 - [x] 上传 build 13、补出口合规、替换 ASC 旧描述和审核备注；轮换永久密码后
       用实体 iPhone 再次连接成功。已发送本页英文回复，并于 2026-08-18 14:35
-      重新提交，ASC 提交 ID `063f45f8-0cb8-4e3e-9dc9-dbed7bc5b151`，状态等待审核。
+      重新提交，ASC 提交 ID `063f45f8-0cb8-4e3e-9dc9-dbed7bc5b151`，当时状态为等待审核。
 
 **实测得到的真实值（下方文案已按此填写）：**
 
