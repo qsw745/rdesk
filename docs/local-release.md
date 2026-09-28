@@ -16,6 +16,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows.ps1
 
 如需依赖镜像，仅使用可信的 Flutter 镜像；切换托管地址时保留锁文件中的精确版本与内容摘要。可预先下载官方 NuGet 包到本地缓存，并在构建副本中用 NuGet.Config 指向缓存。
 
+## macOS
+
+```sh
+bash scripts/release_macos.sh arm64    # dist/RDesk-<版本>-macos-arm64.dmg
+bash scripts/release_macos.sh x86_64   # dist/RDesk-<版本>-macos-x64.zip
+```
+
+脚本按架构独立构建，内嵌并签名开机助手，Developer ID 签名后公证并装订应用；arm64 另制作带「应用程序」快捷方式的 DMG，再单独签名、公证、装订。需要登录钥匙串中的 Developer ID 证书与 notarytool 配置 `rdesk`（见 [macOS 分发](macos-distribution.md)）。
+
 ## Android
 
 在本地配置原发布签名，执行 `flutter build apk --release`。用 Android SDK 的 `apksigner verify` 核对签名、`aapt dump badging` 核对包名与版本；存在已连接测试手机时覆盖安装验证。不要把密钥、口令或本地签名配置提交到仓库。
