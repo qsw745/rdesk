@@ -344,7 +344,7 @@ class ScreenCaptureService : Service() {
         return builder
             .setContentTitle("RDesk 屏幕共享")
             .setContentText("正在采集 Android 屏幕预览")
-            .setSmallIcon(android.R.drawable.presence_video_online)
+            .setSmallIcon(R.drawable.ic_stat_rdesk)
             .setOngoing(true)
             .build()
     }
