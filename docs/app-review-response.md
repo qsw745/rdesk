@@ -1,5 +1,86 @@
 # RDesk App Review 拒审与回复记录
 
+## 2026-09-28 2.3.0（build 23）提交准备
+
+- 状态：构建 23 已于 2026-09-28 20:24 由 Xcode 账号上传成功（`EXPORT SUCCEEDED`）。尚未设置出口合规、未创建/切换 ASC 版本、未提交审核；这些步骤需要 ASC 登录与演示机检查。
+- 用户决定：若 2.1.0（build 14）仍在等待审核，撤回后将版本改为 2.3.0 并选择构建 23 提交。
+- 新截图：`docs/screenshots/ios-65-*.png`（1242×2688，5 张）、`ipad-13-*.png`（2064×2752，3 张），由截图工具渲染真实界面并叠加模拟器 9:41 状态栏；旧截图展示旧界面及已删除的「快捷键」等入口，已删除。
+- 安装包核验：主应用与屏幕共享扩展均为 2.3.0（23）、最低 iOS 15、两份 `PrivacyInfo.xcprivacy` 在包内、Apple Distribution 签名；不声明相机或相册权限。
+- 提交前仍须：用 `RDESK_REVIEW_DEVICE_ID` / `RDESK_REVIEW_PASSWORD` 跑通 `scripts/check_review_host.sh`；在 ASC 中保留现有凭据行，只替换其余备注段落。
+
+### 审核备注（英文，粘贴时保留 ASC 中原有凭据行）
+
+```
+Build under review: 2.3.0 (23). This version redesigns the navigation and screens; the in-session remote controls are the same as in build 14.
+
+TEST ACCOUNT
+
+  Account:   [REDACTED_IN_REPOSITORY]
+  Password:  [REDACTED_IN_REPOSITORY]
+
+Sign in under "我的" (Me) → "登录". The "设备" (Devices) tab then lists the account's devices. Direct Device ID connection does not require an account.
+
+DEMO HOST
+
+A physical Android phone we own and keep online:
+
+  Host:        OnePlus PLU110, Android 16 — a real phone, not an emulator or a VM
+  Host name shown in the app: PLU110
+  Device ID:   [REDACTED_IN_REPOSITORY]
+  Password:    [REDACTED_IN_REPOSITORY]
+
+RDesk is in a separate Android user with no personal data. Unattended access is on; no host-side approval is needed.
+
+TO CONNECT
+
+1. Tap "协助" (Assist) in the bottom tab bar.
+2. In the card "远程控制其他设备" (Control another device), enter the Device ID in "设备码" and the Password in "验证码（选填）".
+3. Tap "远程控制" (Remote control). The remote screen appears. Tap = tap, long press = long press, drag = swipe on the host; a two-finger pinch zooms this device's view only. "传输文件" (Transfer files) opens the file browser instead.
+
+SESSION CONTROLS
+
+Bottom bar: 返回 Back | 主页 Home | 任务 Recents | 键盘 types text into the focused field on the host | 操作 opens a sheet with 退出远控 (end session), 仅观看 (view-only, sends no input), 指针模式, 旋转画面, 全屏, 隐藏工具栏, swipe/delete/enter/wake-screen actions, clipboard exchange, quality, display and file transfer.
+
+REMOTE WAKE (NEW, OPTIONAL, FREE)
+
+"我的" (Me) → "远程开机" (Remote wake) lists Windows PCs that the signed-in account enabled for wake-on-LAN, each with a "开机" (Power on) button. It needs the user's own Windows PC with Wake-on-LAN and an always-on Android phone or Mac at home running RDesk as a helper; the iPhone only sends the request through our server. The test account has no such PC, so the page shows an empty state explaining the setup. It cannot be exercised without that hardware.
+
+CAPABILITY BOUNDARIES
+
+No WebView, remote HTML/scripts, remote configuration, feature flags, debug or unlock menu, dynamic code loading, custom URL schemes, or region/date-dependent behavior. All features are free; there is no purchase, subscription or paid unlock.
+
+GUIDELINE 4.2.7
+
+The app connects only to user-owned or authorized devices and does not provide, host or resell a virtual machine, cloud desktop or remote computer. Android and macOS hosts accept remote control. An iOS host shares its screen only. Windows is controller-only.
+
+PERMISSIONS AND TRANSPORT
+
+iOS capture uses a ReplayKit Broadcast Extension and starts only when the user selects RDesk in the system recording menu. No camera or photo-library permission is declared. Sign-in, screen data and input use HTTPS/WSS to https://qisw.top; NSAllowsArbitraryLoads permits user-entered self-hosted or LAN servers. Relayed screen data is readable on our server; we do not claim end-to-end encryption.
+
+Account deletion: "我的" (Me) → "注销账号".
+
+If the app reports no online device, the host is briefly offline — contact us at 641742030@qq.com and we will restore it.
+```
+
+备注长度：3084 字符（上限 4000）。
+
+### 版本更新说明（What's New）
+
+```
+全新界面：设备、远程协助和「我的」重新设计，登录同一账号的设备会自动出现，点一下即可连接。
+设备页：一张大卡片直接进入远程桌面，远程控制、文件传输、收藏等常用操作集中在一起。
+远程开机：可在设备列表一键开机家中的 Windows 电脑（需电脑支持网络唤醒，并由家中常开的安卓手机或 Mac 作为开机助手）。
+远程协助：输入对方设备码即可发起控制，验证码可以不填、由对方确认。
+修复问题并提升稳定性。
+```
+
+### 描述补充（加入【核心功能】）
+
+```
+· 设备同步 —— 登录同一账号，你的电脑和手机会自动出现在设备列表
+· 远程开机 —— 家中电脑关机或睡眠时，可一键发送开机请求（需电脑支持网络唤醒，并有一台家中常开的安卓手机或 Mac 作为开机助手）
+```
+
 ## 2026-09-01 build 14：Guideline 2.1(b) / 1.5
 
 ### 实时状态与处理结论（2026-09-04）

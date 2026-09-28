@@ -14,6 +14,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rdesk/app.dart';
 import 'package:rdesk/src/models/account.dart';
+import 'package:rdesk/src/models/device.dart';
+import 'package:rdesk/src/providers/connection_provider.dart';
 import 'package:rdesk/src/models/session.dart';
 import 'package:rdesk/src/models/wake.dart';
 import 'package:rdesk/src/providers/session_provider.dart';
@@ -41,9 +43,24 @@ class Shot {
   final TargetPlatform platform;
   final Size size;
   final bool seeded, dark;
+  final double dpr, top, bottom;
   const Shot(this.name, this.route, this.platform, this.size,
-      {this.seeded = true, this.dark = false});
+      {this.seeded = true,
+      this.dark = false,
+      this.dpr = 2,
+      this.top = 0,
+      this.bottom = 0});
 }
+
+// App Store sizes: iPhone 6.5" 414x896 @3x, iPad 13" 1032x1376 @2x.
+const store65 = Size(414, 896);
+const store13 = Size(1032, 1376);
+Shot phoneStore(String name, String route) => Shot('store_iphone_$name', route,
+    TargetPlatform.iOS, store65,
+    dpr: 3, top: 44, bottom: 34);
+Shot padStore(String name, String route) => Shot('store_ipad_$name', route,
+    TargetPlatform.iOS, store13,
+    dpr: 2, top: 24, bottom: 20);
 
 const phone = Size(393, 852);
 const desktop = Size(1280, 820);
@@ -51,6 +68,14 @@ String dev(String id) =>
     '/device/${Uri.encodeComponent(deviceDirectoryKey(server, id))}';
 
 final shots = [
+  phoneStore('1_devices', '/'),
+  phoneStore('2_device', dev('318204557')),
+  phoneStore('3_wake', dev('552910384')),
+  phoneStore('4_assist', '/assist'),
+  phoneStore('5_me', '/me'),
+  padStore('1_devices', '/'),
+  padStore('2_device', dev('318204557')),
+  padStore('3_assist', '/assist'),
   const Shot('ios_devices_empty', '/', TargetPlatform.iOS, phone, seeded: false),
   const Shot('ios_devices', '/', TargetPlatform.iOS, phone),
   Shot('ios_device_online', dev('318204557'), TargetPlatform.iOS, phone),
@@ -105,8 +130,17 @@ void seed(BuildContext context) {
             hostname: '小米 14',
             platform: 'android',
             updatedAtMs: now),
+        AccountDevice(
+            deviceId: '415820736',
+            hostname: '工作室 Mac mini',
+            platform: 'macos',
+            updatedAtMs: now),
       ],
       endpoint: server);
+  context.read<ConnectionProvider>().debugSeed(
+      const DeviceInfo(
+          deviceId: '888888888', os: 'ios', hostname: 'iPhone', version: '2.3.0'),
+      '739214');
   final wake = context.read<WakeProvider>();
   wake.bindAccount('u1', server);
   wake.agents = const [
@@ -151,8 +185,11 @@ void main() {
       });
       tester.platformDispatcher.platformBrightnessTestValue =
           shot.dark ? Brightness.dark : Brightness.light;
-      tester.view.physicalSize = shot.size * 2;
-      tester.view.devicePixelRatio = 2;
+      tester.view.physicalSize = shot.size * shot.dpr;
+      tester.view.devicePixelRatio = shot.dpr;
+      tester.view.padding = FakeViewPadding(
+          top: shot.top * shot.dpr, bottom: shot.bottom * shot.dpr);
+      tester.view.viewPadding = tester.view.padding;
       addTearDown(tester.view.reset);
       addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
       appRouter.go('/');

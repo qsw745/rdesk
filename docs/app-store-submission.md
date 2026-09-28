@@ -4,7 +4,8 @@
 
 - **Bundle ID**：`com.qsw.rdesk`
 - **Team ID**：`6N5T3G6H33`
-- **当前提交版本 / 构建号**：**2.1.0 (14)** —— 已重新提交，当前等待审核
+- **下一提交版本 / 构建号**：**2.3.0 (23)** —— 2026-09-28 已上传，尚未提交；准备材料见 [app-review-response.md](app-review-response.md) 首节
+- **此前提交版本 / 构建号**：**2.1.0 (14)** —— 2026-09-04 重新提交，最后一次记录为等待审核（需以 ASC 实时状态为准）
   （由 `flutter_client/pubspec.yaml` 的 `version: 2.1.0+14` 统一管理）
 
 > **当前状态（2026-09-04 22:51 现场复核）**：build 14 于 2026-08-29 14:59（CST）
@@ -397,6 +398,8 @@ iOS 作为被控端时仅共享画面，不接受远程操作。
 > 已确认保留 `TARGETED_DEVICE_FAMILY = "1,2"`（支持 iPad），因此 iPad 截图为必填项。
 
 建议截图内容：首页设备列表 / 连接中的远程画面 / 手势操作 / 文件传输 / 安全设置。
+
+2.3.0 截图（2026-09-28，新界面）：`docs/screenshots/ios-65-1-devices.png` 设备列表、`ios-65-2-device.png` 设备页、`ios-65-3-wake.png` 远程开机、`ios-65-4-assist.png` 远程协助、`ios-65-5-me.png` 我的；iPad `ipad-13-1-devices.png`、`ipad-13-2-device.png`、`ipad-13-3-assist.png`。由 `flutter_client/tool/ui_shots` 渲染真实界面，状态栏取自同尺寸模拟器（9:41），设备码为示意值。
 
 ---
 

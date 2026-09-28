@@ -21,6 +21,14 @@ class ConnectionProvider extends ChangeNotifier {
       List.unmodifiable(_recentConnections);
   String? get pendingQuickConnectPeerId => _pendingQuickConnectPeerId;
 
+  /// Seeds this device's identity for widget tests and UI screenshots.
+  @visibleForTesting
+  void debugSeed(DeviceInfo device, String temporaryPassword) {
+    _localDevice = device;
+    _temporaryPassword = temporaryPassword;
+    notifyListeners();
+  }
+
   Future<void> initialize() async {
     try {
       _localDevice = await _bridge.getLocalDeviceInfo();
