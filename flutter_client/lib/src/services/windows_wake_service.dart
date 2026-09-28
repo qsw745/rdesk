@@ -58,6 +58,8 @@ class WindowsWakeService {
         _storage = storage;
 
   /// Read driver settings only. BIOS and physical wake support require a real test.
+  /// Get-NetAdapterPowerManagement needs elevation, so a standard user falls
+  /// back to the NDIS `*WakeOnMagicPacket` advanced property.
   Future<WindowsWakeCheck> inspect(String mac) async {
     if (!RegExp(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$').hasMatch(mac)) {
       throw const WakeApiException('invalid_mac', '请选择有效的有线网卡');
@@ -66,10 +68,13 @@ class WindowsWakeService {
         r'''$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8;
 $nic=Get-NetAdapter -Physical | Where-Object { ($_.MacAddress -replace '-',':') -eq '__MAC__' } | Select-Object -First 1;
 if (!$nic) { throw 'Adapter not found' }
-$magic=$null; $armed=$null; $shutdown=$null;
+$magic=$null; $armed=$null; $shutdown=$null; $adv=@();
+try { $adv=@($nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction Stop) } catch {}
+function Adv($keys) { $p=$adv | Where-Object { $_.RegistryKeyword -in $keys } | Select-Object -First 1; if ($p -and @($p.RegistryValue).Count -eq 1) { return [string]$p.RegistryValue[0] }; return $null }
 try { $magic=($nic | Get-NetAdapterPowerManagement -ErrorAction Stop).WakeOnMagicPacket.ToString() } catch {}
+if ($magic -notin @('Enabled','Disabled')) { $magic=Adv @('*WakeOnMagicPacket') }
 try { $names=@(& powercfg.exe /devicequery wake_armed); if ($LASTEXITCODE -eq 0) { $armed=(@($names | ForEach-Object {$_.Trim()}) -contains $nic.InterfaceDescription) } } catch {}
-try { $prop=$nic | Get-NetAdapterAdvancedProperty -AllProperties -ErrorAction Stop | Where-Object { $_.RegistryKeyword -in @('ShutdownWakeOnLan','S5WakeOnLan') } | Select-Object -First 1; if ($prop -and @($prop.RegistryValue).Count -eq 1) { $shutdown=[string]$prop.RegistryValue[0] } } catch {}
+$shutdown=Adv @('ShutdownWakeOnLan','S5WakeOnLan')
 @{magicPacket=$magic; wakeArmed=$armed; shutdownWake=$shutdown} | ConvertTo-Json -Compress
 '''
             .replaceAll('__MAC__', mac);

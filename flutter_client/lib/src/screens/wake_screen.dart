@@ -282,7 +282,9 @@ class _LocalPcCardState extends State<_LocalPcCard> {
       final helperOnline = target.agentOnline;
       status = helper == null
           ? '已开启'
-          : '已开启 · 家中助手：${helper.name}（${helperOnline ? '在线' : '离线'}）';
+          : helperOnline
+              ? '已开启 · 家中助手：${helper.name}（在线）'
+              : '已开启，但家中助手「${helper.name}」离线，现在无法开机。请在那台设备上打开 RDesk →「远程开机」→ 开启开机助手，并让它保持开机不睡眠';
       tone = helperOnline ? RdTone.online : RdTone.warning;
     } else {
       status = '开启后，可以在手机上一键开机这台电脑';

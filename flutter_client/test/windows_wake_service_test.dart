@@ -69,6 +69,25 @@ void main() {
     expect(result.shutdownWake, WakeCheckState.unknown);
     expect(result.allEnabled, isFalse);
   });
+  test('普通用户读不到电源管理时从网卡高级属性读取魔术包设置', () async {
+    final api = WakeApi(
+        baseUri: () async => Uri.parse('https://example.test'),
+        accountToken: () async => 'a');
+    addTearDown(api.close);
+    String? script;
+    final service = WindowsWakeService(
+        api: api,
+        storage: const FlutterSecureStorage(),
+        run: (_, args) async {
+          script = args.last;
+          return ProcessResult(1, 0,
+              '{"magicPacket":"1","wakeArmed":true,"shutdownWake":"1"}', '');
+        });
+    final result = await service.inspect('02:11:22:33:44:55');
+    expect(script, contains("Adv @('*WakeOnMagicPacket')"));
+    expect(result.magicPacket, WakeCheckState.enabled);
+    expect(result.allEnabled, isTrue);
+  });
   test('网卡检测失败不能当成全部开启', () async {
     final api = WakeApi(
         baseUri: () async => Uri.parse('https://example.test'),
