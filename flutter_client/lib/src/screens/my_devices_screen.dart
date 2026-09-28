@@ -1,19 +1,13 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/device_directory_entry.dart';
-import '../models/session.dart';
-import '../providers/session_provider.dart';
-import '../widgets/device_connection_dialog.dart';
 import '../providers/auth_provider.dart';
-import '../providers/address_book_provider.dart';
-import '../providers/connection_provider.dart';
-import '../providers/settings_provider.dart';
 import '../providers/wake_provider.dart';
-import '../utils/device_directory.dart';
-import '../utils/device_address.dart';
+import '../ui/components.dart';
+import '../ui/device_actions.dart';
+import '../ui/tokens.dart';
 
 class MyDevicesScreen extends StatefulWidget {
   final String initialFilter;
@@ -27,8 +21,8 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   Timer? _timer;
   late String _filter;
   String _query = '';
-  String? _connectingKey;
   bool _refreshing = false, _foreground = true;
+
   @override
   void initState() {
     super.initState();
@@ -81,129 +75,11 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
     }
   }
 
-  Future<void> _connect(DeviceDirectoryEntry item) async {
-    final connection = context.read<ConnectionProvider>();
-    if (_connectingKey != null ||
-        connection.connectionState == SessionState.connecting) {
-      return;
-    }
-    final settings = context.read<SettingsProvider>();
-    final auth = context.read<AuthProvider>();
-    final session = context.read<SessionProvider>();
-    final scope = normalizedEndpointScope(settings.signalingServer);
-    final token = auth.session?.token;
-    if (!isDirectDeviceAddress(item.deviceId) &&
-        item.endpointScope != null &&
-        item.endpointScope != scope) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('这台设备属于另一台服务器，请先在网络设置中切换服务器。')));
-      return;
-    }
-    setState(() => _connectingKey = item.key);
-    try {
-      final result = await showDialog<DeviceConnectionResult>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => DeviceConnectionDialog(device: item),
-      );
-      if (result == null) return;
-      if (!mounted ||
-          auth.session?.token != token ||
-          normalizedEndpointScope(settings.signalingServer) != scope ||
-          ModalRoute.of(context)?.isCurrent != true) {
-        await connection.disconnect(result.sessionId);
-        return;
-      }
-      session.setSession(
-          SessionInfo(
-            sessionId: result.sessionId,
-            peerId: item.deviceId,
-            peerHostname: item.name,
-            peerOs: connection.peerPlatformForSession(result.sessionId) ??
-                item.platform,
-            state: SessionState.active,
-            connectedAt: DateTime.now(),
-          ),
-          accessPassword: result.password);
-      context.go('/remote/${Uri.encodeComponent(result.sessionId)}');
-    } finally {
-      if (mounted) setState(() => _connectingKey = null);
-    }
-  }
-
-  Future<void> _favorite(DeviceDirectoryEntry item) async {
-    final book = context.read<AddressBookProvider>();
-    if (item.favorite) {
-      await book.removeEntry(item.deviceId, endpointScope: item.endpointScope);
-    } else {
-      await book.addEntry(
-          deviceId: item.deviceId,
-          alias: item.name,
-          platform: item.platform,
-          endpointScope: item.endpointScope);
-    }
-  }
-
-  Future<void> _add() async {
-    final id = TextEditingController(), alias = TextEditingController();
-    final book = context.read<AddressBookProvider>();
-    final scope = normalizedEndpointScope(
-        context.read<SettingsProvider>().signalingServer);
-    await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-                title: const Text('添加设备'),
-                content: SizedBox(
-                    width: 360,
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      TextField(
-                          controller: id,
-                          autofocus: true,
-                          decoration:
-                              const InputDecoration(labelText: '设备 ID 或直连地址')),
-                      const SizedBox(height: 16),
-                      TextField(
-                          controller: alias,
-                          decoration:
-                              const InputDecoration(labelText: '备注名称（可选）')),
-                    ])),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      child: const Text('取消')),
-                  FilledButton(
-                      onPressed: () async {
-                        if (id.text.trim().isEmpty) return;
-                        await book.addEntry(
-                            deviceId: id.text.trim(),
-                            alias: alias.text.trim(),
-                            endpointScope: scope);
-                        if (ctx.mounted) Navigator.pop(ctx);
-                      },
-                      child: const Text('保存到收藏'))
-                ]));
-    // Let the closing route finish using its editing controllers.
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    id.dispose();
-    alias.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final connection = context.watch<ConnectionProvider>();
-    final book = context.watch<AddressBookProvider>();
-    final wake = context.watch<WakeProvider>();
-    final scope = context.watch<SettingsProvider>().signalingServer;
-    final rows = mergeDeviceDirectory(
-            endpointScope: scope,
-            accountDevices: normalizedEndpointScope(auth.devicesEndpoint) ==
-                    normalizedEndpointScope(scope)
-                ? auth.devices
-                : const [],
-            history: connection.recentConnections,
-            saved: book.allEntries,
-            wakeTargets: wake.targets)
+    final all = watchDeviceDirectory(context);
+    final rows = all
         .where((e) =>
             (_filter != '在线' || e.online) &&
             (_filter != '收藏' || e.favorite) &&
@@ -211,208 +87,338 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                 .toLowerCase()
                 .contains(_query.toLowerCase())))
         .toList();
-    final mobile = defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.android;
-    return Scaffold(
-        appBar: AppBar(
-            title: const Text('我的设备'),
-            automaticallyImplyLeading: false,
-            actions: [
-              if (mobile)
-                IconButton(
-                    onPressed: () => context.push('/wake/scan'),
-                    icon: const Icon(Icons.qr_code_scanner),
-                    tooltip: '扫码添加电脑'),
-              IconButton(
-                  onPressed: _add,
-                  icon: const Icon(Icons.add),
-                  tooltip: '添加设备'),
-              PopupMenuButton<String>(
-                  tooltip: '更多设备操作',
-                  onSelected: (v) => context.push(v),
-                  itemBuilder: (_) => const [
-                        PopupMenuItem(value: '/wake', child: Text('远程开机')),
-                        PopupMenuItem(value: '/saved', child: Text('管理收藏和分组')),
-                      ]),
-              const SizedBox(width: 12),
-            ]),
-        body: Column(children: [
-          Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
-              child: Column(children: [
-                TextField(
-                    onChanged: (v) => setState(() => _query = v.trim()),
-                    decoration: const InputDecoration(
-                        hintText: '搜索名称或设备 ID',
-                        prefixIcon: Icon(Icons.search),
-                        isDense: true)),
-                const SizedBox(height: 12),
-                Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      for (final value in ['全部', '在线', '收藏'])
-                        Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                                label: Text(value),
-                                selected: _filter == value,
-                                onSelected: (_) =>
-                                    setState(() => _filter = value))),
-                      IconButton(
-                          onPressed: _refresh,
-                          icon: const Icon(Icons.refresh),
-                          tooltip: '刷新设备'),
-                    ]),
-              ])),
-          if (!auth.isLoggedIn)
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(children: [
-                  const Expanded(
-                      child: Text('登录后同步其他设备', style: TextStyle(fontSize: 13))),
-                  TextButton(
-                      onPressed: () => context.push('/login'),
-                      child: const Text('登录账号')),
-                ])),
-          if (auth.error != null)
-            Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(auth.error!)),
-          Expanded(
-              child: rows.isEmpty
-                  ? Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.devices_outlined,
-                          size: 48,
-                          color: Theme.of(context).colorScheme.outline),
-                      const SizedBox(height: 16),
-                      Text(_query.isNotEmpty
-                          ? '没有匹配的设备'
-                          : '暂无${_filter == '全部' ? '' : _filter}设备'),
-                      const SizedBox(height: 8),
-                      const Text('添加设备，或登录同一账号同步',
-                          style: TextStyle(fontSize: 13)),
-                    ]))
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
-                      itemCount: rows.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (_, i) => _device(rows[i], wake))),
-        ]));
-  }
+    final online = all.where((e) => e.online).length;
+    final wide = RdPage.wide(context);
 
-  Widget _device(DeviceDirectoryEntry item, WakeProvider wake) {
-    final target = item.wakeTarget;
-    final windows = item.platform.toLowerCase().contains('windows');
-    final ios = {'ios', 'ipados'}.contains(item.platform.toLowerCase());
-    final local = context.read<ConnectionProvider>().localDevice?.deviceId ==
-        item.deviceId;
-    final canConnect = !windows && !ios && !local;
-    final colors = Theme.of(context).colorScheme;
-    final source = item.endpointScope == null ? ' · 来源未记录' : '';
-    final status = target != null && !target.setupComplete
-        ? '已配对 · 待完成开机设置'
-        : item.online
-            ? '在线'
-            : target != null
-                ? (target.agentOnline ? '助手在线 · 可发送开机信号' : '家中助手离线')
-                : '未确认在线';
-    return Card(
-        child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: LayoutBuilder(builder: (context, box) {
-              final info = Row(children: [
-                Icon(
-                    windows
-                        ? Icons.desktop_windows_outlined
-                        : Icons.devices_outlined,
-                    size: 30),
-                const SizedBox(width: 16),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text(item.name,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 16)),
-                      const SizedBox(height: 6),
-                      Text('$status$source',
-                          style: TextStyle(
-                              fontSize: 14, color: colors.onSurfaceVariant)),
-                      if (local || windows || ios)
-                        Text(
-                            local
-                                ? '本机'
-                                : windows
-                                    ? '支持远程开机 · 暂不支持被远控'
-                                    : '暂不支持被远控',
-                            style: TextStyle(
-                                fontSize: 13, color: colors.onSurfaceVariant)),
-                      const SizedBox(height: 3),
-                      Text('ID ${item.deviceId}',
-                          style: TextStyle(
-                              fontSize: 13, color: colors.onSurfaceVariant)),
-                    ])),
+    return RdPage(
+      title: '我的设备',
+      subtitle: all.isEmpty ? null : '共 ${all.length} 台 · $online 台在线',
+      onRefresh: _refresh,
+      maxWidth: 1180,
+      actions: [
+        IconButton(
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: '刷新'),
+        const SizedBox(width: 4),
+        wide
+            ? Tooltip(
+                message: '添加设备',
+                child: FilledButton.icon(
+                    onPressed: () => showAddDeviceDialog(context),
+                    icon: const Icon(Icons.add_rounded, size: 20),
+                    label: const Text('添加设备')),
+              )
+            : IconButton.filledTonal(
+                onPressed: () => showAddDeviceDialog(context),
+                icon: const Icon(Icons.add_rounded),
+                tooltip: '添加设备'),
+      ],
+      children: [
+        if (!auth.isLoggedIn) ...[
+          _LoginBanner(onLogin: () => context.push('/login')),
+          const SizedBox(height: Rd.s16),
+        ],
+        if (auth.error != null) ...[
+          RdCard(
+              color: RdPalette.of(context).dangerSoft,
+              child: Text(auth.error!,
+                  style: TextStyle(color: RdPalette.of(context).danger))),
+          const SizedBox(height: Rd.s16),
+        ],
+        _Toolbar(
+          filter: _filter,
+          onFilter: (v) => setState(() => _filter = v),
+          onQuery: (v) => setState(() => _query = v.trim()),
+          showSearch: all.length > 4 || _query.isNotEmpty,
+        ),
+        const SizedBox(height: Rd.s16),
+        if (rows.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 48),
+            child: RdEmptyState(
+              icon: Icons.devices_rounded,
+              title: _query.isNotEmpty
+                  ? '没有匹配的设备'
+                  : _filter == '全部'
+                      ? '还没有设备'
+                      : '没有$_filter设备',
+              message: _query.isNotEmpty || _filter != '全部'
+                  ? null
+                  : '在另一台设备上登录同一账号即可自动出现，也可以输入设备码添加。',
+              action: _query.isEmpty && _filter == '全部'
+                  ? OutlinedButton.icon(
+                      onPressed: () => showAddDeviceDialog(context),
+                      icon: const Icon(Icons.add_rounded, size: 20),
+                      label: const Text('输入设备码添加'))
+                  : null,
+            ),
+          )
+        else
+          LayoutBuilder(builder: (context, box) {
+            final columns = box.maxWidth >= 1000
+                ? 3
+                : box.maxWidth >= 640
+                    ? 2
+                    : 1;
+            if (columns == 1) {
+              return Column(children: [
+                for (final e in rows)
+                  Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: DeviceListCard(entry: e)),
               ]);
-              final actions = Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
-                  children: [
-                    IconButton(
-                        onPressed: () => _favorite(item),
-                        tooltip: item.favorite ? '取消收藏' : '收藏设备',
-                        icon: Icon(item.favorite
-                            ? Icons.star_rounded
-                            : Icons.star_border_rounded)),
-                    if (target != null && !target.setupComplete)
-                      FilledButton.tonal(
-                          onPressed: () => context.push(
-                              '/wake/target/${Uri.encodeComponent(target.id)}'),
-                          child: const Text('继续配置')),
-                    if (target != null &&
-                        target.setupComplete &&
-                        !target.online)
-                      FilledButton(
-                          onPressed: !target.agentOnline || wake.busy
-                              ? null
-                              : () async {
-                                  final ok = await wake.wake(target);
-                                  if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content: Text(ok
-                                              ? '开机请求已提交，可在远程开机中查看进度'
-                                              : wake.error ?? '开机请求失败')));
-                                },
-                          child: const Text('开机')),
-                    if (canConnect)
-                      FilledButton(
-                          onPressed: _connectingKey != null ||
-                                  context
-                                          .watch<ConnectionProvider>()
-                                          .connectionState ==
-                                      SessionState.connecting
-                              ? null
-                              : () => _connect(item),
-                          child:
-                              Text(_connectingKey == item.key ? '连接中…' : '连接')),
-                  ]);
-              return box.maxWidth < 520
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                          info,
-                          const SizedBox(height: 12),
-                          Align(
-                              alignment: Alignment.centerRight, child: actions)
-                        ])
-                  : Row(children: [
-                      Expanded(child: info),
-                      const SizedBox(width: 16),
-                      actions
-                    ]);
-            })));
+            }
+            final width = (box.maxWidth - 16 * (columns - 1)) / columns;
+            return Wrap(spacing: 16, runSpacing: 16, children: [
+              for (final e in rows)
+                SizedBox(width: width, child: DeviceGridCard(entry: e)),
+            ]);
+          }),
+      ],
+    );
+  }
+}
+
+class _LoginBanner extends StatelessWidget {
+  final VoidCallback onLogin;
+  const _LoginBanner({required this.onLogin});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
+    return RdCard(
+      color: p.brandSoft,
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+      child: Row(children: [
+        Icon(Icons.cloud_sync_rounded, color: p.brand),
+        const SizedBox(width: 12),
+        Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('登录后自动同步设备', style: t.titleSmall!.copyWith(color: p.brandInk)),
+          const SizedBox(height: 2),
+          Text('同一账号下的电脑和手机会自动出现在这里，无需记设备码。',
+              style: t.bodySmall!.copyWith(color: p.brandInk)),
+        ])),
+        const SizedBox(width: 8),
+        FilledButton(onPressed: onLogin, child: const Text('登录')),
+      ]),
+    );
+  }
+}
+
+class _Toolbar extends StatelessWidget {
+  final String filter;
+  final ValueChanged<String> onFilter, onQuery;
+  final bool showSearch;
+  const _Toolbar(
+      {required this.filter,
+      required this.onFilter,
+      required this.onQuery,
+      required this.showSearch});
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = Wrap(spacing: 8, children: [
+      for (final v in const ['全部', '在线', '收藏'])
+        ChoiceChip(
+            label: Text(v),
+            selected: filter == v,
+            onSelected: (_) => onFilter(v)),
+    ]);
+    final search = TextField(
+      onChanged: onQuery,
+      decoration: const InputDecoration(
+          hintText: '搜索名称或设备码',
+          prefixIcon: Icon(Icons.search_rounded, size: 20),
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 10)),
+    );
+    if (!showSearch) {
+      return Align(alignment: Alignment.centerLeft, child: chips);
+    }
+    return LayoutBuilder(builder: (context, box) {
+      if (box.maxWidth < 560) {
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          search,
+          const SizedBox(height: 12),
+          chips,
+        ]);
+      }
+      return Row(children: [
+        chips,
+        const Spacer(),
+        SizedBox(width: 280, child: search),
+      ]);
+    });
+  }
+}
+
+/// Primary action for a device card: connect when controllable and online,
+/// wake when it is a configured wake target and offline.
+Widget? _primaryAction(BuildContext context, DeviceDirectoryEntry e,
+    {bool compact = false}) {
+  final abilities = DeviceAbilities.of(context, e);
+  final wake = context.watch<WakeProvider>();
+  final target = e.wakeTarget;
+  final waking = target != null &&
+      (wake.history[target.id]?.any((r) => r.active) ?? false);
+  if (!e.online && abilities.canWake && target != null) {
+    final p = RdPalette.of(context);
+    return FilledButton.icon(
+      style: FilledButton.styleFrom(
+          backgroundColor: p.power,
+          minimumSize: Size(compact ? 64 : 88, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 14)),
+      onPressed: waking || wake.busy ? null : () => wakeDevice(context, target),
+      icon: const Icon(Icons.power_settings_new_rounded, size: 18),
+      label: Text(waking ? '开机中' : '开机'),
+    );
+  }
+  if (canConnectNow(e, abilities)) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: connectingDevice,
+      builder: (context, key, _) => FilledButton(
+        style: FilledButton.styleFrom(
+            minimumSize: Size(compact ? 64 : 88, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 16)),
+        onPressed: key != null ? null : () => connectToDevice(context, e),
+        child: Text(key == e.key ? '连接中…' : '连接'),
+      ),
+    );
+  }
+  return null;
+}
+
+String _subtitle(
+    DeviceDirectoryEntry e, String status, DeviceAbilities abilities) {
+  final platform = rdPlatformOf(e.platform);
+  final wakeable = e.wakeTarget?.setupComplete == true;
+  final parts = [
+    status,
+    if (platform != RdPlatform.unknown) platform.label,
+    if (abilities.isLocal) '本机',
+    if (wakeable && !e.online) '可远程开机',
+    if (!abilities.canControl && !abilities.isLocal && !(wakeable && !e.online))
+      '暂不支持被远程控制',
+  ];
+  return parts.join(' · ');
+}
+
+class DeviceListCard extends StatelessWidget {
+  final DeviceDirectoryEntry entry;
+  const DeviceListCard({super.key, required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
+    final status = deviceStatus(entry, context.watch<WakeProvider>());
+    final action = _primaryAction(context, entry, compact: true);
+    return RdCard(
+      onTap: () => context.push(devicePath(entry)),
+      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+      child: Row(children: [
+        RdDeviceGlyph(platform: entry.platform, online: entry.online),
+        const SizedBox(width: 14),
+        Expanded(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Flexible(
+                  child: Text(entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.titleMedium)),
+              if (entry.favorite) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.star_rounded, size: 16, color: p.warning),
+              ],
+            ]),
+            const SizedBox(height: 3),
+            Text(
+                _subtitle(
+                    entry, status.label, DeviceAbilities.of(context, entry)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: t.bodySmall!.copyWith(
+                    color: status.tone == RdTone.neutral
+                        ? p.inkTertiary
+                        : status.tone.fg(p))),
+          ]),
+        ),
+        const SizedBox(width: 10),
+        action ?? Icon(Icons.chevron_right_rounded, color: p.inkTertiary),
+      ]),
+    );
+  }
+}
+
+class DeviceGridCard extends StatelessWidget {
+  final DeviceDirectoryEntry entry;
+  const DeviceGridCard({super.key, required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
+    final status = deviceStatus(entry, context.watch<WakeProvider>());
+    final action = _primaryAction(context, entry);
+    final platform = rdPlatformOf(entry.platform);
+    return RdCard(
+      onTap: () => context.push(devicePath(entry)),
+      padding: const EdgeInsets.all(18),
+      radius: Rd.radiusLg,
+      child: SizedBox(
+        height: 172,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            RdDeviceGlyph(
+                platform: entry.platform, size: 48, online: entry.online),
+            const Spacer(),
+            if (entry.favorite)
+              Padding(
+                padding: const EdgeInsets.only(right: 8, top: 2),
+                child: Icon(Icons.star_rounded, size: 18, color: p.warning),
+              ),
+            RdStatusPill(status.label, tone: status.tone),
+          ]),
+          const SizedBox(height: 16),
+          Text(entry.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: t.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+              [
+                if (platform != RdPlatform.unknown) platform.label,
+                formatDeviceId(entry.deviceId),
+              ].join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: t.bodySmall!.copyWith(color: p.inkTertiary)),
+          const Spacer(),
+          Row(children: [
+            Expanded(
+              child: Text(
+                  entry.wakeTarget?.setupComplete == true
+                      ? '已开启远程开机'
+                      : DeviceAbilities.of(context, entry).unsupportedReason ??
+                          (entry.online
+                              ? '可以连接'
+                              : statusKnown(entry)
+                                  ? '等待设备上线'
+                                  : '输入对方验证码即可连接'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.labelSmall),
+            ),
+            if (action != null) action,
+          ]),
+        ]),
+      ),
+    );
   }
 }

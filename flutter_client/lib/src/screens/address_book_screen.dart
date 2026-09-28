@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../ui/components.dart';
 import '../models/address_book.dart';
 import '../providers/address_book_provider.dart';
 import '../providers/connection_provider.dart';
@@ -36,7 +37,7 @@ class _AddressBookScreenState extends State<AddressBookScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('地址簿'),
+        title: const Text('收藏与分组'),
         actions: [
           IconButton(
             icon: const Icon(Icons.person_add_outlined),
@@ -396,7 +397,7 @@ class _DeviceCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              entry.deviceId,
+                              formatDeviceId(entry.deviceId),
                               style: TextStyle(
                                 fontSize: 11,
                                 color: isDark

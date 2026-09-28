@@ -5,35 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import '../services/wake_agent_channel.dart';
 import '../models/wake.dart';
-import '../widgets/mac_wake_helper_panel.dart';
-import '../utils/platform_capabilities.dart';
+import '../providers/connection_provider.dart';
 import '../providers/wake_provider.dart';
-import '../services/rdesk_bridge_service.dart';
+import '../services/desktop_wake_agent.dart';
+import '../services/login_item_service.dart';
+import '../services/wake_agent_channel.dart';
 import '../services/windows_wake_service.dart';
+import '../ui/components.dart';
+import '../ui/device_actions.dart';
+import '../ui/tokens.dart';
+import '../utils/platform_capabilities.dart';
 
-String _time(int? ms) => ms == null
-    ? '未收到'
-    : DateTime.fromMillisecondsSinceEpoch(ms)
-        .toLocal()
-        .toString()
-        .split('.')
-        .first;
-
-Widget _panel(List<Widget> children) => Card(
-    margin: const EdgeInsets.only(bottom: 16),
-    child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children)));
-
-Widget _notice(String text, {bool error = false}) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 12),
-    child:
-        Text(text, style: TextStyle(color: error ? Colors.deepOrange : null)));
-
+/// Remote wake in one place: this PC's switch (Windows), this device as a
+/// home helper (Android, macOS) and the PCs the account can wake.
 class WakeScreen extends StatefulWidget {
   const WakeScreen({super.key});
   @override
@@ -42,21 +27,21 @@ class WakeScreen extends StatefulWidget {
 
 class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
   WakeProvider? _wake;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _wake = context.read<WakeProvider>();
-        _wake!.setVisible(true);
-      }
+      if (!mounted) return;
+      _wake = context.read<WakeProvider>()..setVisible(true);
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) =>
       _wake?.setVisible(state == AppLifecycleState.resumed);
+
   @override
   void dispose() {
     _wake?.setVisible(false);
@@ -64,842 +49,753 @@ class _WakeScreenState extends State<WakeScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  Future<void> _setup(WakeProvider wake) async {
-    wake.setVisible(false);
-    await context.push(
-        PlatformCapabilities.current.canScanPairing ? '/wake/scan' : '/wake');
-    if (mounted) wake.setVisible(true);
-  }
-
   @override
   Widget build(BuildContext context) {
     final wake = context.watch<WakeProvider>();
-    return Scaffold(
-      appBar: AppBar(title: const Text('远程开机'), actions: [
+    final platform = defaultTargetPlatform;
+    final isWindows = platform == TargetPlatform.windows;
+    final canHelp =
+        platform == TargetPlatform.android || platform == TargetPlatform.macOS;
+
+    if (!wake.loggedIn) {
+      return RdPage(
+          title: '远程开机',
+          leading: PlatformCapabilities.current.isDesktop
+              ? null
+              : IconButton(
+                  onPressed: () => context.go('/me'),
+                  tooltip: '返回',
+                  icon: const Icon(Icons.arrow_back_rounded)),
+          children: [
+            const SizedBox(height: 40),
+            RdEmptyState(
+              icon: Icons.power_settings_new_rounded,
+              title: '登录后使用远程开机',
+              message: '电脑和手机登录同一账号，就能在外面一键开机家里的电脑。',
+              action: FilledButton(
+                  onPressed: () => context.push('/login'),
+                  child: const Text('登录')),
+            ),
+          ]);
+    }
+
+    final back = PlatformCapabilities.current.isDesktop
+        ? null
+        : IconButton(
+            onPressed: () => context.go('/me'),
+            tooltip: '返回',
+            icon: const Icon(Icons.arrow_back_rounded));
+    return RdPage(
+      title: '远程开机',
+      subtitle: '电脑关机或睡眠时，用手机一键开机',
+      leading: back,
+      onRefresh: wake.refresh,
+      actions: [
         IconButton(
             onPressed: wake.refresh,
-            icon: const Icon(Icons.refresh),
-            tooltip: '刷新'),
-      ]),
-      body: !wake.loggedIn
-          ? Center(
-              child: FilledButton(
-                  onPressed: () => context.push('/login?redirect=/wake'),
-                  child: const Text('登录后配置远程开机')))
-          : Center(
-              child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 760),
-                  child: RefreshIndicator(
-                      onRefresh: wake.refresh,
-                      child: ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(20),
-                          children: [
-                            if (wake.error != null)
-                              _panel([
-                                const Text('暂时无法连接开机服务',
-                                    style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold)),
-                                _notice(wake.error!, error: true),
-                                TextButton(
-                                    onPressed: wake.refresh,
-                                    child: const Text('重新检测')),
-                              ]),
-                            const ExpansionTile(
-                              title: Text('为什么需要家中开机助手？'),
-                              childrenPadding:
-                                  EdgeInsets.fromLTRB(16, 0, 16, 16),
-                              children: [
-                                Text(
-                                    '电脑关机后，需要家庭网络中仍在线的设备代发开机信号。可使用家中安卓、保持运行的 Mac，或已安装 RDesk 助手的兼容 Linux 路由器／NAS。iPhone 和电脑可在外发起开机。原厂路由器需先确认安装能力，不能直接复用 UU 的助手。')
-                              ],
-                            ),
-                            if (wake.targets.isEmpty)
-                              _panel([
-                                const Icon(Icons.desktop_windows_rounded,
-                                    size: 64, color: Color(0xff3979ff)),
-                                const SizedBox(height: 20),
-                                const Text('随时开启家中电脑',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 12),
-                                const Text('在家配置完成后，外出也能发起开机。',
-                                    textAlign: TextAlign.center),
-                                const SizedBox(height: 24),
-                                FilledButton(
-                                    onPressed: PlatformCapabilities
-                                            .current.canScanPairing
-                                        ? () => _setup(wake)
-                                        : null,
-                                    child: Text(wake.windows != null
-                                        ? '启用远程开机'
-                                        : PlatformCapabilities
-                                                .current.canScanPairing
-                                            ? '扫码添加电脑'
-                                            : '请在 Windows 电脑上配置')),
-                              ]),
-                            for (final target in wake.targets)
-                              _target(wake, target),
-                            if (wake.targets.isNotEmpty &&
-                                PlatformCapabilities.current.canScanPairing)
-                              TextButton.icon(
-                                  onPressed: PlatformCapabilities
-                                          .current.canScanPairing
-                                      ? () => _setup(wake)
-                                      : null,
-                                  icon: const Icon(Icons.settings_outlined),
-                                  label: const Text('配置远程开机')),
-                            if (defaultTargetPlatform == TargetPlatform.macOS)
-                              MacWakeHelperPanel(wake: wake),
-                            if (defaultTargetPlatform == TargetPlatform.android)
-                              _panel([
-                                SwitchListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    title: const Text('作为家中开机助手'),
-                                    subtitle: Text(wake.helper.errorCode != null
-                                        ? describeHelperError(
-                                            wake.helper.errorCode!)
-                                        : wake.helper.enabled
-                                            ? '保持本机在家中 Wi-Fi，并持续供电'
-                                            : '将这台安卓手机留在家中，代发开机信号'),
-                                    value: wake.helper.enabled,
-                                    onChanged: wake.busy
-                                        ? null
-                                        : (v) async {
-                                            if (v) {
-                                              await wake.enableHelper('家中安卓手机');
-                                            } else {
-                                              await wake.disableHelper();
-                                            }
-                                          }),
-                              ]),
-                          ])))),
+            tooltip: '刷新',
+            icon: const Icon(Icons.refresh_rounded)),
+      ],
+      children: [
+        if (wake.error != null) ...[
+          RdCard(
+            color: RdPalette.of(context).dangerSoft,
+            child: Text(wake.error!,
+                style: TextStyle(color: RdPalette.of(context).danger)),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (isWindows) ...[
+          const RdSectionHeader('这台电脑'),
+          const _LocalPcCard(),
+          const SizedBox(height: 24),
+        ],
+        if (canHelp) ...[
+          const RdSectionHeader('开机助手'),
+          const _HelperCard(),
+          const SizedBox(height: 24),
+        ],
+        const RdSectionHeader('可开机的电脑'),
+        const _TargetList(),
+        const SizedBox(height: 24),
+        const _HowItWorks(),
+      ],
     );
   }
-
-  Widget _target(WakeProvider wake, WakeTarget target) {
-    final requests = wake.history[target.id] ?? [];
-    final pending = requests.any((r) => r.active);
-    return _panel([
-      Row(children: [
-        const Icon(Icons.desktop_windows_rounded,
-            size: 36, color: Color(0xff3979ff)),
-        const SizedBox(width: 14),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(target.name, style: Theme.of(context).textTheme.titleLarge),
-          Text(!target.setupComplete
-              ? '已配对 · 待完成设置'
-              : target.online
-                  ? '电脑应用在线'
-                  : target.agentOnline
-                      ? '可发送开机信号'
-                      : '家中助手离线'),
-        ])),
-        IconButton(
-            tooltip: '更多',
-            icon: const Icon(Icons.more_horiz),
-            onPressed: () => _details(wake, target)),
-      ]),
-      if (requests.isNotEmpty) _notice(wakePhaseLabel(requests.first.phase)),
-      if (!target.agentOnline) _notice('请检查家中的手机、Mac 或路由器助手是否联网并运行。'),
-      if (requests.isNotEmpty && requests.first.phase == WakePhase.unconfirmed)
-        _notice('尚未收到电脑应用的上线信号。电脑可能已启动，请确认 RDesk 已运行；也可在“更多”查看记录。'),
-      const SizedBox(height: 16),
-      TextButton.icon(
-          onPressed: () async {
-            wake.setVisible(false);
-            await context.push('/wake/test/${Uri.encodeComponent(target.id)}');
-            if (mounted) wake.setVisible(true);
-          },
-          icon: const Icon(Icons.fact_check_outlined),
-          label: const Text('开机测试与诊断')),
-      if (!target.setupComplete)
-        FilledButton(
-            onPressed: () =>
-                context.push('/wake/target/${Uri.encodeComponent(target.id)}'),
-            child: const Text('继续配置')),
-      if (target.setupComplete)
-        FilledButton.icon(
-            onPressed:
-                wake.busy || target.online || !target.agentOnline || pending
-                    ? null
-                    : () => wake.wake(target),
-            icon: const Icon(Icons.power_settings_new),
-            label: Text(target.online
-                ? '电脑已在线'
-                : pending
-                    ? '正在开机…'
-                    : '开机')),
-    ]);
-  }
-
-  Future<void> _details(WakeProvider wake, WakeTarget target) =>
-      showModalBottomSheet<void>(
-          context: context,
-          isScrollControlled: true,
-          builder: (sheet) => ChangeNotifierProvider<WakeProvider>.value(
-              value: wake,
-              child: Consumer<WakeProvider>(builder: (_, current, __) {
-                final requests = current.history[target.id] ?? [];
-                final helper = current.agents
-                    .where((a) => a.id == target.agentId)
-                    .firstOrNull;
-                return SafeArea(
-                    child: SizedBox(
-                        height: MediaQuery.sizeOf(sheet).height * .75,
-                        child: ListView(
-                            padding: const EdgeInsets.all(20),
-                            children: [
-                              Text(target.name,
-                                  style: Theme.of(sheet).textTheme.titleLarge),
-                              Text(
-                                  '助手：${helper?.name ?? '未找到'} · 最近在线：${_time(helper?.lastSeenMs)}'),
-                              ExpansionTile(
-                                  title: const Text('查看记录'),
-                                  initiallyExpanded: true,
-                                  children: [
-                                    if (requests.isEmpty)
-                                      const ListTile(title: Text('暂无开机记录')),
-                                    for (final r in requests)
-                                      ListTile(
-                                          title: Text(wakePhaseLabel(r.phase)),
-                                          subtitle: Text(
-                                              '提交：${_time(r.createdAtMs)}\n领取：${_time(r.claimedAtMs)}\n发送回执：${_time(r.sentAtMs)}\n电脑上线：${_time(r.onlineAtMs)}${r.errorCode == null ? '' : '\n诊断代码：${r.errorCode}'}')),
-                                    const Text('保留最近 7 天、最多 50 条记录。'),
-                                  ]),
-                              TextButton(
-                                  onPressed: current.busy
-                                      ? null
-                                      : () async {
-                                          final id = await showDialog<String>(
-                                              context: sheet,
-                                              builder: (dialog) => SimpleDialog(
-                                                      title:
-                                                          const Text('更换家中助手'),
-                                                      children: [
-                                                        for (final a in current
-                                                            .agents
-                                                            .where((a) =>
-                                                                a.enabled))
-                                                          SimpleDialogOption(
-                                                              onPressed: () =>
-                                                                  Navigator.pop(
-                                                                      dialog,
-                                                                      a.id),
-                                                              child: Text(
-                                                                  '${a.name} · ${a.online ? '在线' : '离线'}')),
-                                                        if (!current.agents.any(
-                                                            (a) => a.enabled))
-                                                          const Padding(
-                                                              padding:
-                                                                  EdgeInsets
-                                                                      .all(20),
-                                                              child: Text(
-                                                                  '请先启用家中手机、Mac 或兼容路由器助手')),
-                                                      ]));
-                                          if (id != null) {
-                                            await current.rebind(target, id);
-                                          }
-                                        },
-                                  child: const Text('更换助手')),
-                              TextButton(
-                                  onPressed: current.busy
-                                      ? null
-                                      : () async {
-                                          final confirmed = await showDialog<
-                                                  bool>(
-                                              context: sheet,
-                                              builder: (dialog) => AlertDialog(
-                                                      title:
-                                                          const Text('移除开机配置？'),
-                                                      content: Text(
-                                                          '将移除“${target.name}”的开机配置，并取消未完成的请求。'),
-                                                      actions: [
-                                                        TextButton(
-                                                            onPressed: () =>
-                                                                Navigator.pop(
-                                                                    dialog,
-                                                                    false),
-                                                            child: const Text(
-                                                                '取消')),
-                                                        TextButton(
-                                                            onPressed: () =>
-                                                                Navigator.pop(
-                                                                    dialog,
-                                                                    true),
-                                                            child: const Text(
-                                                                '移除'))
-                                                      ]));
-                                          if (confirmed == true &&
-                                              await current.remove(target) &&
-                                              sheet.mounted) {
-                                            Navigator.pop(sheet);
-                                          }
-                                        },
-                                  child: const Text('移除电脑')),
-                              if (current.error != null)
-                                _notice(current.error!, error: true),
-                            ])));
-              })));
 }
 
-class WakeSetupScreen extends StatefulWidget {
-  const WakeSetupScreen({super.key});
+// ── This Windows PC ─────────────────────────────────────────────────────────
+
+class _LocalPcCard extends StatefulWidget {
+  const _LocalPcCard();
   @override
-  State<WakeSetupScreen> createState() => _WakeSetupScreenState();
+  State<_LocalPcCard> createState() => _LocalPcCardState();
 }
 
-class _WakeSetupScreenState extends State<WakeSetupScreen>
-    with WidgetsBindingObserver {
-  WakeProvider? _wake;
-  final _name = TextEditingController();
-  final _scroll = ScrollController();
-  List<WindowsWakeAdapter> _adapters = [];
-  WindowsWakeAdapter? _adapter;
-  WindowsWakeCheck? _check;
+class _LocalPcCardState extends State<_LocalPcCard> {
   WindowsAdapterScan? _scan;
-  String? _agentId, _error, _checkError;
-  int _step = 0, _generation = 0;
-  bool _biosConfirmed = false, _sameNetwork = false, _startup = true;
-  bool _loading = true, _saving = false, _saved = false;
-  bool get _android => defaultTargetPlatform == TargetPlatform.android;
+  WindowsWakeCheck? _check;
+  bool? _startup;
+  bool _scanning = false;
+
+  WindowsWakeService? get _service => context.read<WakeProvider>().windows;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _name.text = _android ? '家中安卓手机' : Platform.localHostname;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _wake = context.read<WakeProvider>();
-        _wake!.setVisible(true);
-        unawaited(_load());
-      }
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _inspect());
   }
 
-  WakeAgent? _selectedAgent(WakeProvider wake) {
-    final agents = wake.agents.where((a) => a.enabled && a.online).toList();
-    final selected = agents.where((a) => a.id == _agentId).firstOrNull;
-    if (_agentId != null) return selected;
-    return agents.length == 1 ? agents.single : null;
+  WindowsWakeAdapter? get _adapter {
+    final wired =
+        _scan?.adapters.where((a) => a.wired && a.connected).toList() ?? [];
+    return wired.length == 1 ? wired.single : wired.firstOrNull;
   }
 
-  Future<void> _load() async {
-    final gen = ++_generation;
-    setState(() {
-      _loading = true;
-      _error = null;
-      _checkError = null;
-      _check = null;
-      _scan = null;
-    });
-    final wake = context.read<WakeProvider>();
+  Future<void> _inspect() async {
+    final service = _service;
+    if (service == null || !mounted) return;
+    setState(() => _scanning = true);
     try {
-      await wake.refresh();
-      final scan = await wake.windows?.scanAdapters();
-      final adapters = scan?.adapters ?? <WindowsWakeAdapter>[];
-      if (!mounted || gen != _generation) return;
-      _scan = scan;
-      _adapters = adapters.where((a) => a.connected && a.wired).toList();
-      _adapter = _adapters.where((a) => a.mac == _adapter?.mac).firstOrNull ??
-          _adapters.firstOrNull;
-      if (_adapter != null && wake.windows != null) {
-        try {
-          _check = await wake.windows!.inspect(_adapter!.mac);
-        } catch (_) {
-          _checkError = '驱动未提供完整检测信息，请在设备管理器中核对。';
-        }
-      }
-    } catch (_) {
-      if (!mounted || gen != _generation) return;
-      _adapter = null;
-      _adapters = [];
-      _error = '网卡检测失败，请重新检测。';
+      final scan = await service.scanAdapters();
+      if (!mounted) return;
+      setState(() => _scan = scan);
+      final adapter = _adapter;
+      final results = await Future.wait<Object?>([
+        service
+            .loginStartupEnabled()
+            .then<Object?>((v) => v, onError: (Object _) => null),
+        if (adapter != null)
+          service
+              .inspect(adapter.mac)
+              .then<Object?>((v) => v, onError: (Object _) => null),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _startup = results.first as bool?;
+        _check = results.length > 1 ? results[1] as WindowsWakeCheck? : null;
+      });
     } finally {
-      if (mounted && gen == _generation) {
-        setState(() {
-          _loading = false;
-        });
-      }
+      if (mounted) setState(() => _scanning = false);
     }
   }
 
-  Future<void> _showDiagnostic() async {
-    final report = _scan?.diagnostic;
-    if (report == null) return;
-    await showDialog<void>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-                title: const Text('网卡检测诊断'),
-                content: SelectableText(report),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(dialogContext),
-                      child: const Text('关闭')),
-                  FilledButton(
-                      onPressed: () async {
-                        await Clipboard.setData(ClipboardData(text: report));
-                        if (dialogContext.mounted) Navigator.pop(dialogContext);
-                      },
-                      child: const Text('复制诊断')),
-                ]));
+  Future<void> _enable() async {
+    final wake = context.read<WakeProvider>();
+    final local = context.read<ConnectionProvider>().localDevice;
+    final messenger = ScaffoldMessenger.of(context);
+    final adapter = _adapter;
+    if (local == null) {
+      messenger.showSnackBar(const SnackBar(content: Text('正在获取本机设备码，请稍后再试')));
+      return;
+    }
+    if (adapter == null) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('没有找到连接中的有线网卡。远程开机需要电脑用网线连接路由器。')));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('开启远程开机'),
+        content: const SizedBox(
+          width: 420,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _Requirement(
+                icon: Icons.settings_ethernet_rounded,
+                text: '电脑用网线连接路由器，关机后保持通电'),
+            _Requirement(
+                icon: Icons.memory_rounded,
+                text: '主板 BIOS 已开启「网络唤醒 / Wake on LAN」'),
+            _Requirement(
+                icon: Icons.phonelink_ring_rounded,
+                text: '家里有一台常开的安卓手机或 Mac 作为开机助手'),
+          ]),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('开启')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final service = _service;
+    if (service != null && _startup != true) {
+      try {
+        await service.setLoginStartup(true);
+        if (mounted) setState(() => _startup = true);
+      } catch (e) {
+        debugPrint('[RDesk] login startup not changed: $e');
+      }
+    }
+    await wake.enableLocalWake(
+        deviceId: local.deviceId,
+        name:
+            local.hostname.isNotEmpty ? local.hostname : Platform.localHostname,
+        mac: adapter.mac);
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) =>
-      _wake?.setVisible(state == AppLifecycleState.resumed);
-  @override
-  void dispose() {
-    ++_generation;
-    _wake?.setVisible(false);
-    WidgetsBinding.instance.removeObserver(this);
-    _name.dispose();
-    _scroll.dispose();
-    super.dispose();
+  Future<void> _disable(String deviceId) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('关闭远程开机？'),
+        content: const Text('关闭后将无法从手机开机这台电脑，可以随时重新开启。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('关闭')),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      await context.read<WakeProvider>().disableLocalWake(deviceId);
+    }
   }
 
-  void _go(int step) {
-    setState(() {
-      _step = step;
-      _error = null;
-    });
-    if (_scroll.hasClients) _scroll.jumpTo(0);
-  }
-
-  Widget _status(String title, String detail, {bool? ok}) => ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-          ok == true
-              ? Icons.check_circle
-              : ok == false
-                  ? Icons.error_outline
-                  : Icons.help_outline,
-          color: ok == true
-              ? Colors.green
-              : ok == false
-                  ? Colors.deepOrange
-                  : Colors.blueGrey),
-      title: Text(title),
-      subtitle: Text(detail));
-  Widget _checkRow(String title, WakeCheckState? state) => _status(
-      title,
-      state == WakeCheckState.enabled
-          ? '已开启'
-          : state == WakeCheckState.disabled
-              ? '未开启，请在设备管理器中设置'
-              : '无法自动判断',
-      ok: state == WakeCheckState.enabled
-          ? true
-          : state == WakeCheckState.disabled
-              ? false
-              : null);
   @override
   Widget build(BuildContext context) {
     final wake = context.watch<WakeProvider>();
-    final windows = wake.windows != null;
-    return Scaffold(
-        appBar: AppBar(
-            title: Text(windows
-                ? '配置远程开机'
-                : _android
-                    ? '家中开机助手'
-                    : '配置远程开机')),
-        body: Center(
-            child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 760),
-                child: !wake.loggedIn
-                    ? Center(
-                        child: FilledButton(
-                            onPressed: () =>
-                                context.push('/login?redirect=/wake/setup'),
-                            child: const Text('登录账号')))
-                    : ListView(
-                        controller: _scroll,
-                        padding: const EdgeInsets.all(20),
-                        children: [
-                            if (windows) ...[
-                              Row(children: [
-                                for (var i = 0; i < 3; i++)
-                                  Expanded(
-                                      child: Padding(
-                                          padding:
-                                              const EdgeInsets.only(bottom: 24),
-                                          child: Text(
-                                              '${i + 1} ${[
-                                                '检测设备',
-                                                'BIOS 设置',
-                                                '开机测试'
-                                              ][i]}',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  color: i <= _step
-                                                      ? const Color(0xff3979ff)
-                                                      : Colors.grey))))
-                              ]),
-                              if (_step == 0) ..._detect(wake),
-                              if (_step == 1) ..._bios(),
-                              if (_step == 2) ..._test(wake),
-                            ] else if (_android)
-                              ..._helper(wake)
-                            else
-                              _panel([
-                                const Icon(Icons.desktop_windows,
-                                    size: 56, color: Color(0xff3979ff)),
-                                const SizedBox(height: 16),
-                                const Text('先在 Windows 电脑完成一次配置',
-                                    style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 12),
-                                const Text(
-                                    '电脑和留在家中的安卓手机登录同一账号。电脑进入“远程开机”，手机启用“家中开机助手”。配置完成后，这里就会出现电脑和开机按钮。'),
-                                TextButton(
-                                    onPressed: () => context.pop(),
-                                    child: const Text('返回电脑列表')),
-                              ]),
-                            if (_error != null || wake.error != null)
-                              _notice(_error ?? wake.error!, error: true),
-                          ]))));
-  }
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
+    final local = context.watch<ConnectionProvider>().localDevice;
+    final target = local == null ? null : wake.targetForDevice(local.deviceId);
+    final enabled = target != null || wake.localWakePending;
+    final helper = target == null
+        ? null
+        : wake.agents.where((a) => a.id == target.agentId).firstOrNull;
+    final adapter = _adapter;
 
-  List<Widget> _detect(WakeProvider wake) {
-    final helper = _selectedAgent(wake);
-    final helpers = wake.agents.where((a) => a.enabled && a.online).toList();
-    return [
-      _panel([
-        const Text('检测网络唤醒设置',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Text('请把电脑网线接到家中路由器，并保持电源接通。'),
-        if (_loading)
-          const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: LinearProgressIndicator())
-        else ...[
-          _status('有线网卡', _adapter?.name ?? _scan?.message ?? '尚未检测网卡',
-              ok: _adapter != null),
-          if (_scan != null)
-            TextButton.icon(
-                onPressed: _showDiagnostic,
-                icon: const Icon(Icons.description_outlined),
-                label: const Text('查看诊断')),
-          if (_adapter != null) ...[
-            _checkRow('魔术包唤醒', _check?.magicPacket),
-            _checkRow('允许网卡唤醒电脑', _check?.wakeArmed),
-            _checkRow('关机网络唤醒', _check?.shutdownWake),
-          ],
-          if (_checkError != null) _notice(_checkError!),
-          if (_check?.allEnabled != true && _adapter != null)
-            TextButton.icon(
-                onPressed: () async {
-                  try {
-                    await wake.windows!.openDeviceManager();
-                  } catch (_) {
-                    if (mounted) {
-                      setState(() {
-                        _error = '请在开始菜单打开设备管理器，进入网卡属性。';
-                      });
-                    }
-                  }
-                },
-                icon: const Icon(Icons.settings_outlined),
-                label: const Text('打开设备管理器')),
-        ],
-      ]),
-      _panel([
-        const Text('连接家中安卓手机',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-        _status(
-            '开机助手', helper?.name ?? (helpers.isEmpty ? '等待家中手机上线' : '请选择家中手机'),
-            ok: helper != null),
-        if (helper == null && helpers.isEmpty)
-          const Text('在留在家中的安卓手机上登录同一账号，进入“远程开机”，启用“家中开机助手”。'),
-        if (helpers.length > 1 ||
-            (_agentId != null && helper == null && helpers.isNotEmpty))
-          DropdownButtonFormField<String>(
-              initialValue: helper?.id,
-              decoration: const InputDecoration(labelText: '选择家中手机'),
-              items: [
-                for (final a in helpers)
-                  DropdownMenuItem(value: a.id, child: Text(a.name))
-              ],
-              onChanged: (id) => setState(() {
-                    _agentId = id;
-                    _sameNetwork = false;
-                  })),
-        const SizedBox(height: 8),
-        const Text('手机必须与电脑连接同一家庭网络，不能使用访客 Wi-Fi。在线状态不代表已确认同一局域网。'),
-      ]),
-      ExpansionTile(title: const Text('电脑名称与网卡'), children: [
-        TextField(
-            controller: _name,
-            maxLength: 40,
-            decoration: const InputDecoration(labelText: '电脑名称')),
-        if (_adapters.length > 1)
-          DropdownButtonFormField<String>(
-              initialValue: _adapter?.mac,
-              items: [
-                for (final a in _adapters)
-                  DropdownMenuItem(
-                      value: a.mac, child: Text('${a.name} · ${a.mac}'))
-              ],
-              onChanged: _loading
-                  ? null
-                  : (mac) {
-                      _adapter = _adapters.firstWhere((a) => a.mac == mac);
-                      unawaited(_load());
-                    }),
-      ]),
-      const SizedBox(height: 16),
-      Row(children: [
-        Expanded(
-            child: OutlinedButton(
-                onPressed: _loading ? null : _load, child: const Text('重新检测'))),
-        const SizedBox(width: 12),
-        Expanded(
-            child: FilledButton(
-                onPressed: _loading ||
-                        _adapter == null ||
-                        helper == null ||
-                        wake.error != null
-                    ? null
-                    : () {
-                        _agentId = helper.id;
-                        _go(1);
-                      },
-                child: const Text('下一步')))
-      ]),
-    ];
-  }
+    final String status;
+    final RdTone tone;
+    if (wake.localWakePending) {
+      status = '等待家中开机助手：在家里的安卓手机或 Mac 上打开 RDesk，开启「开机助手」后自动完成';
+      tone = RdTone.warning;
+    } else if (target != null) {
+      final helperOnline = target.agentOnline;
+      status = helper == null
+          ? '已开启'
+          : '已开启 · 家中助手：${helper.name}（${helperOnline ? '在线' : '离线'}）';
+      tone = helperOnline ? RdTone.online : RdTone.warning;
+    } else {
+      status = '开启后，可以在手机上一键开机这台电脑';
+      tone = RdTone.neutral;
+    }
 
-  List<Widget> _bios() => [
-        _panel([
-          const Text('开启主板网络唤醒',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          const Text('BIOS 设置需要你在电脑上完成，应用无法自动检测或修改。'),
-          const SizedBox(height: 20),
-          const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Text('1')),
-              title: Text('进入 BIOS'),
-              subtitle: Text('保存当前工作，重启电脑。开机时按主板说明进入 BIOS，常见按键为 Del 或 F2。')),
-          const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Text('2')),
-              title: Text('开启网络唤醒'),
-              subtitle: Text(
-                  '在电源管理中查找 Wake on LAN 或 PCIe 唤醒并启用。若 ErP 会切断网卡待机供电，按主板说明关闭它。')),
-          const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(child: Text('3')),
-              title: Text('保存并返回'),
-              subtitle: Text('保存 BIOS 设置后启动 Windows，再回到这里继续。不同主板的名称和位置可能不同。')),
-          CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _biosConfirmed,
-              onChanged: (v) => setState(() {
-                    _biosConfirmed = v ?? false;
-                  }),
-              title: const Text('已核对 BIOS 设置，电脑保持接通电源')),
-        ]),
+    String checkLabel(WakeCheckState s) => switch (s) {
+          WakeCheckState.enabled => '已开启',
+          WakeCheckState.disabled => '未开启',
+          WakeCheckState.unknown => '无法判断',
+        };
+    RdTone checkTone(WakeCheckState s) => switch (s) {
+          WakeCheckState.enabled => RdTone.online,
+          WakeCheckState.disabled => RdTone.danger,
+          WakeCheckState.unknown => RdTone.neutral,
+        };
+    Widget checkRow(String label, WakeCheckState s) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(children: [
+            Expanded(child: Text(label, style: t.bodyMedium)),
+            RdStatusPill(checkLabel(s), tone: checkTone(s)),
+          ]),
+        );
+
+    final check = _check;
+    return RdCard(
+      padding: const EdgeInsets.all(18),
+      radius: Rd.radiusLg,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          Expanded(
-              child: OutlinedButton(
-                  onPressed: () => _go(0), child: const Text('上一步'))),
+          const RdIconBadge(
+              icon: Icons.power_settings_new_rounded,
+              tone: RdTone.power,
+              size: 40),
           const SizedBox(width: 12),
           Expanded(
-              child: FilledButton(
-                  onPressed: _biosConfirmed ? () => _go(2) : null,
-                  child: const Text('下一步')))
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('允许远程开机', style: t.titleMedium),
+              const SizedBox(height: 2),
+              Text(status,
+                  style: t.bodySmall!.copyWith(
+                      color: tone == RdTone.neutral
+                          ? p.inkSecondary
+                          : tone.fg(p))),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Switch(
+            value: enabled,
+            onChanged: wake.busy || _scanning || local == null
+                ? null
+                : (v) => v ? _enable() : _disable(local.deviceId),
+          ),
         ]),
-      ];
-  List<Widget> _test(WakeProvider wake) => [
-        _panel([
-          Text(_saved ? '配置已保存，接下来测试开机' : '保存并开始测试',
-              style:
-                  const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          Text(_saved
-              ? '配置成功不等于硬件已通过唤醒测试。请按下面的顺序验证。'
-              : '保存后，同一账号的手机和电脑都能看到这台电脑。'),
-          if (!_saved) ...[
-            CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _sameNetwork,
-                onChanged: (v) => setState(() {
-                      _sameNetwork = v ?? false;
-                    }),
-                title: const Text('家中安卓助手与电脑连接同一路由器')),
-            CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: _startup,
-                onChanged: (v) => setState(() {
-                      _startup = v ?? false;
-                    }),
-                title: const Text('登录 Windows 后自动启动 RDesk'),
-                subtitle: const Text('用于确认电脑上线；不会跳过 Windows 登录。')),
-            if (_check?.allEnabled != true)
-              _notice('检测中仍有未开启或无法判断的项目，请先核对网卡属性。保存配置不会自动修改这些设置。'),
-          ],
-          const SizedBox(height: 12),
-          const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.bedtime_outlined),
-              title: Text('先测试睡眠唤醒'),
-              subtitle: Text('让电脑进入睡眠，在另一台设备的 RDesk 中点击“开机”。')),
-          const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.power_settings_new),
-              title: Text('再测试关机与外网'),
-              subtitle: Text('睡眠测试成功后再测试关机。在另一台手机使用移动网络发起开机；家中助手始终保持 Wi-Fi。')),
-          const ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.nights_stay_outlined),
-              title: Text('最后测试隔夜'),
-              subtitle: Text('让家中助手锁屏并保持供电，隔夜再次尝试。“信号已发送”不等于电脑已启动。')),
-          const Text('Windows 关机唤醒受硬件、驱动和快速启动影响；当前 Windows 客户端不提供被控桌面功能。',
-              style: TextStyle(fontSize: 12, color: Colors.blueGrey)),
+        const SizedBox(height: 16),
+        Divider(color: p.divider),
+        const SizedBox(height: 8),
+        Row(children: [
+          Icon(Icons.settings_ethernet_rounded, size: 18, color: p.inkTertiary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+                _scanning
+                    ? '正在检测网卡…'
+                    : adapter != null
+                        ? '有线网卡：${adapter.name}'
+                        : _scan?.message ?? '尚未检测网卡',
+                style: t.bodyMedium),
+          ),
+          TextButton(
+              onPressed: _scanning ? null : _inspect,
+              child: const Text('重新检测')),
         ]),
-        if (_saved)
-          FilledButton(
-              onPressed: () => context.pop(), child: const Text('返回电脑列表'))
-        else
-          Row(children: [
-            Expanded(
-                child: OutlinedButton(
-                    onPressed: _saving ? null : () => _go(1),
-                    child: const Text('上一步'))),
-            const SizedBox(width: 12),
-            Expanded(
-                child: FilledButton(
-                    onPressed: _saving || !_sameNetwork || wake.busy
-                        ? null
-                        : () => _save(wake),
-                    child: Text(_saving ? '正在保存…' : '保存配置')))
-          ]),
-      ];
-  Future<void> _save(WakeProvider wake) async {
-    final helper = _selectedAgent(wake);
-    if (helper == null || _adapter == null || _name.text.trim().isEmpty) {
-      setState(() {
-        _error = '请返回检测步骤，确认电脑名称、网卡与在线助手。';
-      });
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      final local = await RdeskBridgeService.instance.getLocalDeviceInfo();
-      if (!mounted) return;
-      await wake.windows!.setLoginStartup(_startup);
-      if (!mounted) return;
-      final ok = await wake.enrollWindows(
-          deviceId: local.deviceId,
-          name: _name.text.trim(),
-          mac: _adapter!.mac,
-          agentId: helper.id);
-      if (mounted && ok) {
-        setState(() {
-          _saved = true;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _error = '保存失败，请检查登录状态和启动设置后重试。';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-        });
-      }
+        if (check != null) ...[
+          checkRow('魔术包唤醒', check.magicPacket),
+          checkRow('允许网卡唤醒电脑', check.wakeArmed),
+          checkRow('关机后网络唤醒', check.shutdownWake),
+          if (!check.allEnabled)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _service?.openDeviceManager(),
+                icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                label: const Text('打开设备管理器，在网卡「高级」和「电源管理」中开启'),
+              ),
+            ),
+        ],
+        const SizedBox(height: 4),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('登录 Windows 后自动启动 RDesk'),
+          subtitle: const Text('电脑开机后自动上线，才能确认开机成功并连接'),
+          value: _startup ?? false,
+          onChanged: _startup == null
+              ? null
+              : (v) async {
+                  try {
+                    await _service?.setLoginStartup(v);
+                    if (mounted) setState(() => _startup = v);
+                  } catch (_) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('无法修改开机启动，请在 Windows「启动应用」中设置')));
+                  }
+                },
+        ),
+        const _BiosTips(),
+      ]),
+    );
+  }
+}
+
+class _Requirement extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _Requirement({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(children: [
+          RdIconBadge(icon: icon, size: 32),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text)),
+        ]),
+      );
+}
+
+class _BiosTips extends StatelessWidget {
+  const _BiosTips();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        title: Text('如何在 BIOS 中开启网络唤醒', style: t.bodyMedium),
+        children: [
+          for (final line in const [
+            '1. 重启电脑，开机时按 Del、F2 或 F12 进入 BIOS（不同品牌按键不同）。',
+            '2. 在「电源管理 / Power」或「高级 / Advanced」中找到「Wake on LAN」「PCIE 唤醒」等选项，设为 Enabled。',
+            '3. 如有「ErP / EuP」节能选项，请关闭，否则关机后网卡会断电。',
+            '4. 按 F10 保存并重启。建议在 Windows 电源选项中关闭「快速启动」。',
+          ])
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Text(line, style: t.bodySmall),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── This device as a home helper ───────────────────────────────────────────
+
+class _HelperCard extends StatefulWidget {
+  const _HelperCard();
+  @override
+  State<_HelperCard> createState() => _HelperCardState();
+}
+
+class _HelperCardState extends State<_HelperCard> {
+  bool _working = false;
+  LoginItemState _login = const LoginItemState();
+  final _loginItem = const LoginItemService();
+  bool get _isMac => defaultTargetPlatform == TargetPlatform.macOS;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isMac) {
+      _loginItem.status().then((v) {
+        if (mounted) setState(() => _login = v);
+      }, onError: (Object e) => debugPrint('[RDesk] login item: $e'));
     }
   }
 
-  List<Widget> _helper(WakeProvider wake) => [
-        _panel([
-          const Icon(Icons.phonelink_ring, size: 56, color: Color(0xff3979ff)),
-          const SizedBox(height: 16),
-          const Text('把这台手机留在家中',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          const Text('连接电脑所在的家庭 Wi-Fi，并持续供电。无需开启屏幕共享。'),
-          SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('家中开机助手'),
-              subtitle: Text(wake.helper.enabled
-                  ? '已启动，可在通知栏停止'
-                  : '开启后可被同账号的 Windows 电脑发现'),
-              value: wake.helper.enabled,
-              onChanged: wake.busy
-                  ? null
-                  : (v) async {
-                      if (v) {
-                        await wake.enableHelper(_name.text.trim());
-                      } else {
-                        await wake.disableHelper();
-                      }
-                    }),
-          if (wake.helper.enabled)
-            _status('家庭 Wi-Fi', wake.helper.networkReady ? '通道可用' : '通道未就绪',
-                ok: wake.helper.networkReady),
-          if (wake.helper.errorCode != null)
-            _notice(describeHelperError(wake.helper.errorCode!), error: true),
-          TextButton(
-              onPressed: wake.agent.openBatterySettings,
-              child: const Text('允许后台运行')),
-          const Text('在系统中将电池策略设为不限制，并允许自启动。Wi-Fi 短暂断开或路由器重启后，回到同一家庭 Wi-Fi 会自动继续；换到其他网络时暂停，不会在其他网络发送。手机重启或被强制停止后，请重新打开并启用助手。'),
+  Future<void> _enable() async {
+    final wake = context.read<WakeProvider>();
+    final gen = wake.identityGeneration;
+    setState(() => _working = true);
+    try {
+      if (_isMac) {
+        final networks = await wake.agent.desktop.networks();
+        if (!mounted || gen != wake.identityGeneration) return;
+        var network = pickHomeNetwork(networks);
+        if (network == null && networks.isNotEmpty) {
+          network = await showDialog<DesktopWakeNetwork>(
+            context: context,
+            builder: (ctx) => SimpleDialog(
+              title: const Text('选择电脑所在的家庭网络'),
+              children: [
+                for (final n in networks)
+                  SimpleDialogOption(
+                      onPressed: () => Navigator.pop(ctx, n),
+                      child: Text('${n.name} · ${n.cidr}')),
+              ],
+            ),
+          );
+        }
+        if (network == null) {
+          if (mounted && networks.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('没有找到家庭局域网，请连接电脑所在的 Wi-Fi 或网线')));
+          }
+          return;
+        }
+        wake.agent.desktop.selected = network;
+      }
+      await wake.enableHelper(_isMac ? '家中 Mac' : '家中安卓手机');
+    } on StateError catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final wake = context.watch<WakeProvider>();
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
+    final on = wake.helper.enabled;
+    final code = wake.helper.errorCode;
+    final status = code != null
+        ? describeHelperError(code)
+        : on
+            ? '运行中 · 家里的电脑可以通过这台${_isMac ? ' Mac' : '手机'}开机'
+            : '让这台${_isMac ? ' Mac' : '手机'}帮家里的电脑开机，需要一直留在家中联网';
+    return RdCard(
+      padding: const EdgeInsets.all(18),
+      radius: Rd.radiusLg,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          RdIconBadge(
+              icon: _isMac
+                  ? Icons.laptop_mac_rounded
+                  : Icons.phonelink_ring_rounded,
+              tone: on ? RdTone.online : RdTone.brand,
+              size: 40),
+          const SizedBox(width: 12),
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('作为家中开机助手', style: t.titleMedium),
+              const SizedBox(height: 2),
+              Text(status,
+                  style: t.bodySmall!.copyWith(
+                      color: code != null
+                          ? p.warning
+                          : on
+                              ? p.online
+                              : p.inkSecondary)),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Switch(
+            value: on,
+            onChanged: _working || wake.busy
+                ? null
+                : (v) => v ? _enable() : wake.disableHelper(),
+          ),
         ]),
-        _panel([
-          const Text('接下来，到 Windows 电脑上继续',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        if (_isMac && _login.supported) ...[
           const SizedBox(height: 8),
-          const Text('登录同一账号，进入“远程开机”，点击“启用远程开机”。配置后可在外出的其他手机或电脑上发起开机。'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('登录 Mac 后自动打开 RDesk'),
+            subtitle: Text(_login.requiresApproval
+                ? '需要在系统设置的「登录项」中允许 RDesk'
+                : 'Mac 重启或更新后，助手会在同一家庭网络自动恢复'),
+            value: _login.enabled || _login.requiresApproval,
+            onChanged: (v) async {
+              try {
+                final next = await _loginItem.set(v);
+                if (mounted) setState(() => _login = next);
+              } on PlatformException catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(e.message ?? '无法更改登录项')));
+              }
+            },
+          ),
+        ],
+        if (!_isMac) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: Text('建议保持充电，并允许 RDesk 后台运行，避免被系统休眠。', style: t.bodySmall),
+            ),
+            TextButton(
+                onPressed: wake.agent.openBatterySettings,
+                child: const Text('后台设置')),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
+// ── PCs this account can wake ───────────────────────────────────────────────
+
+class _TargetList extends StatelessWidget {
+  const _TargetList();
+
+  @override
+  Widget build(BuildContext context) {
+    final wake = context.watch<WakeProvider>();
+    final t = Theme.of(context).textTheme;
+    if (wake.targets.isEmpty) {
+      return RdCard(
+        padding: const EdgeInsets.all(20),
+        child: Row(children: [
+          const RdIconBadge(icon: Icons.desktop_windows_rounded, size: 40),
+          const SizedBox(width: 14),
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('还没有可开机的电脑', style: t.titleSmall),
+              const SizedBox(height: 4),
+              Text('在需要开机的 Windows 电脑上安装 RDesk，登录同一账号，打开「远程开机」开启即可。',
+                  style: t.bodySmall),
+            ]),
+          ),
         ]),
-        ExpansionTile(title: const Text('名称与助手管理'), children: [
-          TextField(
-              controller: _name,
-              maxLength: 40,
-              decoration: const InputDecoration(labelText: '助手名称（下次启用时生效）')),
-          for (final a in wake.agents)
-            ListTile(
-                title: Text(a.name),
-                subtitle: Text(a.online ? '在线' : '离线'),
-                trailing: IconButton(
-                    tooltip: '删除助手',
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: wake.busy
-                        ? null
-                        : () async {
-                            final yes = await showDialog<bool>(
-                                context: context,
-                                builder: (dialog) => AlertDialog(
-                                        title: const Text('删除助手？'),
-                                        content:
-                                            const Text('绑定此助手的电脑需要重新选择助手。'),
-                                        actions: [
-                                          TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(dialog, false),
-                                              child: const Text('取消')),
-                                          TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(dialog, true),
-                                              child: const Text('删除'))
-                                        ]));
-                            if (yes == true) await wake.removeHelper(a);
-                          })),
+      );
+    }
+    return Column(children: [
+      for (final target in wake.targets)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _TargetCard(target: target),
+        ),
+      if (wake.usableHelpers.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+          child: Row(children: [
+            Icon(Icons.home_rounded,
+                size: 16, color: RdPalette.of(context).inkTertiary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                  '家中助手：${wake.usableHelpers.map((a) => '${a.name}（${a.online ? '在线' : '离线'}）').join('、')}',
+                  style: t.bodySmall),
+            ),
+          ]),
+        ),
+    ]);
+  }
+}
+
+class _TargetCard extends StatelessWidget {
+  final WakeTarget target;
+  const _TargetCard({required this.target});
+
+  Future<void> _changeHelper(BuildContext context) async {
+    final wake = context.read<WakeProvider>();
+    final picked = await showDialog<WakeAgent>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('选择家中助手'),
+        children: [
+          for (final a in wake.usableHelpers)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, a),
+              child: Row(children: [
+                RdStatusDot(
+                    color: a.online
+                        ? RdPalette.of(ctx).online
+                        : RdPalette.of(ctx).inkTertiary),
+                const SizedBox(width: 10),
+                Expanded(child: Text(a.name)),
+                if (a.id == target.agentId) const Text('当前'),
+              ]),
+            ),
+        ],
+      ),
+    );
+    if (picked != null && picked.id != target.agentId) {
+      await wake.rebind(target, picked.id);
+    }
+  }
+
+  Future<void> _remove(BuildContext context) async {
+    final wake = context.read<WakeProvider>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('移除「${target.name}」？'),
+        content: const Text('移除后将无法远程开机这台电脑，需要在电脑上重新开启。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('移除')),
+        ],
+      ),
+    );
+    if (ok == true) await wake.remove(target);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final wake = context.watch<WakeProvider>();
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
+    final latest = wake.history[target.id]?.firstOrNull;
+    final waking = latest?.active ?? false;
+    final (String label, RdTone tone) = target.online
+        ? ('在线', RdTone.online)
+        : waking
+            ? ('正在开机', RdTone.power)
+            : latest?.phase == WakePhase.unconfirmed
+                ? ('已发送，未等到上线', RdTone.warning)
+                : ('离线', RdTone.neutral);
+    return RdCard(
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      child: Row(children: [
+        RdDeviceGlyph(platform: 'windows', online: target.online),
+        const SizedBox(width: 14),
+        Expanded(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(target.name, style: t.titleMedium),
+            const SizedBox(height: 4),
+            Row(children: [
+              RdStatusPill(label, tone: tone),
+              if (!target.online && !target.agentOnline) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text('助手离线',
+                      style: t.labelSmall!.copyWith(color: p.warning)),
+                ),
+              ],
+            ]),
+          ]),
+        ),
+        if (!target.online)
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+                backgroundColor: p.power,
+                minimumSize: const Size(80, 38),
+                padding: const EdgeInsets.symmetric(horizontal: 14)),
+            onPressed:
+                waking || wake.busy ? null : () => wakeDevice(context, target),
+            icon: const Icon(Icons.power_settings_new_rounded, size: 18),
+            label: Text(waking ? '开机中' : '开机'),
+          ),
+        PopupMenuButton<String>(
+          tooltip: '更多',
+          icon: const Icon(Icons.more_vert_rounded),
+          onSelected: (v) => switch (v) {
+            'helper' => _changeHelper(context),
+            'remove' => _remove(context),
+            _ => null,
+          },
+          itemBuilder: (_) => [
+            if (wake.usableHelpers.length > 1)
+              const PopupMenuItem(value: 'helper', child: Text('更换家中助手')),
+            const PopupMenuItem(value: 'remove', child: Text('移除这台电脑')),
+          ],
+        ),
+      ]),
+    );
+  }
+}
+
+class _HowItWorks extends StatelessWidget {
+  const _HowItWorks();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final p = RdPalette.of(context);
+    Widget step(IconData icon, String title, String body) => Expanded(
+          child: Column(children: [
+            RdIconBadge(icon: icon, size: 40),
+            const SizedBox(height: 8),
+            Text(title, style: t.titleSmall, textAlign: TextAlign.center),
+            const SizedBox(height: 2),
+            Text(body, style: t.bodySmall, textAlign: TextAlign.center),
+          ]),
+        );
+    Widget arrow() => Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child:
+              Icon(Icons.arrow_forward_rounded, size: 18, color: p.inkTertiary),
+        );
+    return RdCard(
+      padding: const EdgeInsets.fromLTRB(12, 18, 12, 18),
+      color: p.surfaceMuted,
+      child: Column(children: [
+        Text('工作原理', style: t.labelMedium),
+        const SizedBox(height: 14),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          step(Icons.smartphone_rounded, '你点开机', '在外面用手机'),
+          arrow(),
+          step(Icons.phonelink_ring_rounded, '家中助手', '收到后在局域网发出唤醒'),
+          arrow(),
+          step(Icons.desktop_windows_rounded, '电脑启动', '上线后即可远程连接'),
         ]),
-      ];
+      ]),
+    );
+  }
 }

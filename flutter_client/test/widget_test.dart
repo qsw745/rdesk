@@ -36,6 +36,6 @@ void main() {
 
     appRouter.go('/mobile-host');
     await tester.pumpAndSettle();
-    expect(find.text('移动被控'), findsOneWidget);
+    expect(find.text('屏幕共享'), findsOneWidget);
   });
 }

@@ -68,24 +68,6 @@ class DesktopViewerTopBar extends StatelessWidget {
                               : null,
                         );
                       }),
-                      // "+" button for adding monitor
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: IconButton(
-                            onPressed: () {},
-                            icon: Icon(
-                              Icons.add,
-                              size: 16,
-                              color: isDark ? Colors.white38 : Colors.black38,
-                            ),
-                            padding: EdgeInsets.zero,
-                            splashRadius: 14,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),

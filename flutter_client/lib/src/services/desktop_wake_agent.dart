@@ -11,6 +11,29 @@ class DesktopWakeNetwork {
       {'interface': name, 'ipv4_cidr': cidr, 'interface_hardware': hardware};
 }
 
+/// Picks the home LAN automatically: physical Wi-Fi/Ethernet only, never a
+/// virtual bridge, VPN tunnel or peer-to-peer interface. Returns null when
+/// more than one candidate remains so the user can choose.
+DesktopWakeNetwork? pickHomeNetwork(List<DesktopWakeNetwork> networks) {
+  const virtual = [
+    'bridge',
+    'utun',
+    'awdl',
+    'llw',
+    'vmnet',
+    'anpi',
+    'gif',
+    'stf',
+    'ap'
+  ];
+  final physical = networks
+      .where((n) => !virtual.any((prefix) => n.name.startsWith(prefix)))
+      .toList();
+  if (physical.length == 1) return physical.single;
+  final en = physical.where((n) => n.name.startsWith('en')).toList();
+  return en.length == 1 ? en.single : null;
+}
+
 /// Runs the bundled, signed helper. Closing the app closes its stdin and stops it.
 class DesktopWakeAgent {
   Process? _process;

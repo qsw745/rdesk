@@ -27,7 +27,13 @@ void main() {
     await tester.pumpWidget(const RDeskApp());
     await tester.pumpAndSettle();
     expect(find.text('旧的书房电脑'), findsOneWidget);
+    expect(find.text('按设备码连接'), findsOneWidget);
+    expect(find.textContaining('在线 ·'), findsNothing);
+    await tester.tap(find.text('旧的书房电脑'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('来源未记录'), findsOneWidget);
+    appRouter.go('/');
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, '在线'));
     await tester.pumpAndSettle();
     expect(find.text('旧的书房电脑'), findsNothing);

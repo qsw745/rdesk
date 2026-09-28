@@ -4,7 +4,6 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wake.dart';
-import 'wake_pairing_provider.dart';
 import '../services/wake_api.dart';
 import '../services/wake_agent_channel.dart';
 import '../services/windows_wake_service.dart';
@@ -13,9 +12,7 @@ class WakeProvider extends ChangeNotifier {
   final WakeApi api;
   final WakeAgentChannel agent;
   final WindowsWakeService? windows;
-  final WakePairingProvider? pairing;
-  WakeProvider(
-      {required this.api, required this.agent, this.windows, this.pairing});
+  WakeProvider({required this.api, required this.agent, this.windows});
   String? _userId, _server;
   int _generation = 0;
   bool _disposed = false, _visible = false, _refreshing = false;
@@ -92,7 +89,6 @@ class WakeProvider extends ChangeNotifier {
 
   Future<void> bindAccount(String? userId, String server,
       {String? token}) async {
-    pairing?.bindAccount(userId, server, token: token);
     if (_userId == userId && _server == server) return;
     final previous = _server != null;
     _userId = userId;
@@ -105,6 +101,7 @@ class WakeProvider extends ChangeNotifier {
     busy = false;
     error = null;
     helper = const WakeAgentStatus();
+    localWakePending = false;
     await windows?.stop();
     try {
       if (previous) await agent.stop();
@@ -124,6 +121,7 @@ class WakeProvider extends ChangeNotifier {
       if (!_current(gen)) return;
       if (userId != null) await windows?.resume(userId);
       if (userId != null) unawaited(_resumeHelper(gen));
+      if (userId != null) unawaited(_loadPending());
     } catch (_) {
       if (_current(gen)) error = '开机助手状态读取失败，请重新启用';
     }
@@ -135,7 +133,6 @@ class WakeProvider extends ChangeNotifier {
 
   /// Called before account credentials are removed. Generation changes immediately.
   Future<void> stopForAccountExit() async {
-    final cancellation = pairing?.cancelForExit();
     final user = _userId;
     ++_generation;
     _userId = null;
@@ -145,13 +142,13 @@ class WakeProvider extends ChangeNotifier {
     history = {};
     busy = false;
     helper = const WakeAgentStatus();
+    localWakePending = false;
     _notify();
     await windows?.stop();
     await agent.stop();
     await _native(agent.stop);
     // Account exit must never wait on storage or endpoint lookups.
     if (user != null) unawaited(_forgetResume(user));
-    await cancellation;
   }
 
   void setVisible(bool visible) {
@@ -202,7 +199,126 @@ class WakeProvider extends ChangeNotifier {
       _schedule();
       _notify();
     }
+    if (_current(gen)) unawaited(_completePendingLocalWake(gen));
   }
+
+  /// Enabled helpers, online first, then most recently seen.
+  List<WakeAgent> get usableHelpers => agents.where((a) => a.enabled).toList()
+    ..sort((a, b) {
+      if (a.online != b.online) return a.online ? -1 : 1;
+      return (b.lastSeenMs ?? 0).compareTo(a.lastSeenMs ?? 0);
+    });
+
+  WakeAgent? get bestHelper => usableHelpers.firstOrNull;
+
+  WakeTarget? targetForDevice(String deviceId) =>
+      targets.where((t) => t.deviceId == deviceId).firstOrNull;
+
+  String _pendingKey(Uri uri, String user) => '${_key(uri, user)}.windows';
+
+  /// True while this Windows PC waits for a home helper before enrolling.
+  bool localWakePending = false;
+
+  Future<void> _loadPending() async {
+    final user = _userId;
+    if (windows == null || user == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pendingKey(await api.endpoint(), user));
+      final pending = raw != null;
+      if (pending != localWakePending && _userId == user) {
+        localWakePending = pending;
+        _notify();
+      }
+    } catch (e) {
+      debugPrint('[RDesk] wake pending state unavailable: $e');
+    }
+  }
+
+  Future<void> _completePendingLocalWake(int gen) async {
+    final user = _userId;
+    if (windows == null || user == null || busy) return;
+    try {
+      final endpoint = await api.endpoint();
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_pendingKey(endpoint, user));
+      if (raw == null || !_current(gen)) {
+        if (localWakePending && _current(gen)) {
+          localWakePending = false;
+          _notify();
+        }
+        return;
+      }
+      final saved = jsonDecode(raw) as Map<String, dynamic>;
+      final helper = bestHelper;
+      if (helper == null) {
+        if (!localWakePending) {
+          localWakePending = true;
+          _notify();
+        }
+        return;
+      }
+      final ok = await _mutate((_, g) async {
+        await windows!.enroll(
+            userId: user,
+            deviceId: saved['device_id'] as String,
+            name: saved['name'] as String,
+            mac: saved['mac'] as String,
+            agentId: helper.id);
+        await prefs.remove(_pendingKey(endpoint, user));
+        if (_current(g)) localWakePending = false;
+      });
+      if (ok && _current(gen)) await refresh();
+    } catch (e) {
+      debugPrint('[RDesk] pending remote wake not completed: $e');
+    }
+  }
+
+  /// Windows: allow this PC to be woken. Picks a home helper automatically;
+  /// without one the choice is remembered and completed once a helper appears.
+  Future<bool> enableLocalWake(
+          {required String deviceId,
+          required String name,
+          required String mac}) =>
+      _mutate((scoped, gen) async {
+        if (windows == null) throw StateError('请在要开机的 Windows 电脑上开启');
+        final user = _userId!;
+        final endpoint = await scoped.endpoint();
+        final latest = await scoped.agents();
+        if (!_current(gen)) return;
+        agents = latest;
+        final helper = bestHelper;
+        final prefs = await SharedPreferences.getInstance();
+        if (helper == null) {
+          await prefs.setString(_pendingKey(endpoint, user),
+              jsonEncode({'device_id': deviceId, 'name': name, 'mac': mac}));
+          localWakePending = true;
+          return;
+        }
+        await windows!.enroll(
+            userId: user,
+            deviceId: deviceId,
+            name: name,
+            mac: mac,
+            agentId: helper.id);
+        await prefs.remove(_pendingKey(endpoint, user));
+        localWakePending = false;
+        if (_current(gen)) await refresh();
+      });
+
+  /// Windows: stop accepting remote wake for this PC.
+  Future<bool> disableLocalWake(String deviceId) =>
+      _mutate((scoped, gen) async {
+        final user = _userId!;
+        final endpoint = await scoped.endpoint();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_pendingKey(endpoint, user));
+        localWakePending = false;
+        final target = targetForDevice(deviceId);
+        if (target != null) await scoped.deleteTarget(target.id);
+        await windows?.forget(user);
+        if (_current(gen)) await refresh();
+      });
 
   String _message(Object e) => e is WakeApiException
       ? e.message
@@ -322,11 +438,21 @@ class WakeProvider extends ChangeNotifier {
         }
       });
   Future<bool> wake(WakeTarget target) => _mutate((scoped, gen) async {
-        if (!target.setupComplete ||
-            target.online ||
-            !target.agentOnline ||
-            (history[target.id]?.any((r) => r.active) ?? false)) {
-          return;
+        if (target.online) throw StateError('电脑已经在线');
+        if (history[target.id]?.any((r) => r.active) ?? false) {
+          throw StateError('正在开机，请稍候');
+        }
+        if (!target.setupComplete || !target.agentOnline) {
+          // The bound helper is away: use another online helper instead.
+          final alternative = agents
+              .where((a) => a.enabled && a.online && a.id != target.agentId)
+              .firstOrNull;
+          if (alternative == null) {
+            throw StateError('家中没有在线的开机助手。请在家里的安卓手机或 Mac 上打开 RDesk 并开启开机助手。');
+          }
+          await scoped.updateTarget(target.id,
+              name: target.name, mac: target.mac, agentId: alternative.id);
+          if (!_current(gen)) return;
         }
         final request = await scoped.requestWake(target.id);
         if (_current(gen)) {
@@ -357,28 +483,12 @@ class WakeProvider extends ChangeNotifier {
         await scoped.revokeAgent(selected.id);
         if (_current(gen)) await refresh();
       });
-  Future<bool> enrollWindows(
-          {required String deviceId,
-          required String name,
-          required String mac,
-          required String agentId}) =>
-      _mutate((_, gen) async {
-        if (windows == null) throw StateError('请在要开机的 Windows 电脑上完成配置');
-        await windows!.enroll(
-            userId: _userId!,
-            deviceId: deviceId,
-            name: name,
-            mac: mac,
-            agentId: agentId);
-        if (_current(gen)) await refresh();
-      });
   @override
   void dispose() {
     _disposed = true;
     ++_generation;
     _timer?.cancel();
     unawaited(windows?.dispose() ?? Future.value());
-    pairing?.dispose();
     api.close();
     super.dispose();
   }

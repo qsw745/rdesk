@@ -12,7 +12,7 @@ class ConnectionLogScreen extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('连接历史'),
+        title: const Text('连接记录'),
       ),
       body: Consumer<ConnectionProvider>(
         builder: (context, provider, _) {
@@ -58,8 +58,7 @@ class ConnectionLogScreen extends StatelessWidget {
           }
 
           // Stats
-          final successCount =
-              records.where((r) => r.isSuccess).length;
+          final successCount = records.where((r) => r.isSuccess).length;
           final failCount = records.length - successCount;
 
           return Column(
@@ -102,16 +101,13 @@ class ConnectionLogScreen extends StatelessWidget {
                   itemBuilder: (context, index) {
                     final record = records[index];
                     final isSuccess = record.isSuccess;
-                    final statusColor = isSuccess
-                        ? AppTheme.successGreen
-                        : AppTheme.errorRed;
+                    final statusColor =
+                        isSuccess ? AppTheme.successGreen : AppTheme.errorRed;
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Material(
-                        color: isDark
-                            ? const Color(0xFF1E1E2E)
-                            : Colors.white,
+                        color: isDark ? const Color(0xFF1E1E2E) : Colors.white,
                         borderRadius: BorderRadius.circular(18),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(18),
@@ -137,10 +133,8 @@ class ConnectionLogScreen extends StatelessWidget {
                                   width: 44,
                                   height: 44,
                                   decoration: BoxDecoration(
-                                    color: statusColor
-                                        .withValues(alpha: 0.1),
-                                    borderRadius:
-                                        BorderRadius.circular(14),
+                                    color: statusColor.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(14),
                                   ),
                                   child: Icon(
                                     record.connectionType == 'p2p'
@@ -168,13 +162,11 @@ class ConnectionLogScreen extends StatelessWidget {
                                             ),
                                           ),
                                           Container(
-                                            padding:
-                                                const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 3),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 3),
                                             decoration: BoxDecoration(
-                                              color: statusColor
-                                                  .withValues(alpha: 0.1),
+                                              color: statusColor.withValues(
+                                                  alpha: 0.1),
                                               borderRadius:
                                                   BorderRadius.circular(8),
                                             ),
@@ -198,8 +190,7 @@ class ConnectionLogScreen extends StatelessWidget {
                                         ),
                                       ),
                                       if (record.failureReason != null &&
-                                          record
-                                              .failureReason!.isNotEmpty) ...[
+                                          record.failureReason!.isNotEmpty) ...[
                                         const SizedBox(height: 4),
                                         Text(
                                           record.failureReason!,
@@ -220,8 +211,7 @@ class ConnectionLogScreen extends StatelessWidget {
                                   decoration: BoxDecoration(
                                     color: AppTheme.primaryBlue
                                         .withValues(alpha: 0.08),
-                                    borderRadius:
-                                        BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: const Icon(
                                     Icons.replay_rounded,

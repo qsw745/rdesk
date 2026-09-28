@@ -96,25 +96,7 @@ class _AuthHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: AppTheme.brandGradient,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryBlue.withValues(alpha: 0.22),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Icon(
-            isRegister ? Icons.person_add_rounded : Icons.connected_tv_rounded,
-            color: Colors.white,
-            size: 30,
-          ),
-        ),
+        Image.asset('assets/brand/app_icon.png', width: 72, height: 72),
         const SizedBox(height: 18),
         Text(
           isRegister ? '创建 RDesk 账号' : '登录 RDesk 账号',

@@ -51,6 +51,17 @@ class AuthProvider extends ChangeNotifier {
   String _biometricLabel = '生物识别';
 
   AccountSession? get session => _session;
+
+  /// Seeds a signed-in snapshot for widget tests and UI screenshots.
+  @visibleForTesting
+  void debugSeed(AccountSession session, List<AccountDevice> devices,
+      {required String endpoint}) {
+    _session = session;
+    _devices = devices;
+    _devicesEndpoint = normalizedEndpointScope(endpoint);
+    notifyListeners();
+  }
+
   List<AccountDevice> get devices => List.unmodifiable(_devices);
   bool get isLoggedIn => _session != null;
   bool get busy => _busy;

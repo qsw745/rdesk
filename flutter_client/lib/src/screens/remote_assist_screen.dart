@@ -1,10 +1,9 @@
-import 'dart:io';
-
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-
 import '../models/connection_info.dart';
 import '../models/session.dart';
 import '../providers/android_host_provider.dart';
@@ -12,12 +11,11 @@ import '../providers/connection_provider.dart';
 import '../providers/desktop_host_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
-import '../utils/theme.dart';
+import '../ui/components.dart';
+import '../ui/tokens.dart';
 import '../utils/platform_capabilities.dart';
-import '../widgets/device_id_display.dart';
 
-enum _ConnectMode { remoteControl, fileTransfer }
-
+/// Remote assistance: control someone else's device, or let them control this one.
 class RemoteAssistScreen extends StatefulWidget {
   const RemoteAssistScreen({super.key});
 
@@ -26,838 +24,507 @@ class RemoteAssistScreen extends StatefulWidget {
 }
 
 class _RemoteAssistScreenState extends State<RemoteAssistScreen> {
-  final _deviceIdController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _deviceIdFocusNode = FocusNode();
-  bool _showPassword = false;
-  bool _didApplyPendingQuickConnect = false;
-  _ConnectMode _connectMode = _ConnectMode.remoteControl;
+  final _deviceId = TextEditingController();
+  final _password = TextEditingController();
+  final _deviceIdFocus = FocusNode();
+  bool _showPassword = false, _appliedQuickConnect = false, _busy = false;
 
   @override
   void dispose() {
-    _deviceIdController.dispose();
-    _passwordController.dispose();
-    _deviceIdFocusNode.dispose();
+    _deviceId.dispose();
+    _password.dispose();
+    _deviceIdFocus.dispose();
     super.dispose();
   }
 
-  Future<void> _applyQuickConnectPeer(String peerId) async {
-    final connectionProvider = context.read<ConnectionProvider>();
-    _deviceIdController.text = peerId;
-    if (_passwordController.text.trim().isEmpty) {
-      final cachedPassword =
-          await connectionProvider.getTrustedPassword(peerId);
-      if (cachedPassword != null && cachedPassword.isNotEmpty) {
-        _passwordController.text = cachedPassword;
-      }
+  Future<void> _prefill(String peerId) async {
+    final connection = context.read<ConnectionProvider>();
+    _deviceId.text = formatDeviceId(peerId);
+    if (_password.text.trim().isEmpty) {
+      final cached = await connection.getTrustedPassword(peerId);
+      if (cached != null && cached.isNotEmpty) _password.text = cached;
     }
     if (mounted) setState(() {});
   }
 
-  /// Returns true if [input] looks like an IP address (with optional :port).
-  bool _looksLikeIpAddress(String input) {
-    final ipPattern = RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$');
-    return ipPattern.hasMatch(input);
-  }
+  static bool _looksLikeIp(String input) =>
+      RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$').hasMatch(input);
 
-  Future<void> _connect({bool passwordless = false}) async {
-    final input = _deviceIdController.text.trim();
-    final password = passwordless ? '' : _passwordController.text.trim();
+  /// An empty verification code asks the other side to accept the request.
+  Future<void> _connect({required bool files}) async {
+    final input = _deviceId.text.replaceAll(' ', '').trim();
+    final password = _password.text.trim();
     if (input.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入设备ID或IP地址')),
-      );
+      _deviceIdFocus.requestFocus();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('请输入对方的设备码')));
       return;
     }
-
-    if (_looksLikeIpAddress(input)) {
-      await _connectDirectIp(input, password: password);
-    } else {
-      await _connectToPeer(input, password);
-    }
-  }
-
-  Future<void> _connectDirectIp(String address, {String? password}) async {
     final provider = context.read<ConnectionProvider>();
     final sessionProvider = context.read<SessionProvider>();
-
-    final sessionId =
-        await provider.connectDirectIp(address, password: password);
-    if (!mounted || sessionId == null) {
-      if (mounted) {
-        final errorMsg = provider.errorMessage ?? '连接失败';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMsg),
-            behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
+    final settings = context.read<SettingsProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    try {
+      final direct = _looksLikeIp(input);
+      final sessionId = direct
+          ? await provider.connectDirectIp(input, password: password)
+          : await provider.connect(input, password);
+      if (!mounted) return;
+      if (sessionId == null) {
+        if (direct) {
+          messenger.showSnackBar(
+              SnackBar(content: Text(provider.errorMessage ?? '连接失败')));
+        }
+        return;
       }
-      return;
-    }
-
-    sessionProvider.setSession(
-      SessionInfo(
-        sessionId: sessionId,
-        peerId: address,
-        peerHostname: '直连 $address',
-        peerOs: provider.peerPlatformForSession(sessionId) ?? '未知系统',
-        state: SessionState.active,
-        connectedAt: DateTime.now(),
-      ),
-    );
-
-    if (_connectMode == _ConnectMode.fileTransfer) {
-      context.go('/files/$sessionId');
-    } else {
-      context.go('/remote/$sessionId');
-    }
-  }
-
-  Future<void> _connectToPeer(String deviceId, String password) async {
-    final provider = context.read<ConnectionProvider>();
-    final settingsProvider = context.read<SettingsProvider>();
-    final sessionProvider = context.read<SessionProvider>();
-    final sessionId = await provider.connect(deviceId, password);
-    if (!mounted || sessionId == null) return;
-    await settingsProvider.refreshTrustedPeers();
-    if (!mounted) return;
-
-    sessionProvider.setSession(
-      SessionInfo(
-        sessionId: sessionId,
-        peerId: deviceId,
-        peerHostname: '远程设备 $deviceId',
-        peerOs: provider.peerPlatformForSession(sessionId) ?? '未知系统',
-        state: SessionState.active,
-        connectedAt: DateTime.now(),
-      ),
-      accessPassword: password,
-    );
-
-    if (_connectMode == _ConnectMode.fileTransfer) {
-      context.go('/files/$sessionId');
-    } else {
-      context.go('/remote/$sessionId');
+      if (!direct) await settings.refreshTrustedPeers();
+      if (!mounted) return;
+      sessionProvider.setSession(
+        SessionInfo(
+          sessionId: sessionId,
+          peerId: input,
+          peerHostname: direct ? '直连 $input' : '远程设备 ${formatDeviceId(input)}',
+          peerOs: provider.peerPlatformForSession(sessionId) ?? '未知系统',
+          state: SessionState.active,
+          connectedAt: DateTime.now(),
+        ),
+        accessPassword: direct ? null : password,
+      );
+      context.go(files ? '/files/$sessionId' : '/remote/$sessionId');
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_didApplyPendingQuickConnect) {
-      _didApplyPendingQuickConnect = true;
+    if (!_appliedQuickConnect) {
+      _appliedQuickConnect = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final peerId =
             context.read<ConnectionProvider>().consumeQuickConnectPeerId();
-        if (peerId != null && peerId.isNotEmpty) {
-          _applyQuickConnectPeer(peerId);
-        }
+        if (peerId != null && peerId.isNotEmpty) unawaited(_prefill(peerId));
       });
     }
-
-    final records = context.watch<ConnectionProvider>().recentConnections;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? const Color(0xFF1E1E2E) : Colors.white;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('远程连接'),
-        automaticallyImplyLeading: false,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-        children: [
-          // --- Connect remote device card ---
-          Container(
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.06)
-                    : Colors.black.withValues(alpha: 0.05),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
-                  blurRadius: 12,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          gradient: AppTheme.brandGradient,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.connected_tv_rounded,
-                            color: Colors.white, size: 20),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '连接远程设备',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '输入设备代码发起连接',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isDark
-                                    ? Colors.white54
-                                    : AppTheme.textMuted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Device ID input with autocomplete
-                      RawAutocomplete<ConnectionRecord>(
-                        textEditingController: _deviceIdController,
-                        focusNode: _deviceIdFocusNode,
-                        optionsBuilder: (value) {
-                          final keyword = value.text.trim();
-                          return records.where((record) {
-                            if (keyword.isEmpty) return true;
-                            return record.peerId.contains(keyword) ||
-                                record.peerHostname
-                                    .toLowerCase()
-                                    .contains(keyword.toLowerCase());
-                          });
-                        },
-                        displayStringForOption: (option) => option.peerId,
-                        onSelected: (option) {
-                          _applyQuickConnectPeer(option.peerId);
-                        },
-                        optionsViewBuilder: (context, onSelected, options) {
-                          final items = options.toList();
-                          if (items.isEmpty) return const SizedBox.shrink();
-                          return Align(
-                            alignment: Alignment.topLeft,
-                            child: Material(
-                              elevation: 4,
-                              borderRadius: BorderRadius.circular(14),
-                              color: cardBg,
-                              child: ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxHeight: 220),
-                                child: SizedBox(
-                                  width: MediaQuery.of(context).size.width - 80,
-                                  child: ListView.separated(
-                                    padding:
-                                        const EdgeInsets.symmetric(vertical: 6),
-                                    shrinkWrap: true,
-                                    itemCount: items.length,
-                                    separatorBuilder: (_, __) =>
-                                        const Divider(height: 1),
-                                    itemBuilder: (context, index) {
-                                      final item = items[index];
-                                      return ListTile(
-                                        dense: true,
-                                        leading: const Icon(
-                                            Icons.devices_rounded,
-                                            size: 18,
-                                            color: AppTheme.primaryBlue),
-                                        title: Text(item.peerId,
-                                            style:
-                                                const TextStyle(fontSize: 14)),
-                                        subtitle: Text(item.peerHostname,
-                                            style:
-                                                const TextStyle(fontSize: 13)),
-                                        onTap: () => onSelected(item),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                        fieldViewBuilder:
-                            (context, controller, focusNode, onFieldSubmitted) {
-                          return TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            decoration: InputDecoration(
-                              prefixIcon:
-                                  const Icon(Icons.tag_rounded, size: 20),
-                              hintText: '设备代码 或 IP:端口',
-                              suffixIcon: controller.text.isNotEmpty
-                                  ? IconButton(
-                                      icon: const Icon(Icons.clear_rounded,
-                                          size: 18),
-                                      onPressed: () {
-                                        controller.clear();
-                                        setState(() {});
-                                      },
-                                    )
-                                  : const Icon(Icons.arrow_drop_down_rounded),
-                              filled: true,
-                              fillColor: isDark
-                                  ? Colors.white.withValues(alpha: 0.05)
-                                  : const Color(0xFFF5F7FA),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide.none,
-                              ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: BorderSide(
-                                  color: isDark
-                                      ? Colors.white.withValues(alpha: 0.08)
-                                      : Colors.black.withValues(alpha: 0.06),
-                                ),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                borderSide: const BorderSide(
-                                    color: AppTheme.primaryBlue, width: 1.5),
-                              ),
-                            ),
-                            keyboardType: TextInputType.text,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                  RegExp(r'[0-9.:]')),
-                              LengthLimitingTextInputFormatter(21),
-                            ],
-                            onChanged: (_) => setState(() {}),
-                            onTap: () {
-                              if (controller.text.isEmpty) {
-                                focusNode.requestFocus();
-                              }
-                            },
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      // Password input
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: !_showPassword,
-                        decoration: InputDecoration(
-                          prefixIcon:
-                              const Icon(Icons.lock_outline_rounded, size: 20),
-                          hintText: '请输入验证码',
-                          suffixIcon: IconButton(
-                            onPressed: () =>
-                                setState(() => _showPassword = !_showPassword),
-                            icon: Icon(
-                              _showPassword
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              size: 20,
-                            ),
-                          ),
-                          filled: true,
-                          fillColor: isDark
-                              ? Colors.white.withValues(alpha: 0.05)
-                              : const Color(0xFFF5F7FA),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(
-                              color: isDark
-                                  ? Colors.white.withValues(alpha: 0.08)
-                                  : Colors.black.withValues(alpha: 0.06),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(
-                                color: AppTheme.primaryBlue, width: 1.5),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Mode selector: remote control / file transfer
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? Colors.white.withValues(alpha: 0.06)
-                              : const Color(0xFFF0F3F8),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            _ModeTab(
-                              label: '远程控制',
-                              icon: Icons.desktop_windows_rounded,
-                              selected:
-                                  _connectMode == _ConnectMode.remoteControl,
-                              isDark: isDark,
-                              onTap: () => setState(() =>
-                                  _connectMode = _ConnectMode.remoteControl),
-                            ),
-                            _ModeTab(
-                              label: '文件传输',
-                              icon: Icons.folder_open_rounded,
-                              selected:
-                                  _connectMode == _ConnectMode.fileTransfer,
-                              isDark: isDark,
-                              onTap: () => setState(() =>
-                                  _connectMode = _ConnectMode.fileTransfer),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      // Dual action buttons
-                      Consumer<ConnectionProvider>(
-                        builder: (context, provider, _) {
-                          final isConnecting = provider.connectionState ==
-                              SessionState.connecting;
-                          return Row(
-                            children: [
-                              Expanded(
-                                child: SizedBox(
-                                  height: 48,
-                                  child: OutlinedButton(
-                                    onPressed: isConnecting
-                                        ? null
-                                        : () => _connect(passwordless: true),
-                                    style: OutlinedButton.styleFrom(
-                                      side: const BorderSide(
-                                          color: AppTheme.primaryBlue),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                    ),
-                                    child: const Text('免密连接',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.w600)),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: SizedBox(
-                                  height: 48,
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      gradient: isConnecting
-                                          ? null
-                                          : AppTheme.brandGradient,
-                                      borderRadius: BorderRadius.circular(14),
-                                      boxShadow: isConnecting
-                                          ? null
-                                          : [
-                                              BoxShadow(
-                                                color: AppTheme.primaryBlue
-                                                    .withValues(alpha: 0.2),
-                                                blurRadius: 8,
-                                                offset: const Offset(0, 3),
-                                              ),
-                                            ],
-                                    ),
-                                    child: ElevatedButton(
-                                      onPressed: isConnecting ? null : _connect,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.transparent,
-                                        shadowColor: Colors.transparent,
-                                        disabledBackgroundColor: isDark
-                                            ? Colors.grey.shade800
-                                            : Colors.grey.shade300,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14),
-                                        ),
-                                      ),
-                                      child: isConnecting
-                                          ? const SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2.5,
-                                                color: Colors.white,
-                                              ),
-                                            )
-                                          : const Text('密码连接',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.w700,
-                                              )),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-
-                      // Error display
-                      Consumer<ConnectionProvider>(
-                        builder: (context, provider, _) {
-                          final error = provider.errorMessage;
-                          if (error == null || error.isEmpty) {
-                            return const SizedBox.shrink();
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 14),
-                            child: Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color:
-                                    AppTheme.errorRed.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.error_outline_rounded,
-                                      color: AppTheme.errorRed, size: 16),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(error,
-                                        style: const TextStyle(
-                                            color: AppTheme.errorRed,
-                                            fontSize: 13)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // --- Recent connections (circular avatar row) ---
-          Consumer<ConnectionProvider>(
-            builder: (context, provider, _) {
-              final recentRecords = provider.recentConnections.take(8).toList();
-              if (recentRecords.isEmpty) return const SizedBox.shrink();
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, bottom: 12),
-                    child: Text(
-                      '最近连接',
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  SizedBox(
-                    height: 84,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: recentRecords.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 14),
-                      itemBuilder: (context, index) {
-                        final record = recentRecords[index];
-                        return _RecentAvatarItem(
-                          record: record,
-                          isDark: isDark,
-                          onTap: () => _applyQuickConnectPeer(record.peerId),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(height: 20),
-
-          // --- Desktop host status + direct connect address ---
-          if (PlatformCapabilities.current.platform == TargetPlatform.macOS)
-            Consumer<DesktopHostProvider>(
-              builder: (context, host, _) {
-                final endpoint = host.lanRelayEndpoint;
-                final isRunning = host.state.isRunning;
-                if (!isRunning || endpoint == null || endpoint.isEmpty) {
-                  return const SizedBox.shrink();
-                }
-                return Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Colors.teal.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.teal.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.lan_outlined,
-                          size: 18, color: Colors.teal),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '本机直连地址（局域网 / Tailscale）',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.teal,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            SelectableText(
-                              endpoint,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1,
-                                color: isDark ? Colors.white : Colors.black87,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '其他设备输入此地址可局域网直连，延迟更低',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isDark
-                                    ? Colors.white54
-                                    : Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: endpoint));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Text('直连地址已复制'),
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.copy_rounded, size: 18),
-                        tooltip: '复制',
-                        style: IconButton.styleFrom(
-                          foregroundColor: Colors.teal,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          if (PlatformCapabilities.current.platform == TargetPlatform.macOS)
-            const SizedBox(height: 20),
-
-          // Only platforms with an implemented host expose credentials.
-          if (PlatformCapabilities.current.canHost)
-            Consumer<ConnectionProvider>(
-              builder: (context, connection, _) {
-                final localDevice = connection.localDevice;
-                final bool isDesktop =
-                    Platform.isMacOS || Platform.isWindows || Platform.isLinux;
-                final lanEndpoint = isDesktop
-                    ? context.watch<DesktopHostProvider>().lanRelayEndpoint
-                    : Platform.isAndroid
-                        ? context.watch<AndroidHostProvider>().lanRelayEndpoint
-                        : null;
-                return DeviceIdDisplay(
-                  compact: true,
-                  deviceId: localDevice?.deviceId ?? '000000000',
-                  temporaryPassword: connection.temporaryPassword,
-                  onRefreshPassword: connection.refreshPassword,
-                  lanEndpoint: lanEndpoint,
-                );
-              },
-            ),
-        ],
-      ),
+    final wide = MediaQuery.sizeOf(context).width >= 980;
+    final connectCard = _ConnectCard(
+      deviceId: _deviceId,
+      password: _password,
+      focus: _deviceIdFocus,
+      showPassword: _showPassword,
+      busy: _busy ||
+          context.watch<ConnectionProvider>().connectionState ==
+              SessionState.connecting,
+      onTogglePassword: () => setState(() => _showPassword = !_showPassword),
+      onPick: _prefill,
+      onConnect: _connect,
     );
-  }
-}
+    final hostCard = PlatformCapabilities.current.canHost
+        ? const _ThisDeviceCard()
+        : const _HostUnsupportedCard();
+    final recent = _RecentConnections(onPick: _prefill);
 
-class _ModeTab extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final bool isDark;
-  final VoidCallback onTap;
-
-  const _ModeTab({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.isDark,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected
-                ? (isDark ? const Color(0xFF2A3050) : Colors.white)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color:
-                          Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
-                      blurRadius: 6,
-                      offset: const Offset(0, 1),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: selected ? AppTheme.primaryBlue : Colors.grey,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  color: selected
-                      ? (isDark ? Colors.white : Colors.black87)
-                      : Colors.grey,
-                ),
-              ),
+    return RdPage(
+      title: '远程协助',
+      subtitle: '控制他人的设备，或让他人远程帮你操作',
+      maxWidth: 1080,
+      children: wide
+          ? [
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: connectCard),
+                const SizedBox(width: 20),
+                Expanded(child: hostCard),
+              ]),
+              const SizedBox(height: 28),
+              recent,
+            ]
+          : [
+              connectCard,
+              const SizedBox(height: 16),
+              hostCard,
+              const SizedBox(height: 28),
+              recent,
             ],
-          ),
-        ),
-      ),
     );
   }
 }
 
-class _RecentAvatarItem extends StatelessWidget {
-  final ConnectionRecord record;
-  final bool isDark;
-  final VoidCallback onTap;
-
-  const _RecentAvatarItem({
-    required this.record,
-    required this.isDark,
-    required this.onTap,
-  });
-
-  static const _gradients = [
-    [Color(0xFF6CB6FF), Color(0xFF2258D6)],
-    [Color(0xFF62C870), Color(0xFF0B8B65)],
-    [Color(0xFFB9A0FF), Color(0xFF7C5CE0)],
-    [Color(0xFFFF9F6C), Color(0xFFE05B2A)],
-    [Color(0xFF68D5E8), Color(0xFF2E9BB0)],
-  ];
+class _CardTitle extends StatelessWidget {
+  final IconData icon;
+  final String title, subtitle;
+  final RdTone tone;
+  final Widget? trailing;
+  const _CardTitle(
+      {required this.icon,
+      required this.title,
+      required this.subtitle,
+      this.tone = RdTone.brand,
+      this.trailing});
 
   @override
   Widget build(BuildContext context) {
-    final initial = record.peerHostname.isNotEmpty
-        ? record.peerHostname.substring(0, 1).toUpperCase()
-        : '?';
-    final hashIndex = record.peerId.hashCode.abs() % _gradients.length;
-    final colors = _gradients[hashIndex];
+    final t = Theme.of(context).textTheme;
+    return Row(children: [
+      RdIconBadge(icon: icon, tone: tone, size: 40),
+      const SizedBox(width: 12),
+      Expanded(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: t.titleMedium),
+        const SizedBox(height: 2),
+        Text(subtitle, style: t.bodySmall),
+      ])),
+      if (trailing != null) trailing!,
+    ]);
+  }
+}
 
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 58,
-        child: Column(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: colors,
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: colors[0].withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  initial,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                  ),
+class _ConnectCard extends StatelessWidget {
+  final TextEditingController deviceId, password;
+  final FocusNode focus;
+  final bool showPassword, busy;
+  final VoidCallback onTogglePassword;
+  final ValueChanged<String> onPick;
+  final Future<void> Function({required bool files}) onConnect;
+  const _ConnectCard(
+      {required this.deviceId,
+      required this.password,
+      required this.focus,
+      required this.showPassword,
+      required this.busy,
+      required this.onTogglePassword,
+      required this.onPick,
+      required this.onConnect});
+
+  @override
+  Widget build(BuildContext context) {
+    final records = context.watch<ConnectionProvider>().recentConnections;
+    return RdCard(
+      padding: const EdgeInsets.all(20),
+      radius: Rd.radiusLg,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const _CardTitle(
+            icon: Icons.screen_share_rounded,
+            title: '远程控制其他设备',
+            subtitle: '输入对方 RDesk 上显示的设备码'),
+        const SizedBox(height: 20),
+        RawAutocomplete<ConnectionRecord>(
+          textEditingController: deviceId,
+          focusNode: focus,
+          optionsBuilder: (value) {
+            final keyword = value.text.replaceAll(' ', '').trim().toLowerCase();
+            final seen = <String>{};
+            return records.where((r) =>
+                seen.add(r.peerId) &&
+                (keyword.isEmpty ||
+                    r.peerId.contains(keyword) ||
+                    r.peerHostname.toLowerCase().contains(keyword)));
+          },
+          displayStringForOption: (r) => formatDeviceId(r.peerId),
+          onSelected: (r) => onPick(r.peerId),
+          fieldViewBuilder: (context, controller, node, submit) => TextField(
+            controller: controller,
+            focusNode: node,
+            keyboardType: TextInputType.text,
+            textInputAction: TextInputAction.next,
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium!
+                .copyWith(letterSpacing: 1, fontWeight: FontWeight.w600),
+            decoration: const InputDecoration(
+              labelText: '设备码',
+              hintText: '例如 123 456 789，也可输入局域网 IP',
+              prefixIcon: Icon(Icons.tag_rounded, size: 20),
+            ),
+          ),
+          optionsViewBuilder: (context, onSelected, options) => Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 6,
+              borderRadius: BorderRadius.circular(Rd.radius),
+              color: RdPalette.of(context).surface,
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxHeight: 240, maxWidth: 420),
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  shrinkWrap: true,
+                  children: [
+                    for (final r in options)
+                      ListTile(
+                        dense: true,
+                        leading: RdDeviceGlyph(platform: r.peerOs, size: 32),
+                        title: Text(r.peerHostname,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(formatDeviceId(r.peerId)),
+                        onTap: () => onSelected(r),
+                      ),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              record.peerHostname,
-              style: TextStyle(
-                fontSize: 10,
-                color: isDark ? Colors.white60 : AppTheme.textMuted,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: password,
+          obscureText: !showPassword,
+          onSubmitted: (_) => onConnect(files: false),
+          decoration: InputDecoration(
+            labelText: '验证码（选填）',
+            hintText: '不填则请求对方同意',
+            prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
+            suffixIcon: IconButton(
+              onPressed: onTogglePassword,
+              tooltip: showPassword ? '隐藏' : '显示',
+              icon: Icon(
+                  showPassword
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  size: 20),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Row(children: [
+          Expanded(
+            flex: 3,
+            child: FilledButton.icon(
+              onPressed: busy ? null : () => onConnect(files: false),
+              icon: busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.desktop_windows_rounded, size: 18),
+              label: Text(busy ? '正在连接' : '远程控制'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 2,
+            child: OutlinedButton.icon(
+              onPressed: busy ? null : () => onConnect(files: true),
+              icon: const Icon(Icons.folder_copy_rounded, size: 18),
+              label: const Text('传输文件'),
+            ),
+          ),
+        ]),
+      ]),
     );
+  }
+}
+
+/// This device's code, temporary password and sharing switch.
+class _ThisDeviceCard extends StatefulWidget {
+  const _ThisDeviceCard();
+
+  @override
+  State<_ThisDeviceCard> createState() => _ThisDeviceCardState();
+}
+
+class _ThisDeviceCardState extends State<_ThisDeviceCard> {
+  bool _reveal = false;
+
+  void _copy(String value, String label) {
+    Clipboard.setData(ClipboardData(text: value));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$label已复制')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
+    final connection = context.watch<ConnectionProvider>();
+    final desktop = defaultTargetPlatform == TargetPlatform.macOS;
+    final DesktopHostProvider? mac =
+        desktop ? context.watch<DesktopHostProvider>() : null;
+    final AndroidHostProvider? mobile =
+        desktop ? null : context.watch<AndroidHostProvider>();
+    final running = mac?.hostingEnabled ?? mobile?.state.isRunning ?? false;
+    final lan = mac?.lanRelayEndpoint ?? mobile?.lanRelayEndpoint;
+    final id = connection.localDevice?.deviceId;
+    final code = connection.temporaryPassword;
+
+    Widget field(String label, Widget value, List<Widget> actions) => Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+          decoration: BoxDecoration(
+              color: p.surfaceMuted,
+              borderRadius: BorderRadius.circular(Rd.radius)),
+          child: Row(children: [
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(label, style: t.labelSmall),
+                  const SizedBox(height: 2),
+                  value,
+                ])),
+            ...actions,
+          ]),
+        );
+
+    return RdCard(
+      padding: const EdgeInsets.all(20),
+      radius: Rd.radiusLg,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _CardTitle(
+          icon: Icons.phonelink_ring_rounded,
+          tone: RdTone.online,
+          title: '允许别人控制本设备',
+          subtitle: running ? '把设备码和验证码告诉对方' : '开启共享后，对方才能连接',
+          trailing: RdStatusPill(running ? '共享中' : '未开启',
+              tone: running ? RdTone.online : RdTone.neutral),
+        ),
+        const SizedBox(height: 20),
+        field(
+            '本机设备码',
+            Text(id == null ? '获取中…' : formatDeviceId(id),
+                style: t.headlineSmall!
+                    .copyWith(letterSpacing: 1.5, fontWeight: FontWeight.w700)),
+            [
+              if (id != null)
+                IconButton(
+                    tooltip: '复制设备码',
+                    onPressed: () => _copy(id, '设备码'),
+                    icon: const Icon(Icons.content_copy_rounded, size: 20)),
+            ]),
+        const SizedBox(height: 10),
+        field(
+            '临时验证码',
+            Text(code.isEmpty ? '——' : (_reveal ? code : '••••••'),
+                style: t.titleLarge!.copyWith(letterSpacing: 3)),
+            [
+              IconButton(
+                  tooltip: _reveal ? '隐藏' : '显示',
+                  onPressed: () => setState(() => _reveal = !_reveal),
+                  icon: Icon(
+                      _reveal
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
+                      size: 20)),
+              IconButton(
+                  tooltip: '换一个',
+                  onPressed: connection.refreshPassword,
+                  icon: const Icon(Icons.refresh_rounded, size: 20)),
+              if (code.isNotEmpty)
+                IconButton(
+                    tooltip: '复制验证码',
+                    onPressed: () => _copy(code, '验证码'),
+                    icon: const Icon(Icons.content_copy_rounded, size: 20)),
+            ]),
+        const SizedBox(height: 16),
+        if (mac != null)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('允许远程控制本机'),
+            subtitle: Text(mac.hostingEnabled
+                ? mac.captureRunning
+                    ? '正在被观看'
+                    : '待命中，有人连接时才会共享屏幕'
+                : '关闭后其他设备无法连接这台 Mac'),
+            value: mac.hostingEnabled,
+            onChanged: (v) => v ? mac.startHosting() : mac.stopHosting(),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: () => context.push('/mobile-host'),
+            icon: Icon(running ? Icons.tune_rounded : Icons.play_arrow_rounded,
+                size: 18),
+            label: Text(running ? '管理屏幕共享' : '开始共享屏幕'),
+          ),
+        if (lan != null && lan.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Row(children: [
+            Icon(Icons.lan_rounded, size: 16, color: p.inkTertiary),
+            const SizedBox(width: 6),
+            Expanded(
+                child: Text('局域网直连地址 $lan',
+                    style: t.bodySmall, overflow: TextOverflow.ellipsis)),
+            TextButton(
+                onPressed: () => _copy(lan, '直连地址'), child: const Text('复制')),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
+class _HostUnsupportedCard extends StatelessWidget {
+  const _HostUnsupportedCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return RdCard(
+      padding: const EdgeInsets.all(20),
+      radius: Rd.radiusLg,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const _CardTitle(
+            icon: Icons.info_outline_rounded,
+            tone: RdTone.neutral,
+            title: '这台电脑暂不支持被远程控制',
+            subtitle: 'Windows 版目前用于控制其他设备和远程开机'),
+        const SizedBox(height: 16),
+        Text('需要别人帮你操作时，可以在 Mac 或安卓设备上打开 RDesk 共享屏幕。', style: t.bodySmall),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () => context.go('/wake'),
+          icon: const Icon(Icons.power_settings_new_rounded, size: 18),
+          label: const Text('设置这台电脑的远程开机'),
+        ),
+      ]),
+    );
+  }
+}
+
+class _RecentConnections extends StatelessWidget {
+  final ValueChanged<String> onPick;
+  const _RecentConnections({required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final seen = <String>{};
+    final records = context
+        .watch<ConnectionProvider>()
+        .recentConnections
+        .where((r) => seen.add(r.peerId))
+        .take(8)
+        .toList();
+    if (records.isEmpty) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      RdSectionHeader('最近连接',
+          trailing: TextButton(
+              onPressed: () => context.push('/logs'),
+              child: const Text('全部记录'))),
+      Wrap(spacing: 10, runSpacing: 10, children: [
+        for (final r in records)
+          SizedBox(
+            width: 220,
+            child: RdCard(
+              onTap: () => onPick(r.peerId),
+              padding: const EdgeInsets.all(12),
+              child: Row(children: [
+                RdDeviceGlyph(platform: r.peerOs, size: 36),
+                const SizedBox(width: 10),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(r.peerHostname,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall),
+                      Text(formatDeviceId(r.peerId),
+                          style: Theme.of(context).textTheme.labelSmall),
+                    ])),
+              ]),
+            ),
+          ),
+      ]),
+    ]);
   }
 }

@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../models/wake.dart';
-import '../models/wake_pairing.dart';
 
 class WakeApiException implements Exception {
   final String code, message;
@@ -174,38 +173,6 @@ class WakeApi {
     await _send(
         'POST', '/api/wake/targets/${Uri.encodeComponent(id)}/heartbeat',
         token: token, body: {});
-  }
-
-  Future<WakePairingSession> createPairing(
-          {required String name,
-          required String deviceId,
-          required String mac}) async =>
-      WakePairingSession.fromJson(await _send('POST', '/api/wake/pairings',
-          body: {'name': name, 'device_id': deviceId, 'mac': mac}));
-  Future<Map<String, dynamic>> resolvePairing(WakePairingCode code) =>
-      _send('POST', '/api/wake/pairings/resolve', body: code.resolveBody);
-  Future<Map<String, dynamic>> confirmPairing(
-          String id, WakePairingCode code) =>
-      _send('POST', '/api/wake/pairings/${Uri.encodeComponent(id)}/confirm',
-          body: code.confirmBody);
-  Future<Map<String, dynamic>> pairingStatus(WakePairingSession s) =>
-      _send('POST', '/api/wake/pairings/${Uri.encodeComponent(s.id)}/status',
-          body: {'desktop_proof': s.desktopProof});
-  Future<String> claimPairing(WakePairingSession s, String token) async =>
-      (await _send(
-          'POST', '/api/wake/pairings/${Uri.encodeComponent(s.id)}/claim',
-          body: {
-            'desktop_proof': s.desktopProof,
-            'enrollment_token': token
-          }))['target_id'] as String;
-  Future<void> cancelPairing(WakePairingSession s) async {
-    await _send(
-        'POST', '/api/wake/pairings/${Uri.encodeComponent(s.id)}/cancel',
-        body: {'desktop_proof': s.desktopProof});
-  }
-
-  Future<void> cancelPairings() async {
-    await _send('POST', '/api/wake/pairings/cancel-all', body: {});
   }
 
   Future<void> completeTarget(String id, String agentId) async {

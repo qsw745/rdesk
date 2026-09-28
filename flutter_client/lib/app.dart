@@ -12,8 +12,6 @@ import 'src/services/wake_api.dart';
 import 'src/services/wake_agent_channel.dart';
 import 'src/services/windows_wake_service.dart';
 import 'src/providers/wake_provider.dart';
-import 'src/providers/wake_pairing_provider.dart';
-import 'src/services/wake_pairing_vault.dart';
 import 'src/providers/connection_provider.dart';
 import 'src/providers/session_provider.dart';
 import 'src/providers/settings_provider.dart';
@@ -70,16 +68,7 @@ class RDeskApp extends StatelessWidget {
                     api: api, storage: const FlutterSecureStorage())
                 : null;
             final wake = WakeProvider(
-                api: api,
-                agent: WakeAgentChannel(),
-                windows: windows,
-                pairing: windows == null
-                    ? null
-                    : WakePairingProvider(
-                        api: api,
-                        vault: const SecureWakePairingVault(
-                            FlutterSecureStorage()),
-                        onPaired: windows.resume));
+                api: api, agent: WakeAgentChannel(), windows: windows);
             auth.beforeAccountExit = wake.stopForAccountExit;
             return wake;
           },

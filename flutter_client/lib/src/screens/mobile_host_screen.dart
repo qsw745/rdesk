@@ -19,7 +19,7 @@ class MobileHostScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(Platform.isIOS ? 'iOS 被控' : '移动被控'),
+        title: const Text('屏幕共享'),
       ),
       body: SafeArea(
         child: supported

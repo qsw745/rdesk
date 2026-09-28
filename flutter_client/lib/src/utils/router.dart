@@ -4,10 +4,6 @@ import '../screens/remote_desktop_screen.dart';
 import '../screens/file_manager_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/wake_screen.dart';
-import '../screens/wake_test_screen.dart';
-import '../screens/windows_wake_screen.dart';
-import '../screens/wake_pairing_scan_screen.dart';
-import '../screens/wake_mobile_setup_screen.dart';
 import '../screens/gesture_guide_screen.dart';
 import '../screens/connection_log_screen.dart';
 import '../screens/my_devices_screen.dart';
@@ -31,26 +27,28 @@ final appRouter = GoRouter(
     // ── Main shell with persistent bottom navigation ──
     StatefulShellRoute.indexedStack(
       builder: (context, state, navigationShell) {
-        return MainShell(navigationShell: navigationShell);
+        return MainShell(
+            navigationShell: navigationShell, location: state.uri.path);
       },
       branches: [
         StatefulShellBranch(routes: [
           GoRoute(
               path: '/',
               builder: (_, state) => MyDevicesScreen(
-                  initialFilter: state.uri.queryParameters['filter'] ?? '全部'))
+                  initialFilter: state.uri.queryParameters['filter'] ?? '全部'),
+              routes: [
+                GoRoute(
+                    path: 'device/:key',
+                    builder: (_, state) => DeviceDetailScreen(
+                        deviceKey: state.pathParameters['key']!)),
+              ])
         ]),
         StatefulShellBranch(routes: [
           GoRoute(
               path: '/assist', builder: (_, __) => const RemoteAssistScreen())
         ]),
         StatefulShellBranch(routes: [
-          GoRoute(
-              path: '/wake',
-              builder: (_, __) =>
-                  PlatformCapabilities.current.canConfigureLocalWake
-                      ? const WindowsWakeScreen()
-                      : const WakeScreen())
+          GoRoute(path: '/wake', builder: (_, __) => const WakeScreen())
         ]),
         StatefulShellBranch(routes: [
           GoRoute(
@@ -69,27 +67,14 @@ final appRouter = GoRouter(
     GoRoute(
         path: '/connection-settings',
         redirect: (_, __) => '/settings?section=network'),
-    GoRoute(
-        path: '/wake/test/:id',
-        parentNavigatorKey: rootNavigatorKey,
-        builder: (_, state) =>
-            WakeTestScreen(targetId: state.pathParameters['id']!)),
-    GoRoute(
-        path: '/wake/scan',
-        parentNavigatorKey: rootNavigatorKey,
-        redirect: (_, __) =>
-            PlatformCapabilities.current.canScanPairing ? null : '/wake',
-        builder: (_, __) => const WakePairingScanScreen()),
-    GoRoute(
-        path: '/wake/target/:id',
-        parentNavigatorKey: rootNavigatorKey,
-        builder: (_, state) =>
-            WakeMobileSetupScreen(targetId: state.pathParameters['id']!)),
-    GoRoute(
-        path: '/wake/setup',
-        redirect: (_, __) => PlatformCapabilities.current.canScanPairing
-            ? '/wake/scan'
-            : '/wake'),
+    // Retired multi-step wake flows now live on the single wake page.
+    for (final path in [
+      '/wake/test/:id',
+      '/wake/scan',
+      '/wake/target/:id',
+      '/wake/setup'
+    ])
+      GoRoute(path: path, redirect: (_, __) => '/wake'),
     GoRoute(
         path: '/saved',
         parentNavigatorKey: rootNavigatorKey,
@@ -149,18 +134,6 @@ final appRouter = GoRouter(
           : '/settings?section=security',
       parentNavigatorKey: rootNavigatorKey,
       builder: (context, state) => const UnattendedSetupScreen(),
-    ),
-    GoRoute(
-      path: '/device-detail/:deviceId',
-      parentNavigatorKey: rootNavigatorKey,
-      builder: (context, state) {
-        final extra = state.extra as Map<String, String>? ?? {};
-        return DeviceDetailScreen(
-          deviceId: state.pathParameters['deviceId']!,
-          hostname: extra['hostname'] ?? '远程设备',
-          platform: extra['platform'] ?? '未知',
-        );
-      },
     ),
   ],
 );

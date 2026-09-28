@@ -306,7 +306,7 @@ void main() {
     ];
     await show(tester);
     expect(find.text('连接'), findsNothing);
-    expect(find.text('支持远程开机 · 暂不支持被远控'), findsOneWidget);
+    expect(find.textContaining('暂不支持被远程控制'), findsOneWidget);
   });
   for (final dark in [false, true]) {
     testWidgets('全局 FilterChip ${dark ? '深色' : '浅色'}选中与未选中文字可读',

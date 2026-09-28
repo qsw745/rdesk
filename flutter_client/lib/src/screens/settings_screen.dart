@@ -1,3 +1,5 @@
+import '../ui/components.dart';
+import '../ui/tokens.dart';
 import '../widgets/app_update_widgets.dart';
 import 'dart:io';
 
@@ -42,353 +44,349 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final cap = PlatformCapabilities.current;
     return Scaffold(
-        appBar: AppBar(title: const Text('设置')),
         body: Consumer<SettingsProvider>(builder: (context, settings, _) {
-          final general = <Widget>[
-            const SizedBox(height: 24),
-            const _SectionHeader(icon: Icons.palette_outlined, label: '外观'),
-            const SizedBox(height: 10),
-            _CardContainer(
-              isDark: isDark,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
+      final general = <Widget>[
+        const SizedBox(height: 24),
+        const _SectionHeader(icon: Icons.palette_outlined, label: '外观'),
+        const SizedBox(height: 10),
+        _CardContainer(
+          isDark: isDark,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                _ThemeOption(
+                  label: '跟随系统',
+                  icon: Icons.brightness_auto_outlined,
+                  selected: settings.theme == 'system',
+                  onTap: () => settings.setTheme('system'),
+                  isDark: isDark,
+                ),
+                const SizedBox(width: 10),
+                _ThemeOption(
+                  label: '浅色',
+                  icon: Icons.light_mode_outlined,
+                  selected: settings.theme == 'light',
+                  onTap: () => settings.setTheme('light'),
+                  isDark: isDark,
+                ),
+                const SizedBox(width: 10),
+                _ThemeOption(
+                  label: '深色',
+                  icon: Icons.dark_mode_outlined,
+                  selected: settings.theme == 'dark',
+                  onTap: () => settings.setTheme('dark'),
+                  isDark: isDark,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (cap.platform == TargetPlatform.macOS) ...[
+          const SizedBox(height: 24),
+          const _SectionHeader(
+              icon: Icons.desktop_windows_outlined, label: '桌面被控端'),
+          const SizedBox(height: 10),
+          Consumer<DesktopHostProvider>(
+              builder: (context, host, _) =>
+                  _DesktopHostCard(host: host, isDark: isDark)),
+        ],
+        if (cap.canScanPairing)
+          ListTile(
+              leading: const Icon(Icons.cast_connected_outlined),
+              title: const Text('屏幕共享'),
+              subtitle: const Text('管理本机录屏授权和共享状态'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/mobile-host')),
+        if (cap.canRelayWake)
+          ListTile(
+              leading: const Icon(Icons.power_settings_new),
+              title: const Text('家中开机助手'),
+              subtitle: const Text('让这部安卓手机帮助家中电脑开机'),
+              onTap: () => context.push('/wake')),
+      ];
+      final security = <Widget>[
+        _CardContainer(
+            isDark: isDark,
+            child: Column(children: [
+              if (cap.canHost)
+                ListTile(
+                    leading: const Icon(Icons.lock_outline),
+                    title: const Text('永久密码'),
+                    subtitle: Text(
+                        settings.permanentPassword != null ? '已设置' : '未设置'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showPasswordDialog(context, settings)),
+              if (cap.canUnattendedHost)
+                _SwitchTile(
+                    icon: Icons.check_circle_outline,
+                    iconColor: AppTheme.successGreen,
+                    title: '自动接受连接',
+                    subtitle: '自动处理受信查看端的连接请求',
+                    value: settings.autoAccept,
+                    onChanged: settings.setAutoAccept),
+              _SwitchTile(
+                  icon: Icons.content_paste_outlined,
+                  iconColor: AppTheme.primaryBlue,
+                  title: '自动同步剪贴板',
+                  subtitle: '远控会话中同步文本',
+                  value: settings.autoClipboardSync,
+                  onChanged: settings.setAutoClipboardSync),
+              _SwitchTile(
+                  icon: Icons.verified_user_outlined,
+                  iconColor: AppTheme.primaryBlue,
+                  title: '记住受信设备',
+                  subtitle: '保存成功连接的设备密码，方便再次连接',
+                  value: settings.rememberTrustedPeers,
+                  onChanged: settings.setRememberTrustedPeers),
+              if (cap.canUnattendedHost) ...[
+                _SwitchTile(
+                    icon: Icons.screen_lock_portrait_outlined,
+                    iconColor: AppTheme.primaryBlue,
+                    title: '断开后自动锁屏',
+                    subtitle: '结束远控后锁定这台被控设备',
+                    value: settings.lockAfterDisconnect,
+                    onChanged: settings.setLockAfterDisconnect),
+                _SwitchTile(
+                    icon: Icons.settings_remote_outlined,
+                    iconColor: AppTheme.primaryBlue,
+                    title: '无人值守模式',
+                    subtitle: '通过永久密码连接这台设备',
+                    value: settings.unattendedMode,
+                    onChanged: settings.setUnattendedMode),
+              ],
+            ])),
+        const SizedBox(height: 24),
+        const _SectionHeader(icon: Icons.devices_other_rounded, label: '受信设备'),
+        const SizedBox(height: 10),
+        _CardContainer(
+          isDark: isDark,
+          child: settings.trustedPeers.isEmpty
+              ? Padding(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                  child: Column(
+                    children: [
+                      Icon(Icons.device_unknown_rounded,
+                          size: 32, color: Colors.grey.shade600),
+                      const SizedBox(height: 10),
+                      Text(
+                        '暂无受信设备',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '成功连接后会自动加入这里',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : Column(
                   children: [
-                    _ThemeOption(
-                      label: '跟随系统',
-                      icon: Icons.brightness_auto_outlined,
-                      selected: settings.theme == 'system',
-                      onTap: () => settings.setTheme('system'),
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 10),
-                    _ThemeOption(
-                      label: '浅色',
-                      icon: Icons.light_mode_outlined,
-                      selected: settings.theme == 'light',
-                      onTap: () => settings.setTheme('light'),
-                      isDark: isDark,
-                    ),
-                    const SizedBox(width: 10),
-                    _ThemeOption(
-                      label: '深色',
-                      icon: Icons.dark_mode_outlined,
-                      selected: settings.theme == 'dark',
-                      onTap: () => settings.setTheme('dark'),
-                      isDark: isDark,
+                    for (var i = 0; i < settings.trustedPeers.length; i++) ...[
+                      if (i > 0) _divider(isDark),
+                      ListTile(
+                        leading: const _SettingIcon(
+                          icon: Icons.devices_rounded,
+                          color: AppTheme.primaryBlue,
+                        ),
+                        title: Text(
+                          settings.trustedPeers[i].hostname,
+                          style: const TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w500),
+                        ),
+                        subtitle: Text(
+                          '${settings.trustedPeers[i].peerOs} · ${settings.trustedPeers[i].lastUsedAt.toString().substring(0, 16)}',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 13),
+                        ),
+                        trailing: IconButton(
+                          icon: Icon(Icons.delete_outline_rounded,
+                              size: 20,
+                              color: AppTheme.errorRed.withValues(alpha: 0.7)),
+                          onPressed: () => settings.removeTrustedPeer(
+                              settings.trustedPeers[i].deviceId),
+                        ),
+                      ),
+                    ],
+                    _divider(isDark),
+                    ListTile(
+                      leading: const _SettingIcon(
+                        icon: Icons.delete_sweep_outlined,
+                        color: AppTheme.errorRed,
+                      ),
+                      title:
+                          const Text('清空受信设备', style: TextStyle(fontSize: 14)),
+                      subtitle: Text('移除所有本地缓存的设备密码',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 13)),
+                      onTap: settings.clearTrustedPeers,
                     ),
                   ],
                 ),
-              ),
-            ),
-            if (cap.platform == TargetPlatform.macOS) ...[
-              const SizedBox(height: 24),
-              const _SectionHeader(
-                  icon: Icons.desktop_windows_outlined, label: '桌面被控端'),
-              const SizedBox(height: 10),
-              Consumer<DesktopHostProvider>(
-                  builder: (context, host, _) =>
-                      _DesktopHostCard(host: host, isDark: isDark)),
-            ],
-            if (cap.canScanPairing)
-              ListTile(
-                  leading: const Icon(Icons.cast_connected_outlined),
-                  title: const Text('屏幕共享'),
-                  subtitle: const Text('管理本机录屏授权和共享状态'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => context.push('/mobile-host')),
-            if (cap.canRelayWake)
-              ListTile(
-                  leading: const Icon(Icons.power_settings_new),
-                  title: const Text('家中开机助手'),
-                  subtitle: const Text('让这部安卓手机帮助家中电脑开机'),
-                  onTap: () => context.push('/wake')),
-          ];
-          final security = <Widget>[
-            _CardContainer(
-                isDark: isDark,
-                child: Column(children: [
-                  if (cap.canHost)
-                    ListTile(
-                        leading: const Icon(Icons.lock_outline),
-                        title: const Text('永久密码'),
-                        subtitle: Text(
-                            settings.permanentPassword != null ? '已设置' : '未设置'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _showPasswordDialog(context, settings)),
-                  if (cap.canUnattendedHost)
-                    _SwitchTile(
-                        icon: Icons.check_circle_outline,
-                        iconColor: AppTheme.successGreen,
-                        title: '自动接受连接',
-                        subtitle: '自动处理受信查看端的连接请求',
-                        value: settings.autoAccept,
-                        onChanged: settings.setAutoAccept),
-                  _SwitchTile(
-                      icon: Icons.content_paste_outlined,
-                      iconColor: AppTheme.primaryBlue,
-                      title: '自动同步剪贴板',
-                      subtitle: '远控会话中同步文本',
-                      value: settings.autoClipboardSync,
-                      onChanged: settings.setAutoClipboardSync),
-                  _SwitchTile(
-                      icon: Icons.verified_user_outlined,
-                      iconColor: AppTheme.primaryBlue,
-                      title: '记住受信设备',
-                      subtitle: '保存成功连接的设备密码，方便再次连接',
-                      value: settings.rememberTrustedPeers,
-                      onChanged: settings.setRememberTrustedPeers),
-                  if (cap.canUnattendedHost) ...[
-                    _SwitchTile(
-                        icon: Icons.screen_lock_portrait_outlined,
-                        iconColor: AppTheme.primaryBlue,
-                        title: '断开后自动锁屏',
-                        subtitle: '结束远控后锁定这台被控设备',
-                        value: settings.lockAfterDisconnect,
-                        onChanged: settings.setLockAfterDisconnect),
-                    _SwitchTile(
-                        icon: Icons.settings_remote_outlined,
-                        iconColor: AppTheme.primaryBlue,
-                        title: '无人值守模式',
-                        subtitle: '通过永久密码连接这台设备',
-                        value: settings.unattendedMode,
-                        onChanged: settings.setUnattendedMode),
-                  ],
-                ])),
-            const SizedBox(height: 24),
-            const _SectionHeader(icon: Icons.devices_other_rounded, label: '受信设备'),
-            const SizedBox(height: 10),
-            _CardContainer(
-              isDark: isDark,
-              child: settings.trustedPeers.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 24, horizontal: 16),
-                      child: Column(
-                        children: [
-                          Icon(Icons.device_unknown_rounded,
-                              size: 32, color: Colors.grey.shade600),
-                          const SizedBox(height: 10),
-                          Text(
-                            '暂无受信设备',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '成功连接后会自动加入这里',
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : Column(
+        ),
+        if (cap.canHost) ...[
+          const SizedBox(height: 24),
+          const _SectionHeader(icon: Icons.visibility_outlined, label: '受信查看端'),
+          const SizedBox(height: 10),
+          _CardContainer(
+            isDark: isDark,
+            child: settings.trustedIncomingViewers.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 24, horizontal: 16),
+                    child: Column(
                       children: [
-                        for (var i = 0;
-                            i < settings.trustedPeers.length;
-                            i++) ...[
-                          if (i > 0) _divider(isDark),
-                          ListTile(
-                            leading: const _SettingIcon(
-                              icon: Icons.devices_rounded,
-                              color: AppTheme.primaryBlue,
-                            ),
-                            title: Text(
-                              '${settings.trustedPeers[i].hostname}',
-                              style: const TextStyle(
-                                  fontSize: 14, fontWeight: FontWeight.w500),
-                            ),
-                            subtitle: Text(
-                              '${settings.trustedPeers[i].peerOs} · ${settings.trustedPeers[i].lastUsedAt.toString().substring(0, 16)}',
-                              style: TextStyle(
-                                  color: Colors.grey.shade600, fontSize: 13),
-                            ),
-                            trailing: IconButton(
-                              icon: Icon(Icons.delete_outline_rounded,
-                                  size: 20,
-                                  color:
-                                      AppTheme.errorRed.withValues(alpha: 0.7)),
-                              onPressed: () => settings.removeTrustedPeer(
-                                  settings.trustedPeers[i].deviceId),
-                            ),
-                          ),
-                        ],
-                        _divider(isDark),
-                        ListTile(
-                          leading: const _SettingIcon(
-                            icon: Icons.delete_sweep_outlined,
-                            color: AppTheme.errorRed,
-                          ),
-                          title: const Text('清空受信设备',
-                              style: TextStyle(fontSize: 14)),
-                          subtitle: Text('移除所有本地缓存的设备密码',
-                              style: TextStyle(
-                                  color: Colors.grey.shade600, fontSize: 13)),
-                          onTap: settings.clearTrustedPeers,
+                        Icon(Icons.person_search_rounded,
+                            size: 32, color: Colors.grey.shade600),
+                        const SizedBox(height: 10),
+                        Text(
+                          '暂无受信查看端',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 13),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '首次成功连接后会自动加入',
+                          style: TextStyle(
+                              color: Colors.grey.shade600, fontSize: 13),
                         ),
                       ],
                     ),
-            ),
-            if (cap.canHost) ...[
-              const SizedBox(height: 24),
-              const _SectionHeader(icon: Icons.visibility_outlined, label: '受信查看端'),
-              const SizedBox(height: 10),
-              _CardContainer(
-                isDark: isDark,
-                child: settings.trustedIncomingViewers.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 24, horizontal: 16),
-                        child: Column(
-                          children: [
-                            Icon(Icons.person_search_rounded,
-                                size: 32, color: Colors.grey.shade600),
-                            const SizedBox(height: 10),
-                            Text(
-                              '暂无受信查看端',
-                              style: TextStyle(
-                                  color: Colors.grey.shade600, fontSize: 13),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '首次成功连接后会自动加入',
-                              style: TextStyle(
-                                  color: Colors.grey.shade600, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      )
-                    : Column(
-                        children: [
-                          for (var i = 0;
-                              i < settings.trustedIncomingViewers.length;
-                              i++) ...[
-                            if (i > 0) _divider(isDark),
-                            ListTile(
-                              leading: const _SettingIcon(
-                                icon: Icons.verified_user_outlined,
-                                color: AppTheme.successGreen,
-                              ),
-                              title: Text(
-                                '${settings.trustedIncomingViewers[i].hostname}',
-                                style: const TextStyle(
-                                    fontSize: 14, fontWeight: FontWeight.w500),
-                              ),
-                              subtitle: Text(
-                                '${settings.trustedIncomingViewers[i].peerOs} · ${settings.trustedIncomingViewers[i].lastUsedAt.toString().substring(0, 16)}',
-                                style: TextStyle(
-                                    color: Colors.grey.shade600, fontSize: 13),
-                              ),
-                              trailing: IconButton(
-                                icon: Icon(Icons.delete_outline_rounded,
-                                    size: 20,
-                                    color: AppTheme.errorRed
-                                        .withValues(alpha: 0.7)),
-                                onPressed: () => settings
-                                    .removeTrustedIncomingViewer(settings
-                                        .trustedIncomingViewers[i].deviceId),
-                              ),
-                            ),
-                          ],
-                          _divider(isDark),
-                          ListTile(
-                            leading: const _SettingIcon(
-                              icon: Icons.person_remove_alt_1_outlined,
-                              color: AppTheme.errorRed,
-                            ),
-                            title: const Text('清空受信查看端',
-                                style: TextStyle(fontSize: 14)),
-                            subtitle: Text('关闭密码免输的自动接受列表',
-                                style: TextStyle(
-                                    color: Colors.grey.shade600, fontSize: 13)),
-                            onTap: settings.clearTrustedIncomingViewers,
+                  )
+                : Column(
+                    children: [
+                      for (var i = 0;
+                          i < settings.trustedIncomingViewers.length;
+                          i++) ...[
+                        if (i > 0) _divider(isDark),
+                        ListTile(
+                          leading: const _SettingIcon(
+                            icon: Icons.verified_user_outlined,
+                            color: AppTheme.successGreen,
                           ),
-                        ],
+                          title: Text(
+                            settings.trustedIncomingViewers[i].hostname,
+                            style: const TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                          subtitle: Text(
+                            '${settings.trustedIncomingViewers[i].peerOs} · ${settings.trustedIncomingViewers[i].lastUsedAt.toString().substring(0, 16)}',
+                            style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 13),
+                          ),
+                          trailing: IconButton(
+                            icon: Icon(Icons.delete_outline_rounded,
+                                size: 20,
+                                color:
+                                    AppTheme.errorRed.withValues(alpha: 0.7)),
+                            onPressed: () =>
+                                settings.removeTrustedIncomingViewer(settings
+                                    .trustedIncomingViewers[i].deviceId),
+                          ),
+                        ),
+                      ],
+                      _divider(isDark),
+                      ListTile(
+                        leading: const _SettingIcon(
+                          icon: Icons.person_remove_alt_1_outlined,
+                          color: AppTheme.errorRed,
+                        ),
+                        title: const Text('清空受信查看端',
+                            style: TextStyle(fontSize: 14)),
+                        subtitle: Text('关闭密码免输的自动接受列表',
+                            style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 13)),
+                        onTap: settings.clearTrustedIncomingViewers,
                       ),
+                    ],
+                  ),
+          ),
+        ],
+      ];
+      final network = <Widget>[
+        const SizedBox(height: 24),
+        const _SectionHeader(icon: Icons.language_rounded, label: '网络'),
+        const SizedBox(height: 10),
+        _CardContainer(
+          isDark: isDark,
+          child: Column(
+            children: [
+              ListTile(
+                leading: const _SettingIcon(
+                  icon: Icons.dns_outlined,
+                  color: AppTheme.primaryBlue,
+                ),
+                title: const Text('信令服务器', style: TextStyle(fontSize: 14)),
+                subtitle: Text(settings.signalingServer,
+                    style:
+                        TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                onTap: () => _showServerDialog(
+                  context,
+                  '信令服务器',
+                  settings.signalingServer,
+                  settings.updateSignalingServer,
+                ),
+              ),
+              _divider(isDark),
+              ListTile(
+                leading: const _SettingIcon(
+                  icon: Icons.swap_horiz_rounded,
+                  color: AppTheme.accentPurple,
+                ),
+                title: const Text('中继服务器', style: TextStyle(fontSize: 14)),
+                subtitle: Text(settings.relayServer,
+                    style:
+                        TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                trailing: const Icon(Icons.chevron_right_rounded, size: 20),
+                onTap: () => _showServerDialog(
+                  context,
+                  '中继服务器',
+                  settings.relayServer,
+                  settings.updateRelayServer,
+                ),
               ),
             ],
-          ];
-          final network = <Widget>[
-            const SizedBox(height: 24),
-            const _SectionHeader(icon: Icons.language_rounded, label: '网络'),
-            const SizedBox(height: 10),
-            _CardContainer(
-              isDark: isDark,
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const _SettingIcon(
-                      icon: Icons.dns_outlined,
-                      color: AppTheme.primaryBlue,
-                    ),
-                    title: const Text('信令服务器', style: TextStyle(fontSize: 14)),
-                    subtitle: Text(settings.signalingServer,
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 13)),
-                    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-                    onTap: () => _showServerDialog(
-                      context,
-                      '信令服务器',
-                      settings.signalingServer,
-                      settings.updateSignalingServer,
-                    ),
-                  ),
-                  _divider(isDark),
-                  ListTile(
-                    leading: const _SettingIcon(
-                      icon: Icons.swap_horiz_rounded,
-                      color: AppTheme.accentPurple,
-                    ),
-                    title: const Text('中继服务器', style: TextStyle(fontSize: 14)),
-                    subtitle: Text(settings.relayServer,
-                        style: TextStyle(
-                            color: Colors.grey.shade600, fontSize: 13)),
-                    trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-                    onTap: () => _showServerDialog(
-                      context,
-                      '中继服务器',
-                      settings.relayServer,
-                      settings.updateRelayServer,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ];
-          final about = <Widget>[
-            const UpdateCard(),
-            const ListTile(
-                leading: Icon(Icons.connected_tv),
-                title: Text('RDesk'),
-                subtitle: Text('连接你的设备，随时远程协助')),
-            FutureBuilder<PackageInfo>(
-                future: _package,
-                builder: (context, snapshot) => ListTile(
-                    title: const Text('版本'),
-                    subtitle: Text(snapshot.hasData
-                        ? '${snapshot.data!.version} (${snapshot.data!.buildNumber})'
-                        : '版本信息暂不可用'))),
-            const ListTile(
-                title: Text('官网'),
-                subtitle: SelectableText('https://qisw.top/rdesk/')),
-          ];
-          return SettingsSections(
-              selected: SettingsSections.labels.containsKey(_section)
-                  ? _section
-                  : 'general',
-              onSelected: (value) => setState(() => _section = value),
-              children: switch (_section) {
-                'security' => security,
-                'network' => network,
-                'about' => about,
-                _ => general,
-              });
-        }));
+          ),
+        ),
+      ];
+      final about = <Widget>[
+        const UpdateCard(),
+        const ListTile(
+            leading: Icon(Icons.connected_tv),
+            title: Text('RDesk'),
+            subtitle: Text('连接你的设备，随时远程协助')),
+        FutureBuilder<PackageInfo>(
+            future: _package,
+            builder: (context, snapshot) => ListTile(
+                title: const Text('版本'),
+                subtitle: Text(snapshot.hasData
+                    ? '${snapshot.data!.version} (${snapshot.data!.buildNumber})'
+                    : '版本信息暂不可用'))),
+        const ListTile(
+            title: Text('官网'),
+            subtitle: SelectableText('https://qisw.top/rdesk/')),
+      ];
+      return SettingsSections(
+          selected: SettingsSections.labels.containsKey(_section)
+              ? _section
+              : 'general',
+          onSelected: (value) => setState(() => _section = value),
+          children: switch (_section) {
+            'security' => security,
+            'network' => network,
+            'about' => about,
+            _ => general,
+          });
+    }));
   }
 
   void _showPasswordDialog(BuildContext context, SettingsProvider settings) {
@@ -1111,202 +1109,119 @@ class _DesktopHostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = context.read<SettingsProvider>();
+    final p = RdPalette.of(context);
+    final t = Theme.of(context).textTheme;
     final running = host.hostingEnabled;
     final hasPermission = host.state.hasPermission;
+    final accessibility = host.state.accessibilityEnabled;
     final registered = host.hostRegistered;
-    final statusText = !running
-        ? '共享服务未启动'
-        : (host.captureRunning
-            ? (hasPermission ? '正在共享屏幕' : '共享等待屏幕录制权限')
-            : (registered ? '在线待命 · 未采集屏幕' : '共享服务注册中'));
-    final statusColor = registered
-        ? AppTheme.successGreen
-        : running
-            ? AppTheme.warningAmber
-            : Colors.grey;
+    final (String status, RdTone tone) = !running
+        ? ('已关闭，其他设备无法连接这台 Mac', RdTone.neutral)
+        : !hasPermission
+            ? ('需要屏幕录制权限', RdTone.warning)
+            : host.captureRunning
+                ? ('正在被观看', RdTone.online)
+                : registered
+                    ? ('待命中，有人连接时才会共享屏幕', RdTone.online)
+                    : ('正在连接服务器…', RdTone.warning);
     final diagnostics = <String>{
-      if (host.hostRegistrationError != null &&
-          host.hostRegistrationError!.isNotEmpty)
+      if (host.hostRegistrationError?.isNotEmpty == true)
         host.hostRegistrationError!,
-      if (host.error != null && host.error!.isNotEmpty) host.error!,
+      if (host.error?.isNotEmpty == true) host.error!,
     }.toList();
 
-    return _CardContainer(
-      isDark: isDark,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    registered
-                        ? Icons.cast_connected_rounded
-                        : Icons.desktop_windows_rounded,
-                    color: statusColor,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '桌面共享服务',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 3),
-                      Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              statusText,
-                              style: TextStyle(
-                                  fontSize: 13, color: Colors.grey.shade600),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: '刷新共享状态',
-                  onPressed: host.busy ? null : host.refresh,
-                  icon: const Icon(Icons.refresh_rounded, size: 20),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryBlue.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(12),
-              ),
+    Widget permission(
+            String title, String body, bool granted, VoidCallback onGrant) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(children: [
+            Icon(granted ? Icons.check_circle_rounded : Icons.error_rounded,
+                size: 20, color: granted ? p.online : p.warning),
+            const SizedBox(width: 10),
+            Expanded(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _infoRow('本机设备ID', host.localDeviceId ?? '-'),
-                  const SizedBox(height: 6),
-                  _infoRow('共享注册', registered ? '已注册' : '未注册'),
-                  const SizedBox(height: 6),
-                  _infoRow('屏幕录制权限', hasPermission ? '已授权' : '未授权'),
-                  const SizedBox(height: 6),
-                  _infoRow(
-                    '辅助功能权限',
-                    host.state.accessibilityEnabled ? '已授权' : '未授权',
-                  ),
-                  const SizedBox(height: 6),
-                  _infoRow(
-                    '上次注册时间',
-                    _formatDateTime(host.lastHostRegistrationAt),
-                  ),
-                  const SizedBox(height: 6),
-                  _infoRow('注册重试次数', '${host.registrationAttempts}'),
-                  const SizedBox(height: 6),
-                  _infoRow('信令地址', settings.signalingServer),
-                  if (host.lanRelayEndpoint != null &&
-                      host.lanRelayEndpoint!.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _infoRow('局域网中继', host.lanRelayEndpoint!),
-                  ],
-                ],
-              ),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: t.bodyMedium),
+                    Text(body, style: t.bodySmall),
+                  ]),
             ),
-            if (diagnostics.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              for (final message in diagnostics) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.errorRed.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppTheme.errorRed.withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.warning_amber_rounded,
-                          color: AppTheme.errorRed, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          message,
-                          style: const TextStyle(
-                            color: AppTheme.errorRed,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (message != diagnostics.last) const SizedBox(height: 8),
-              ],
-            ],
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _ActionButton(
-                  icon: Icons.play_arrow_rounded,
-                  label: '启动共享',
-                  filled: true,
-                  onPressed: host.busy ? null : host.startHosting,
-                ),
-                _ActionButton(
-                  icon: Icons.restart_alt_rounded,
-                  label: '重启共享',
+            granted
+                ? Text('已授权', style: t.labelMedium!.copyWith(color: p.online))
+                : TextButton(onPressed: onGrant, child: const Text('去授权')),
+          ]),
+        );
+
+    return RdCard(
+      padding: const EdgeInsets.fromLTRB(18, 14, 14, 10),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          RdIconBadge(
+              icon: Icons.screen_share_rounded,
+              tone: running ? RdTone.online : RdTone.neutral,
+              size: 36),
+          const SizedBox(width: 12),
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('允许远程控制本机', style: t.titleSmall),
+              const SizedBox(height: 2),
+              Text(status,
+                  style: t.bodySmall!.copyWith(
+                      color: tone == RdTone.neutral
+                          ? p.inkSecondary
+                          : tone.fg(p))),
+            ]),
+          ),
+          Switch(
+            value: running,
+            onChanged: host.busy
+                ? null
+                : (v) => v ? host.startHosting() : host.stopHosting(),
+          ),
+        ]),
+        const SizedBox(height: 8),
+        Divider(color: p.divider),
+        permission('屏幕录制', '让对方看到这台 Mac 的画面', hasPermission,
+            host.openScreenRecordingSettings),
+        permission('辅助功能', '让对方用鼠标和键盘操作', accessibility,
+            host.openAccessibilitySettings),
+        for (final message in diagnostics)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(message, style: t.bodySmall!.copyWith(color: p.danger)),
+          ),
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: const EdgeInsets.only(bottom: 10),
+            title: Text('诊断信息', style: t.bodySmall),
+            children: [
+              _infoRow('本机设备码', host.localDeviceId ?? '-'),
+              _infoRow('服务注册', registered ? '已注册' : '未注册'),
+              _infoRow('上次注册', _formatDateTime(host.lastHostRegistrationAt)),
+              _infoRow('注册重试', '${host.registrationAttempts} 次'),
+              _infoRow('服务器', settings.signalingServer),
+              if (host.lanRelayEndpoint?.isNotEmpty == true)
+                _infoRow('局域网直连', host.lanRelayEndpoint!),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
                   onPressed: host.busy
                       ? null
                       : () async {
                           await host.stopHosting();
                           await host.startHosting();
                         },
+                  icon: const Icon(Icons.restart_alt_rounded, size: 18),
+                  label: const Text('重启共享服务'),
                 ),
-                _ActionButton(
-                  icon: Icons.stop_rounded,
-                  label: '停止共享',
-                  onPressed:
-                      host.busy || !running ? null : () => host.stopHosting(),
-                ),
-                _ActionButton(
-                  icon: Icons.screenshot_monitor_rounded,
-                  label: '屏幕录制权限',
-                  onPressed: host.openScreenRecordingSettings,
-                ),
-                _ActionButton(
-                  icon: Icons.accessibility_new_rounded,
-                  label: '辅助功能权限',
-                  onPressed: host.openAccessibilitySettings,
-                ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
-      ),
+      ]),
     );
   }
 
