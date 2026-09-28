@@ -1,7 +1,7 @@
 {
   "date": "2026-09-28",
   "wake_service_ready": true,
-  "source_commit": "e6e24f3",
+  "source_commit": "d815144",
   "platforms": [
     {
       "id": "macos",
@@ -32,23 +32,24 @@
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.3.0",
+      "version": "2.3.1",
       "requirements": "Windows 10 / 11 · x64",
       "capability": "可控制其他设备；打开「允许远程开机」即可让手机远程开机这台电脑。当前尚不支持共享 Windows 桌面。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.0-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.1-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.0-windows-x64-setup.exe",
-      "sha256": "2f9ae741111b1f72358121ad8fc9e779530638bfddf464c15741b3767b668152",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.1-windows-x64-setup.exe",
+      "sha256": "30aaa3a0867f3d7dc85a346567767dd87a2849e9b2803384fad1f0d1940beb00",
       "size": "11.7 MB",
-      "build_number": 23,
+      "build_number": 24,
       "release_notes": [
+        "修复「远程开机」页中「魔术包唤醒」一直显示「无法判断」：普通用户运行时也能读出网卡设置。",
+        "家中助手离线时直接说明原因和处理办法：在助手设备上打开 RDesk 并开启开机助手。",
         "全新界面：设备列表、设备页和远程协助重新设计，同一账号的设备自动出现，点一下即可连接或开机。",
-        "远程开机更简单：Windows 打开「允许远程开机」，家中安卓或 Mac 打开「开机助手」，无需扫码配对；助手离线时自动改用其他在线助手。",
-        "家中助手更稳：断网、路由器重启或 IPv6 地址变化后在同一家庭网络自动恢复；Mac 重启后可自动恢复助手。"
+        "远程开机更简单：Windows 打开「允许远程开机」，家中安卓或 Mac 打开「开机助手」，无需扫码配对；助手离线时自动改用其他在线助手。"
       ]
     },
     {
@@ -94,17 +95,17 @@
       "sha256": "7b3a2a54c99122ecb2ee8a1a26995d1fec6a4855faec68cf8cc7152c2ff77828",
       "bytes": 16430731
     },
-    "RDesk-2.3.0-windows-x64-setup.exe": {
-      "sha256": "2f9ae741111b1f72358121ad8fc9e779530638bfddf464c15741b3767b668152",
-      "bytes": 12235052
-    },
-    "RDesk-2.3.0-windows-x64-portable.zip": {
-      "sha256": "a23e671442d44f19dd02fcfb7936bf458405cf68570f4e281a35db7e4e9cb5fd",
-      "bytes": 14195736
-    },
     "RDesk-2.3.0-android.apk": {
       "sha256": "d08447c0e6eccdd169e8fcdfcfdef112893c03c77737e5139461cc3ba41690f0",
       "bytes": 56789741
+    },
+    "RDesk-2.3.1-windows-x64-setup.exe": {
+      "sha256": "30aaa3a0867f3d7dc85a346567767dd87a2849e9b2803384fad1f0d1940beb00",
+      "bytes": 12233252
+    },
+    "RDesk-2.3.1-windows-x64-portable.zip": {
+      "sha256": "1bbe4e2c64b6ffecbdfd1b76d978d3a0661208f06ff549b4aeee1d2c9bfc9257",
+      "bytes": 14196114
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
