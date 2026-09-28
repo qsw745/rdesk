@@ -114,8 +114,9 @@ class Renderer:
 
     def png(self, name: str, source: str, px: int, dest: Path, opaque: bool = False) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
+        # -strip drops timestamps so reruns are byte-for-byte reproducible.
         args = ["magick", str(self.master(name, source)), "-filter", "Lanczos",
-                "-resize", f"{px}x{px}"]
+                "-resize", f"{px}x{px}", "-strip"]
         if opaque:
             args += ["-background", "#fff", "-alpha", "remove", "-alpha", "off"]
         subprocess.run(args + [f"PNG32:{dest}" if not opaque else f"PNG24:{dest}"], check=True)
@@ -177,6 +178,9 @@ def main() -> None:
         subprocess.run(["magick", *ico_parts, str(APP / "windows/runner/resources/app_icon.ico")], check=True)
 
         r.png("web", tile(LARGE, 24, 190, False), 512, ROOT / "deploy/icon.png")
+        # In-app brand mark (sidebar, about page): transparent, mark only.
+        r.png("brand-mark", svg(mark(1.55, 30, 11)), 256, APP / "assets/brand/mark.png")
+        r.png("brand-tile", tile(LARGE, 24, 190, False), 256, APP / "assets/brand/app_icon.png")
     finally:
         r.close()
     print("图标已生成：design、iOS、macOS、Android、Windows、官网。")
