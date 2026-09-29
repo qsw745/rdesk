@@ -68,7 +68,7 @@ if [[ "$ARCH" == arm64 ]]; then
   ditto "$APP" "$WORK/dmg/rdesk.app"
   ln -s /Applications "$WORK/dmg/Applications"
   rm -f "$DMG"
-  hdiutil create -volname "RDesk" -srcfolder "$WORK/dmg" -ov -format UDZO "$DMG" >/dev/null
+  hdiutil create -volname "随控" -srcfolder "$WORK/dmg" -ov -format UDZO "$DMG" >/dev/null
   codesign --force --sign "$IDENTITY" --timestamp "$DMG"
   notarize "$DMG"
   xcrun stapler staple "$DMG"
