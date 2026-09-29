@@ -1,11 +1,15 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/trusted_peer.dart';
+import '../services/desktop_window_service.dart';
 import '../services/rdesk_bridge_service.dart';
 import '../utils/constants.dart';
 
 class SettingsProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
+  final DesktopWindowService _window;
+  SettingsProvider({DesktopWindowService window = const DesktopWindowService()})
+      : _window = window;
   String _signalingServer = AppConstants.defaultSignalingServer;
   String _relayServer = AppConstants.defaultRelayServer;
   bool _autoAccept = false;
@@ -17,6 +21,7 @@ class SettingsProvider extends ChangeNotifier {
   List<TrustedPeer> _trustedIncomingViewers = [];
   bool _lockAfterDisconnect = false;
   bool _unattendedMode = false;
+  bool _closeToTray = true;
 
   String get signalingServer => _signalingServer;
   String get relayServer => _relayServer;
@@ -30,6 +35,9 @@ class SettingsProvider extends ChangeNotifier {
       List.unmodifiable(_trustedIncomingViewers);
   bool get lockAfterDisconnect => _lockAfterDisconnect;
   bool get unattendedMode => _unattendedMode;
+
+  /// Windows only: closing the main window keeps RDesk in the tray.
+  bool get closeToTray => _closeToTray;
 
   Future<void> loadSettings() async {
     try {
@@ -53,7 +61,9 @@ class SettingsProvider extends ChangeNotifier {
       _lockAfterDisconnect =
           prefs.getBool('rdesk.lock_after_disconnect') ?? false;
       _unattendedMode = prefs.getBool('rdesk.unattended_mode') ?? false;
+      _closeToTray = prefs.getBool('rdesk.close_to_tray') ?? true;
     } catch (_) {}
+    await _window.setCloseToTray(_closeToTray);
     notifyListeners();
   }
 
@@ -118,6 +128,14 @@ class SettingsProvider extends ChangeNotifier {
     _unattendedMode = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('rdesk.unattended_mode', value);
+    notifyListeners();
+  }
+
+  Future<void> setCloseToTray(bool value) async {
+    _closeToTray = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('rdesk.close_to_tray', value);
+    await _window.setCloseToTray(value);
     notifyListeners();
   }
 

@@ -4,8 +4,9 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
-FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+FlutterWindow::FlutterWindow(const flutter::DartProject& project,
+                             bool start_hidden)
+    : project_(project), start_hidden_(start_hidden) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -27,10 +28,12 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   wake_adapter_bridge_ = std::make_unique<WakeAdapterBridge>(
       flutter_controller_->engine()->messenger(), GetHandle());
+  tray_bridge_ = std::make_unique<TrayBridge>(
+      flutter_controller_->engine()->messenger(), GetHandle(), start_hidden_);
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    tray_bridge_->OnFirstFrame();
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -42,6 +45,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  tray_bridge_.reset();
   wake_adapter_bridge_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
@@ -57,6 +61,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   if (message == WakeAdapterBridge::kResultMessage && wake_adapter_bridge_) {
     wake_adapter_bridge_->Complete();
     return 0;
+  }
+  LRESULT tray_result = 0;
+  if (tray_bridge_ &&
+      tray_bridge_->HandleMessage(message, wparam, lparam, &tray_result)) {
+    return tray_result;
   }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {

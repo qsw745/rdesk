@@ -24,6 +24,7 @@ typedef LoginItemRunner = Future<ProcessResult> Function(
 /// Windows PC that was just woken come back online. Changed only by the user's
 /// explicit switch (settings, remote-wake page or installer task).
 ///
+/// Windows starts with `--hidden`, straight into the tray (see TrayBridge).
 /// Windows uses the current user's `Run` key only: no administrator task,
 /// service or sign-in bypass. Windows "Startup apps" can disable the entry
 /// through `StartupApproved\Run`; that counts as off, and turning the switch
@@ -74,7 +75,7 @@ if (\$v -and -not \$off) { 'true' } else { 'false' }''', '无法读取开机启�
         enabled
             ? '''
 New-Item -Path '$_runKey' -Force | Out-Null
-Set-ItemProperty -Path '$_runKey' -Name '$_valueName' -Value '"$exe"'
+Set-ItemProperty -Path '$_runKey' -Name '$_valueName' -Value '"$exe" --hidden'
 Remove-ItemProperty -Path '$_approvedKey' -Name '$_valueName' -ErrorAction SilentlyContinue'''
             : "Remove-ItemProperty -Path '$_runKey' -Name '$_valueName' -ErrorAction SilentlyContinue",
         '设置开机启动失败，请在 Windows「启动应用」中设置');

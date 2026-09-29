@@ -44,7 +44,7 @@ void main() {
       expect(
           scripts.first,
           contains(
-              r"""-Value '"C:\Users\o''neil\AppData\Local\Programs\RDesk\rdesk.exe"'"""));
+              r"""-Value '"C:\Users\o''neil\AppData\Local\Programs\RDesk\rdesk.exe" --hidden'"""));
       expect(
           scripts.first,
           contains(

@@ -89,7 +89,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
           const _SectionHeader(icon: Icons.power_outlined, label: '启动'),
           const SizedBox(height: 10),
-          _CardContainer(isDark: isDark, child: const _LaunchAtLoginTile()),
+          _CardContainer(
+              isDark: isDark,
+              child: Column(children: [
+                const _LaunchAtLoginTile(),
+                if (cap.platform == TargetPlatform.windows) ...[
+                  _divider(isDark),
+                  _SwitchTile(
+                      icon: Icons.move_to_inbox_outlined,
+                      iconColor: AppTheme.primaryBlue,
+                      title: '关闭窗口时最小化到托盘',
+                      subtitle: '保持在线；右下角图标可打开或退出 RDesk',
+                      value: settings.closeToTray,
+                      onChanged: settings.setCloseToTray),
+                ],
+              ])),
         ],
         if (cap.platform == TargetPlatform.macOS) ...[
           const SizedBox(height: 24),

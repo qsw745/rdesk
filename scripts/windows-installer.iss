@@ -57,7 +57,7 @@ Name: "autostart"; Description: "{cm:AutoStartProgramHint}"; Flags: unchecked
 Filename: "{app}\rdesk.exe"; Description: "{cm:LaunchProgram,RDesk}"; Flags: nowait postinstall skipifsilent
 [Code]
 { Sign-in launch shares the current user's Run value with the in-app switch
-  (LoginItemService): same name, same quoted path. The task starts from the
+  (LoginItemService): same name, same quoted path and --hidden (start in tray). The task starts from the
   real state, so an upgrade never silently turns it on or off. Windows
   "Startup apps" disables an entry via StartupApproved\Run (odd first byte). }
 const
@@ -95,7 +95,7 @@ begin
     Exit;
   if WizardIsTaskSelected('autostart') then
   begin
-    RegWriteStringValue(HKCU, RunKey, RunValue, '"' + ExpandConstant('{app}\rdesk.exe') + '"');
+    RegWriteStringValue(HKCU, RunKey, RunValue, '"' + ExpandConstant('{app}\rdesk.exe') + '" --hidden');
     RegDeleteValue(HKCU, ApprovedKey, RunValue);
   end
   { A silent install never showed the choice, so leave the current setting. }
