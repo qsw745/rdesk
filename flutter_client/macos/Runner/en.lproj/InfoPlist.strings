@@ -1,3 +1,4 @@
-/* Finder, Dock and Launchpad show this name; the bundle stays rdesk.app. */
+/* Finder, Dock, Launchpad and the menu bar show this name. Info.plist keeps
+   "rdesk" so it matches rdesk.app; otherwise Finder ignores the localization. */
 CFBundleName = "随控";
 CFBundleDisplayName = "随控";

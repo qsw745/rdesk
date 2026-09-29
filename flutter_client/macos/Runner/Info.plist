@@ -13,9 +13,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>随控</string>
+	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleDisplayName</key>
-	<string>随控</string>
+	<string>$(PRODUCT_NAME)</string>
 	<key>LSHasLocalizedDisplayName</key>
 	<true/>
 	<key>CFBundlePackageType</key>

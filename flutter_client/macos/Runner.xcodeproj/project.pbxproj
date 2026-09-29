@@ -481,6 +481,7 @@
 				861D42FB5E09400C818E0C9B /* en */,
 			);
 			name = InfoPlist.strings;
+			path = Runner;
 			sourceTree = "<group>";
 		};
 /* End PBXVariantGroup section */
