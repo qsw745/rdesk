@@ -190,7 +190,7 @@ class _HeroCard extends StatelessWidget {
     final Widget cta;
     final String caption;
     if (live) {
-      caption = entry.online ? '点击进入远程桌面' : '对方打开 RDesk 后即可连接';
+      caption = entry.online ? '点击进入远程桌面' : '对方打开随控后即可连接';
       cta = ValueListenableBuilder<String?>(
         valueListenable: connectingDevice,
         builder: (context, key, _) => FilledButton.icon(
@@ -405,7 +405,7 @@ class _WakeCard extends StatelessWidget {
         ],
         if (!target.agentOnline && !online) ...[
           const SizedBox(height: 12),
-          Text('家中没有在线的开机助手。请确认家里的安卓手机或 Mac 已打开 RDesk 并开启"开机助手"。',
+          Text('家中没有在线的开机助手。请确认家里的安卓手机或 Mac 已打开随控并开启"开机助手"。',
               style: t.bodySmall),
         ],
       ]),

@@ -207,7 +207,7 @@ class _ConnectCard extends StatelessWidget {
         const _CardTitle(
             icon: Icons.screen_share_rounded,
             title: '远程控制其他设备',
-            subtitle: '输入对方 RDesk 上显示的设备码'),
+            subtitle: '输入对方随控上显示的设备码'),
         const SizedBox(height: 20),
         RawAutocomplete<ConnectionRecord>(
           textEditingController: deviceId,
@@ -469,7 +469,7 @@ class _HostUnsupportedCard extends StatelessWidget {
             title: '这台电脑暂不支持被远程控制',
             subtitle: 'Windows 版目前用于控制其他设备和远程开机'),
         const SizedBox(height: 16),
-        Text('需要别人帮你操作时，可以在 Mac 或安卓设备上打开 RDesk 共享屏幕。', style: t.bodySmall),
+        Text('需要别人帮你操作时，可以在 Mac 或安卓设备上打开随控共享屏幕。', style: t.bodySmall),
         const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: () => context.go('/wake'),

@@ -31,7 +31,7 @@ TrayBridge::TrayBridge(flutter::BinaryMessenger* messenger, HWND window,
   icon_.hIcon = static_cast<HICON>(LoadImageW(
       GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON,
       GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0));
-  StringCchCopyW(icon_.szTip, ARRAYSIZE(icon_.szTip), L"RDesk");
+  StringCchCopyW(icon_.szTip, ARRAYSIZE(icon_.szTip), L"随控");
   AddIcon();
 
   channel_ = std::make_unique<flutter::MethodChannel<Value>>(
@@ -151,7 +151,7 @@ void TrayBridge::HideToTray() {
   hint.uFlags = NIF_INFO;
   hint.dwInfoFlags = NIIF_USER | NIIF_NOSOUND;
   StringCchCopyW(hint.szInfoTitle, ARRAYSIZE(hint.szInfoTitle),
-                 L"RDesk 仍在后台运行");
+                 L"随控仍在后台运行");
   StringCchCopyW(hint.szInfo, ARRAYSIZE(hint.szInfo),
                  L"电脑会保持在线。点这里的图标打开，右键可以退出。");
   Shell_NotifyIconW(NIM_MODIFY, &hint);
@@ -176,9 +176,9 @@ void TrayBridge::RemoveIcon() {
 void TrayBridge::ShowMenu() {
   HMENU menu = CreatePopupMenu();
   if (!menu) return;
-  AppendMenuW(menu, MF_STRING, kMenuOpen, L"打开 RDesk");
+  AppendMenuW(menu, MF_STRING, kMenuOpen, L"打开随控");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING, kMenuQuit, L"退出 RDesk");
+  AppendMenuW(menu, MF_STRING, kMenuQuit, L"退出随控");
   SetMenuDefaultItem(menu, kMenuOpen, FALSE);
   POINT cursor;
   GetCursorPos(&cursor);

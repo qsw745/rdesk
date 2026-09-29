@@ -1,0 +1,3 @@
+/* Finder, Dock and Launchpad show this name; the bundle stays rdesk.app. */
+CFBundleName = "随控";
+CFBundleDisplayName = "随控";

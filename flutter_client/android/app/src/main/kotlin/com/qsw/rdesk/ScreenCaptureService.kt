@@ -325,7 +325,7 @@ class ScreenCaptureService : Service() {
         val channel =
             NotificationChannel(
                 CHANNEL_ID,
-                "RDesk 屏幕共享",
+                "随控屏幕共享",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = "保持 Android 被控端录屏服务处于活动状态"
@@ -342,7 +342,7 @@ class ScreenCaptureService : Service() {
             }
 
         return builder
-            .setContentTitle("RDesk 屏幕共享")
+            .setContentTitle("随控屏幕共享")
             .setContentText("正在采集 Android 屏幕预览")
             .setSmallIcon(R.drawable.ic_stat_rdesk)
             .setOngoing(true)

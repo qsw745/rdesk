@@ -99,7 +99,7 @@ class _AuthHeader extends StatelessWidget {
         Image.asset('assets/brand/app_icon.png', width: 72, height: 72),
         const SizedBox(height: 18),
         Text(
-          isRegister ? '创建 RDesk 账号' : '登录 RDesk 账号',
+          isRegister ? '创建随控账号' : '登录随控账号',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w800,

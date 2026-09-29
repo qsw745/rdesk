@@ -57,7 +57,7 @@ class UpdateBanner extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         spacing: 12,
                         children: [
-                          Text('RDesk ${update.release!.version} 可更新'),
+                          Text('随控 ${update.release!.version} 可更新'),
                           TextButton(
                               onPressed: () =>
                                   context.go('/settings?section=about'),
@@ -83,7 +83,7 @@ class UpdateCard extends StatelessWidget {
               title: Text(update.release!.isStore ? '前往 App Store' : '安装更新'),
               content: Text(update.release!.isStore
                   ? '将在 App Store 中完成更新。'
-                  : '安装可能需要关闭 RDesk，并中断正在进行的屏幕共享。请先保存工作，按系统提示完成安装。'),
+                  : '安装可能需要关闭随控，并中断正在进行的屏幕共享。请先保存工作，按系统提示完成安装。'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(context, false),

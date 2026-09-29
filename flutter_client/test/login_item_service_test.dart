@@ -76,20 +76,20 @@ void main() {
       appRouter.go('/settings');
       await tester.pumpWidget(const RDeskApp());
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('开机后自动启动 RDesk'), findsOneWidget);
+      expect(find.text('开机后自动启动随控'), findsOneWidget);
     }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
     testWidgets('Mac 常规设置显示登录后自动打开', (tester) async {
       appRouter.go('/settings');
       await tester.pumpWidget(const RDeskApp());
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('登录 Mac 后自动打开 RDesk'), findsOneWidget);
+      expect(find.text('登录 Mac 后自动打开随控'), findsOneWidget);
     }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
     testWidgets('手机设置不显示开机启动', (tester) async {
       appRouter.go('/settings');
       await tester.pumpWidget(const RDeskApp());
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('开机后自动启动 RDesk'), findsNothing);
-      expect(find.text('登录 Mac 后自动打开 RDesk'), findsNothing);
+      expect(find.text('开机后自动启动随控'), findsNothing);
+      expect(find.text('登录 Mac 后自动打开随控'), findsNothing);
     }, variant: TargetPlatformVariant.only(TargetPlatform.android));
   });
 }

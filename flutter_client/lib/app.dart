@@ -106,7 +106,7 @@ class RDeskApp extends StatelessWidget {
             onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
             child: UpdateLifecycle(
                 child: MaterialApp.router(
-              title: 'RDesk 远程桌面',
+              title: '随控',
               debugShowCheckedModeBanner: false,
               theme: AppTheme.lightTheme,
               darkTheme: AppTheme.darkTheme,

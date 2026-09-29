@@ -11,7 +11,7 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <application
-        android:label="RDesk"
+        android:label="随控"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <provider android:name="androidx.core.content.FileProvider"
@@ -62,7 +62,7 @@
             android:name=".RdeskAccessibilityService"
             android:enabled="true"
             android:exported="false"
-            android:label="RDesk 无障碍控制"
+            android:label="随控无障碍控制"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />

@@ -8,16 +8,19 @@
 #endif
 [Setup]
 AppId={{A8973743-17FC-476A-B6F0-52B1C3D50AD7}
-AppName=RDesk
+AppName=随控
 AppVersion={#AppVersion}
-AppVerName=RDesk {#AppVersion}
+AppVerName=随控 {#AppVersion}
 AppPublisher=QSW
 AppPublisherURL=https://qisw.top/rdesk/
 AppSupportURL=https://qisw.top/rdesk/
 VersionInfoVersion={#AppVersion}
-VersionInfoDescription=RDesk 安装程序
+VersionInfoDescription=随控安装程序
+VersionInfoProductName=随控
+; The folder keeps its original name so upgrades land in place.
 DefaultDirName={localappdata}\Programs\RDesk
-DefaultGroupName=RDesk
+DefaultGroupName=随控
+UsePreviousGroup=no
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 DisableDirPage=auto
@@ -33,7 +36,7 @@ Compression=lzma2
 SolidCompression=yes
 SetupIconFile=..\flutter_client\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\rdesk.exe
-UninstallDisplayName=RDesk
+UninstallDisplayName=随控
 WizardStyle=modern dynamic windows11 hidebevels
 WizardImageFile=installer\wizard-100.png,installer\wizard-150.png,installer\wizard-200.png
 WizardImageFileDynamicDark=installer\wizard-100.png,installer\wizard-150.png,installer\wizard-200.png
@@ -48,13 +51,18 @@ Name: "zh"; MessagesFile: "compiler:Default.isl,installer\ChineseSimplified.isl"
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
-Name: "{group}\RDesk"; Filename: "{app}\rdesk.exe"
-Name: "{autodesktop}\RDesk"; Filename: "{app}\rdesk.exe"; Tasks: desktopicon
+Name: "{group}\随控"; Filename: "{app}\rdesk.exe"
+Name: "{autodesktop}\随控"; Filename: "{app}\rdesk.exe"; Tasks: desktopicon
+[InstallDelete]
+; Shortcuts from versions released as "RDesk".
+Type: files; Name: "{userprograms}\RDesk\RDesk.lnk"
+Type: dirifempty; Name: "{userprograms}\RDesk"
+Type: files; Name: "{userdesktop}\RDesk.lnk"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"
 Name: "autostart"; Description: "{cm:AutoStartProgramHint}"; Flags: unchecked
 [Run]
-Filename: "{app}\rdesk.exe"; Description: "{cm:LaunchProgram,RDesk}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\rdesk.exe"; Description: "{cm:LaunchProgram,随控}"; Flags: nowait postinstall skipifsilent
 [Code]
 { Sign-in launch shares the current user's Run value with the in-app switch
   (LoginItemService): same name, same quoted path and --hidden (start in tray). The task starts from the

@@ -182,7 +182,7 @@ class _UnattendedSetupScreenState extends State<UnattendedSetupScreen> {
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '设置完成后，设备重启时 RDesk 会自动运行并等待远程连接。',
+                      '设置完成后，设备重启时随控会自动运行并等待远程连接。',
                       style: TextStyle(fontSize: 12.5, height: 1.5),
                     ),
                   ),
@@ -203,14 +203,14 @@ class _UnattendedSetupScreenState extends State<UnattendedSetupScreen> {
 
   String get _platformStartupInstructions {
     if (Platform.isAndroid) {
-      return '1. 前往「设置 > 应用 > RDesk > 电池」，选择「不受限制」\n'
-          '2. 在「设置 > 应用 > 自启动管理」中允许 RDesk 自启动\n'
-          '3. 确保无障碍服务已开启（在 RDesk 设置页的安卓被控端区域操作）';
+      return '1. 前往「设置 > 应用 > 随控 > 电池」，选择「不受限制」\n'
+          '2. 在「设置 > 应用 > 自启动管理」中允许随控自启动\n'
+          '3. 确保无障碍服务已开启（在随控设置页的安卓被控端区域操作）';
     }
     if (Platform.isMacOS) {
       return '1. 打开「系统设置 > 通用 > 登录项与扩展」\n'
-          '2. 点击「+」添加 RDesk 到登录项\n'
-          '3. 确保 RDesk 拥有「屏幕录制」和「辅助功能」权限';
+          '2. 点击「+」添加随控到登录项\n'
+          '3. 确保随控拥有「屏幕录制」和「辅助功能」权限';
     }
     return '请根据您的操作系统配置应用开机自启动。';
   }

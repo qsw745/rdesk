@@ -343,7 +343,7 @@ class AuthProvider extends ChangeNotifier {
       }
 
       final verified = await _authenticateBiometric(
-        reason: '使用$_biometricLabel登录 RDesk',
+        reason: '使用$_biometricLabel登录随控',
       );
       if (!verified) {
         throw Exception('$_biometricLabel验证失败');

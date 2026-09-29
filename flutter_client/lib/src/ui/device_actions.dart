@@ -173,7 +173,7 @@ Future<void> wakeDevice(BuildContext context, WakeTarget target) async {
   final ok = await wake.wake(target);
   messenger.showSnackBar(SnackBar(
       content: Text(ok
-          ? '开机信号已发出，电脑启动并运行 RDesk 后会显示在线'
+          ? '开机信号已发出，电脑启动并运行随控后会显示在线'
           : wake.error ?? '开机请求没有发出，请稍后重试')));
 }
 

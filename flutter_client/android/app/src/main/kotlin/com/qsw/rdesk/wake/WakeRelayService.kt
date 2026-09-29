@@ -31,7 +31,7 @@ class WakeRelayService:Service() {
     private fun notification(paused:Boolean):Notification {
         val stop=PendingIntent.getService(this,NOTIFICATION,Intent(this,WakeRelayService::class.java).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val open=PendingIntent.getActivity(this,NOTIFICATION,Intent(this,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this,"rdesk_wake").setSmallIcon(R.drawable.ic_stat_rdesk).setContentTitle("RDesk 开机助手")
+        return NotificationCompat.Builder(this,"rdesk_wake").setSmallIcon(R.drawable.ic_stat_rdesk).setContentTitle("随控开机助手")
             .setContentText(if(paused)"已离开家庭 Wi-Fi，回到同一网络后自动继续" else "通过家中 Wi-Fi 接收开机请求").setContentIntent(open).setOngoing(true).addAction(0,"停止",stop).build()
     }
     private fun showPaused(paused:Boolean)=runCatching{getSystemService(NotificationManager::class.java).notify(NOTIFICATION,notification(paused))}

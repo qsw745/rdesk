@@ -99,7 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.move_to_inbox_outlined,
                       iconColor: AppTheme.primaryBlue,
                       title: '关闭窗口时最小化到托盘',
-                      subtitle: '保持在线；右下角图标可打开或退出 RDesk',
+                      subtitle: '保持在线；右下角图标可打开或退出随控',
                       value: settings.closeToTray,
                       onChanged: settings.setCloseToTray),
                 ],
@@ -385,7 +385,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const UpdateCard(),
         const ListTile(
             leading: Icon(Icons.connected_tv),
-            title: Text('RDesk'),
+            title: Text('随控'),
             subtitle: Text('连接你的设备，随时远程协助')),
         FutureBuilder<PackageInfo>(
             future: _package,
@@ -553,7 +553,7 @@ class _LaunchAtLoginTileState extends State<_LaunchAtLoginTile> {
     final subtitle = _failed
         ? '暂时无法读取，可在系统设置中修改'
         : approval
-            ? '需要在系统设置的「登录项」中允许 RDesk'
+            ? '需要在系统设置的「登录项」中允许随控'
             : _isMac
                 ? '重启后自动上线，保持可被远程控制'
                 : '电脑开机后自动上线，远程开机后才能确认并连接';
@@ -561,7 +561,7 @@ class _LaunchAtLoginTileState extends State<_LaunchAtLoginTile> {
       _SwitchTile(
           icon: Icons.power_settings_new_rounded,
           iconColor: AppTheme.primaryBlue,
-          title: _isMac ? '登录 Mac 后自动打开 RDesk' : '开机后自动启动 RDesk',
+          title: _isMac ? '登录 Mac 后自动打开随控' : '开机后自动启动随控',
           subtitle: subtitle,
           value: state != null && (state.enabled || approval),
           onChanged: state == null || !state.supported || _busy ? null : _set),

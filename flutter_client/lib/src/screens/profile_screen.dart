@@ -106,7 +106,7 @@ class ProfileScreen extends StatelessWidget {
             RdTile(
                 icon: Icons.info_rounded,
                 tone: RdTone.neutral,
-                title: '关于 RDesk',
+                title: '关于随控',
                 onTap: () => context.push('/settings?section=about')),
           ]),
         ],

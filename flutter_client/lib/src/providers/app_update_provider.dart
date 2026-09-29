@@ -232,12 +232,12 @@ class AppUpdateProvider extends ChangeNotifier {
       phase =
           installPermissionRequired ? UpdatePhase.ready : UpdatePhase.handedOff;
       message = installPermissionRequired
-          ? '请允许 RDesk 安装应用，返回后再次点击安装'
+          ? '请允许随控安装应用，返回后再次点击安装'
           : result == 'store'
               ? '已打开 App Store，请在商店完成更新'
               : target.platform == 'macos'
-                  ? '已打开安装包，请将 RDesk 拖入「应用程序」并替换旧版，再重新打开'
-                  : '已打开系统安装程序，请按提示完成更新后重新打开 RDesk';
+                  ? '已打开安装包，请将随控拖入「应用程序」并替换旧版，再重新打开'
+                  : '已打开系统安装程序，请按提示完成更新后重新打开随控';
     } catch (error) {
       if (_disposed) return;
       phase = UpdatePhase.failed;
@@ -250,7 +250,7 @@ class AppUpdateProvider extends ChangeNotifier {
     try {
       await service.openInstallSettings();
     } catch (_) {
-      message = '无法打开设置，请在系统设置中允许 RDesk 安装应用';
+      message = '无法打开设置，请在系统设置中允许随控安装应用';
       _notify();
     }
   }

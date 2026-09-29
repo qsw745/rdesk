@@ -117,11 +117,11 @@ class _Sidebar extends StatelessWidget {
                 if (expanded) ...[
                   const SizedBox(width: 10),
                   Flexible(
-                    child: Text('RDesk',
+                    child: Text('随控',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: t.titleLarge!.copyWith(
-                            fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+                            fontWeight: FontWeight.w800, letterSpacing: 1)),
                   ),
                 ],
               ],

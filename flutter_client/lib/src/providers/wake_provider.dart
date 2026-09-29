@@ -448,7 +448,7 @@ class WakeProvider extends ChangeNotifier {
               .where((a) => a.enabled && a.online && a.id != target.agentId)
               .firstOrNull;
           if (alternative == null) {
-            throw StateError('家中没有在线的开机助手。请在家里的安卓手机或 Mac 上打开 RDesk 并开启开机助手。');
+            throw StateError('家中没有在线的开机助手。请在家里的安卓手机或 Mac 上打开随控并开启开机助手。');
           }
           await scoped.updateTarget(target.id,
               name: target.name, mac: target.mac, agentId: alternative.id);

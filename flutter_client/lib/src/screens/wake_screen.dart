@@ -276,7 +276,7 @@ class _LocalPcCardState extends State<_LocalPcCard> {
     final String status;
     final RdTone tone;
     if (wake.localWakePending) {
-      status = '等待家中开机助手：在家里的安卓手机或 Mac 上打开 RDesk，开启「开机助手」后自动完成';
+      status = '等待家中开机助手：在家里的安卓手机或 Mac 上打开随控，开启「开机助手」后自动完成';
       tone = RdTone.warning;
     } else if (target != null) {
       final helperOnline = target.agentOnline;
@@ -284,7 +284,7 @@ class _LocalPcCardState extends State<_LocalPcCard> {
           ? '已开启'
           : helperOnline
               ? '已开启 · 家中助手：${helper.name}（在线）'
-              : '已开启，但家中助手「${helper.name}」离线，现在无法开机。请在那台设备上打开 RDesk →「远程开机」→ 开启开机助手，并让它保持开机不睡眠';
+              : '已开启，但家中助手「${helper.name}」离线，现在无法开机。请在那台设备上打开随控 →「远程开机」→ 开启开机助手，并让它保持开机不睡眠';
       tone = helperOnline ? RdTone.online : RdTone.warning;
     } else {
       status = '开启后，可以在手机上一键开机这台电脑';
@@ -376,7 +376,7 @@ class _LocalPcCardState extends State<_LocalPcCard> {
         const SizedBox(height: 4),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('登录 Windows 后自动启动 RDesk'),
+          title: const Text('登录 Windows 后自动启动随控'),
           subtitle: const Text('电脑开机后自动上线，才能确认开机成功并连接'),
           value: _startup ?? false,
           onChanged: _startup == null
@@ -561,9 +561,9 @@ class _HelperCardState extends State<_HelperCard> {
           const SizedBox(height: 8),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('登录 Mac 后自动打开 RDesk'),
+            title: const Text('登录 Mac 后自动打开随控'),
             subtitle: Text(_login.requiresApproval
-                ? '需要在系统设置的「登录项」中允许 RDesk'
+                ? '需要在系统设置的「登录项」中允许随控'
                 : 'Mac 重启或更新后，助手会在同一家庭网络自动恢复'),
             value: _login.enabled || _login.requiresApproval,
             onChanged: (v) async {
@@ -582,7 +582,7 @@ class _HelperCardState extends State<_HelperCard> {
           const SizedBox(height: 8),
           Row(children: [
             Expanded(
-              child: Text('建议保持充电，并允许 RDesk 后台运行，避免被系统休眠。', style: t.bodySmall),
+              child: Text('建议保持充电，并允许随控后台运行，避免被系统休眠。', style: t.bodySmall),
             ),
             TextButton(
                 onPressed: wake.agent.openBatterySettings,
@@ -614,7 +614,7 @@ class _TargetList extends StatelessWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('还没有可开机的电脑', style: t.titleSmall),
               const SizedBox(height: 4),
-              Text('在需要开机的 Windows 电脑上安装 RDesk，登录同一账号，打开「远程开机」开启即可。',
+              Text('在需要开机的 Windows 电脑上安装随控，登录同一账号，打开「远程开机」开启即可。',
                   style: t.bodySmall),
             ]),
           ),

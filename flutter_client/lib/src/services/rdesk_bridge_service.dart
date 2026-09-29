@@ -2677,7 +2677,7 @@ class RdeskBridgeService {
 
     _drawParagraph(
       canvas,
-      'RDesk 实时预览流',
+      '随控实时预览流',
       const ui.Offset(88, 84),
       fontSize: 34,
       color: const ui.Color(0xFFFFFFFF),

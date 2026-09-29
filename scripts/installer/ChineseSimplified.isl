@@ -1,6 +1,6 @@
-; RDesk installer Simplified Chinese messages (Inno Setup 6.7).
+; 随控 (RDesk) installer Simplified Chinese messages (Inno Setup 6.7).
 ; Loaded after compiler:Default.isl, so anything not listed here falls back
-; to English. Covers every page and prompt the RDesk installer can show.
+; to English. Covers every page and prompt the installer can show.
 
 [LangOptions]
 LanguageName=简体中文
@@ -29,15 +29,15 @@ SetupFileCorrupt=安装文件已损坏。请重新下载安装包。
 SetupFileCorruptOrWrongVer=安装文件已损坏或与当前安装程序不兼容。请重新下载安装包。
 InvalidParameter=命令行参数无效：%n%n%1
 SetupAlreadyRunning=安装程序已在运行。
-WindowsVersionNotSupported=RDesk 不支持当前的 Windows 版本。
-OnlyOnTheseArchitectures=RDesk 只能安装在以下处理器架构的 Windows 上：%n%n%1
-WinVersionTooLowError=RDesk 需要 %1 %2 或更高版本。
-SetupAppRunningError=RDesk 正在运行。%n%n请先退出 RDesk，然后点“确定”继续；点“取消”退出安装。
-UninstallAppRunningError=RDesk 正在运行。%n%n请先退出 RDesk，然后点“确定”继续；点“取消”退出卸载。
+WindowsVersionNotSupported=随控不支持当前的 Windows 版本。
+OnlyOnTheseArchitectures=随控只能安装在以下处理器架构的 Windows 上：%n%n%1
+WinVersionTooLowError=随控需要 %1 %2 或更高版本。
+SetupAppRunningError=随控正在运行。%n%n请先退出随控，然后点“确定”继续；点“取消”退出安装。
+UninstallAppRunningError=随控正在运行。%n%n请先退出随控，然后点“确定”继续；点“取消”退出卸载。
 
 ErrorCreatingDir=无法创建文件夹“%1”
 ExitSetupTitle=退出安装
-ExitSetupMessage=安装尚未完成。现在退出，RDesk 将不会被安装。%n%n以后可以重新运行安装程序完成安装。%n%n确定退出吗？
+ExitSetupMessage=安装尚未完成。现在退出，随控将不会被安装。%n%n以后可以重新运行安装程序完成安装。%n%n确定退出吗？
 AboutSetupMenuItem=关于安装程序(&A)...
 AboutSetupTitle=关于安装程序
 AboutSetupMessage=%1 版本 %2%n%3%n%n%1 主页：%n%4
@@ -62,17 +62,17 @@ BrowseDialogLabel=在下面的列表中选择一个文件夹，然后点“确�
 NewFolderName=新建文件夹
 
 WelcomeLabel1=欢迎安装 [name]
-WelcomeLabel2=RDesk 可以远程控制你的其他设备，也能帮家里的电脑远程开机。%n%n即将安装 [name/ver]。
+WelcomeLabel2=随控可以远程控制你的其他设备，也能帮家里的电脑远程开机。%n%n即将安装 [name/ver]。
 
 WizardSelectDir=选择安装位置
-SelectDirDesc=RDesk 要安装到哪里？
-SelectDirLabel3=RDesk 将安装到下面的文件夹。
+SelectDirDesc=随控要安装到哪里？
+SelectDirLabel3=随控将安装到下面的文件夹。
 SelectDirBrowseLabel=点“下一步”继续。如需更换位置，点“更改”。
 DiskSpaceGBLabel=至少需要 [gb] GB 可用磁盘空间。
 DiskSpaceMBLabel=至少需要 [mb] MB 可用磁盘空间。
 CannotInstallToNetworkDrive=不能安装到网络驱动器。
 CannotInstallToUNCPath=不能安装到 UNC 路径。
-InvalidPath=请输入带盘符的完整路径，例如：%n%nC:\RDesk
+InvalidPath=请输入带盘符的完整路径，例如：%n%nC:\Apps
 InvalidDrive=所选驱动器不存在或无法访问，请重新选择。
 DiskSpaceWarningTitle=磁盘空间不足
 DiskSpaceWarning=安装至少需要 %1 KB 可用空间，但所选驱动器只有 %2 KB。%n%n仍要继续吗？
@@ -85,7 +85,7 @@ DirDoesntExistTitle=文件夹不存在
 DirDoesntExist=文件夹：%n%n%1%n%n不存在。要创建它吗？
 
 WizardSelectTasks=安装选项
-SelectTasksDesc=按需要选择，之后也可以在 RDesk「设置 → 常规」中修改。
+SelectTasksDesc=按需要选择，之后也可以在随控「设置 → 常规」中修改。
 SelectTasksLabel2=
 
 WizardReady=准备安装
@@ -103,13 +103,13 @@ ApplicationsFound=以下程序正在使用需要更新的文件，建议让安�
 ApplicationsFound2=以下程序正在使用需要更新的文件，建议让安装程序自动关闭它们。安装完成后会尝试重新打开。
 CloseApplications=自动关闭这些程序(&A)
 DontCloseApplications=不关闭(&D)
-ErrorCloseApplications=无法自动关闭所有程序。继续前请先手动退出 RDesk。
+ErrorCloseApplications=无法自动关闭所有程序。继续前请先手动退出随控。
 PrepareToInstallNeedsRestart=需要重启电脑。重启后请重新运行安装程序完成 [name] 的安装。%n%n现在重启吗？
 
 WizardInstalling=正在安装
 InstallingLabel=正在安装 [name]，请稍候…
 
-FinishedHeadingLabel=RDesk 已准备就绪
+FinishedHeadingLabel=随控已准备就绪
 FinishedLabelNoIcons=[name] 已安装完成。
 FinishedLabel=[name] 已安装完成，可以从开始菜单或桌面快捷方式打开。
 ClickFinish=点“完成”关闭安装程序。
@@ -202,4 +202,4 @@ CreateDesktopIcon=创建桌面快捷方式(&D)
 LaunchProgram=打开 %1
 UninstallProgram=卸载 %1
 AutoStartProgram=开机后自动启动 %1
-AutoStartProgramHint=开机后自动启动 RDesk（远程开机后电脑能自动上线）
+AutoStartProgramHint=开机后自动启动随控（远程开机后电脑能自动上线）

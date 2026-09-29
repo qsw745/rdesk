@@ -79,7 +79,7 @@ object AppUpdatePlugin {
                                             activity.startActivity(Intent(Intent.ACTION_VIEW).apply {
                                                 setDataAndType(uri, "application/vnd.android.package-archive")
                                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                clipData = ClipData.newRawUri("RDesk 更新", uri)
+                                                clipData = ClipData.newRawUri("随控更新", uri)
                                             })
                                             result.success("opened")
                                         }

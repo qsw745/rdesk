@@ -34,7 +34,7 @@ PANEL = """
   linear-gradient(165deg,#3A7BFF 0%,#2B6BFF 38%,#1531BE 100%)"></div>
 <div style="position:absolute;left:0;right:0;top:27%;display:flex;flex-direction:column;align-items:center;font-family:{font};color:#fff">
   <img src="{icon}" style="width:46%;filter:drop-shadow(0 18px 30px rgba(8,20,70,.35))">
-  <div style="margin-top:9%;font-size:{title}px;font-weight:700;letter-spacing:.5px">RDesk</div>
+  <div style="margin-top:9%;font-size:{title}px;font-weight:700;letter-spacing:.12em;padding-left:.12em">随控</div>
   <div style="margin-top:3%;font-size:{sub}px;opacity:.86">连接你的设备</div>
   <div style="margin-top:1.2%;font-size:{sub}px;opacity:.86">随时远程协助</div>
 </div>
