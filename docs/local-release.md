@@ -4,7 +4,9 @@
 
 ## Windows
 
-在本地 Windows 电脑或本地 Windows 虚拟机安装 Flutter、Visual Studio 2022 C++ 桌面工具（含 ATL、Windows SDK、CMake）和 Inno Setup 6。当前插件不兼容 VS 2026 的旧协程开关，脚本明确选择 VS 2022。
+在本地 Windows 电脑或本地 Windows 虚拟机安装 Flutter、Visual Studio 2022 C++ 桌面工具（含 ATL、Windows SDK、CMake）和 Inno Setup 6.7 或更新版本（安装器使用其深色模式、背景图和 windows11 风格）。当前插件不兼容 VS 2026 的旧协程开关，脚本明确选择 VS 2022。
+
+安装器为简体中文、品牌化界面：素材由 `python3 design/generate_installer_art.py` 生成到 `scripts/installer/`，中文文案在 `scripts/installer/ChineseSimplified.isl`。「开机后自动启动」安装选项与 App「设置 → 常规 → 启动」共用当前用户 `Run` 项 `RDesk`；升级时按实际状态预选，静默安装不改动，卸载时移除。
 
 在项目根目录执行：
 

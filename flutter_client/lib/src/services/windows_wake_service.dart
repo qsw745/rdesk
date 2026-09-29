@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/wake.dart';
+import 'login_item_service.dart';
 import 'wake_api.dart';
 import 'windows_adapter_service.dart';
 import 'windows_process_runner.dart';
@@ -94,28 +96,15 @@ $shutdown=Adv @('ShutdownWakeOnLan','S5WakeOnLan')
     }
   }
 
-  /// Current-user startup only: no administrator task, service or login bypass.
-  Future<bool> loginStartupEnabled() async {
-    final result = await _run('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      r"$v=Get-ItemPropertyValue -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RDesk' -ErrorAction SilentlyContinue; if ($v) { 'true' } else { 'false' }"
-    ]);
-    if (result.exitCode != 0) {
-      throw const WakeApiException('startup', '无法读取登录启动设置');
-    }
-    return result.stdout.toString().trim() == 'true';
-  }
+  /// Current-user startup only; shared with the settings switch and installer.
+  LoginItemService get _loginItem =>
+      LoginItemService(platform: TargetPlatform.windows, run: _run);
+
+  Future<bool> loginStartupEnabled() async =>
+      (await _loginItem.status()).enabled;
 
   Future<void> setLoginStartup(bool enabled) async {
-    final path = Platform.resolvedExecutable.replaceAll("'", "''");
-    final script = enabled
-        ? "New-Item -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Force | Out-Null; Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RDesk' -Value '\"$path\"' -ErrorAction Stop"
-        : "Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'RDesk' -ErrorAction SilentlyContinue";
-    final result = await _run('powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', script]);
-    if (result.exitCode != 0) {
+    if ((await _loginItem.set(enabled)).enabled != enabled) {
       throw const WakeApiException('startup', '设置登录后启动失败，请重试');
     }
   }

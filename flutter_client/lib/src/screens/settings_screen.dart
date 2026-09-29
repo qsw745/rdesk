@@ -5,11 +5,13 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/android_host_provider.dart';
 import '../providers/desktop_host_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/login_item_service.dart';
 import '../utils/theme.dart';
 import '../utils/platform_capabilities.dart';
 import '../widgets/settings_sections.dart';
@@ -82,6 +84,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ),
+        if (cap.platform == TargetPlatform.windows ||
+            cap.platform == TargetPlatform.macOS) ...[
+          const SizedBox(height: 24),
+          const _SectionHeader(icon: Icons.power_outlined, label: '启动'),
+          const SizedBox(height: 10),
+          _CardContainer(isDark: isDark, child: const _LaunchAtLoginTile()),
+        ],
         if (cap.platform == TargetPlatform.macOS) ...[
           const SizedBox(height: 24),
           const _SectionHeader(
@@ -467,6 +476,101 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 }
 
+/// Sign-in launch for desktop builds. Windows needs it so a PC woken remotely
+/// comes back online; macOS needs it so hosting survives a restart.
+class _LaunchAtLoginTile extends StatefulWidget {
+  const _LaunchAtLoginTile();
+  @override
+  State<_LaunchAtLoginTile> createState() => _LaunchAtLoginTileState();
+}
+
+class _LaunchAtLoginTileState extends State<_LaunchAtLoginTile> {
+  final _service = const LoginItemService();
+  LoginItemState? _state;
+  bool _busy = false, _failed = false;
+  bool get _isMac => _service.platform == TargetPlatform.macOS;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final next = await _service.status();
+      if (!mounted) return;
+      setState(() {
+        _state = next;
+        _failed = false;
+      });
+    } catch (e) {
+      debugPrint('[RDesk] login item status: $e');
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  Future<void> _set(bool enabled) async {
+    setState(() => _busy = true);
+    try {
+      final next = await _service.set(enabled);
+      if (!mounted) return;
+      setState(() {
+        _state = next;
+        _failed = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(e is PlatformException
+              ? e.message ?? '无法更改登录项'
+              : e is LoginItemException
+                  ? e.message
+                  : '无法更改开机启动，请在系统设置中修改')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = _state;
+    final approval = state?.requiresApproval == true;
+    final subtitle = _failed
+        ? '暂时无法读取，可在系统设置中修改'
+        : approval
+            ? '需要在系统设置的「登录项」中允许 RDesk'
+            : _isMac
+                ? '重启后自动上线，保持可被远程控制'
+                : '电脑开机后自动上线，远程开机后才能确认并连接';
+    return Column(children: [
+      _SwitchTile(
+          icon: Icons.power_settings_new_rounded,
+          iconColor: AppTheme.primaryBlue,
+          title: _isMac ? '登录 Mac 后自动打开 RDesk' : '开机后自动启动 RDesk',
+          subtitle: subtitle,
+          value: state != null && (state.enabled || approval),
+          onChanged: state == null || !state.supported || _busy ? null : _set),
+      if (_failed || approval)
+        Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 0, 12, 8),
+            child: TextButton(
+                onPressed: () async {
+                  try {
+                    await _service.openSettings();
+                  } catch (e) {
+                    debugPrint('[RDesk] open login settings: $e');
+                  }
+                },
+                child: Text(_isMac ? '打开登录项设置' : '打开启动应用设置')),
+          ),
+        ),
+    ]);
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -542,7 +646,7 @@ class _SwitchTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   const _SwitchTile({
     required this.icon,
