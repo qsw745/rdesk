@@ -13,14 +13,14 @@ WelcomeFontSize=14
 
 [Messages]
 SetupAppTitle=安装
-SetupWindowTitle=安装 %1
+SetupWindowTitle=安装%1
 UninstallAppTitle=卸载
-UninstallAppFullTitle=卸载 %1
+UninstallAppFullTitle=卸载%1
 InformationTitle=提示
 ConfirmTitle=确认
 ErrorTitle=错误
 
-SetupLdrStartupMessage=将要安装 %1，是否继续？
+SetupLdrStartupMessage=将要安装%1，是否继续？
 LdrCannotCreateTemp=无法创建临时文件，安装已中止
 LdrCannotExecTemp=无法运行临时目录中的文件，安装已中止
 LastErrorMessage=%1。%n%n错误 %2：%3
@@ -61,8 +61,8 @@ BrowseDialogTitle=选择文件夹
 BrowseDialogLabel=在下面的列表中选择一个文件夹，然后点“确定”。
 NewFolderName=新建文件夹
 
-WelcomeLabel1=欢迎安装 [name]
-WelcomeLabel2=随控可以远程控制你的其他设备，也能帮家里的电脑远程开机。%n%n即将安装 [name/ver]。
+WelcomeLabel1=欢迎安装[name]
+WelcomeLabel2=随控可以远程控制你的其他设备，也能帮家里的电脑远程开机。%n%n即将安装[name/ver]。
 
 WizardSelectDir=选择安装位置
 SelectDirDesc=随控要安装到哪里？
@@ -89,14 +89,14 @@ SelectTasksDesc=按需要选择，之后也可以在随控「设置 → 常规�
 SelectTasksLabel2=
 
 WizardReady=准备安装
-ReadyLabel1=已准备好在这台电脑上安装 [name]。
+ReadyLabel1=已准备好在这台电脑上安装[name]。
 ReadyLabel2a=点“立即安装”开始安装，或点“上一步”修改选项。
 ReadyLabel2b=点“立即安装”开始安装。
 ReadyMemoDir=安装位置：
 ReadyMemoTasks=安装选项：
 
 WizardPreparing=准备安装
-PreparingDesc=正在准备安装 [name]。
+PreparingDesc=正在准备安装[name]。
 PreviousInstallNotCompleted=上一次安装或卸载尚未完成，需要重启电脑。%n%n重启后请重新运行安装程序完成 [name] 的安装。
 CannotContinue=安装无法继续，请点“取消”退出。
 ApplicationsFound=以下程序正在使用需要更新的文件，建议让安装程序自动关闭它们。
@@ -104,21 +104,21 @@ ApplicationsFound2=以下程序正在使用需要更新的文件，建议让安�
 CloseApplications=自动关闭这些程序(&A)
 DontCloseApplications=不关闭(&D)
 ErrorCloseApplications=无法自动关闭所有程序。继续前请先手动退出随控。
-PrepareToInstallNeedsRestart=需要重启电脑。重启后请重新运行安装程序完成 [name] 的安装。%n%n现在重启吗？
+PrepareToInstallNeedsRestart=需要重启电脑。重启后请重新运行安装程序完成[name]的安装。%n%n现在重启吗？
 
 WizardInstalling=正在安装
-InstallingLabel=正在安装 [name]，请稍候…
+InstallingLabel=正在安装[name]，请稍候…
 
 FinishedHeadingLabel=随控已准备就绪
-FinishedLabelNoIcons=[name] 已安装完成。
-FinishedLabel=[name] 已安装完成，可以从开始菜单或桌面快捷方式打开。
+FinishedLabelNoIcons=[name]已安装完成。
+FinishedLabel=[name]已安装完成，可以从开始菜单或桌面快捷方式打开。
 ClickFinish=点“完成”关闭安装程序。
-FinishedRestartLabel=需要重启电脑才能完成 [name] 的安装。现在重启吗？
-FinishedRestartMessage=需要重启电脑才能完成 [name] 的安装。%n%n现在重启吗？
+FinishedRestartLabel=需要重启电脑才能完成[name]的安装。现在重启吗？
+FinishedRestartMessage=需要重启电脑才能完成[name]的安装。%n%n现在重启吗？
 YesRadio=现在重启(&Y)
 NoRadio=稍后手动重启(&N)
-RunEntryExec=打开 %1
-RunEntryShellExec=查看 %1
+RunEntryExec=打开%1
+RunEntryShellExec=查看%1
 
 SetupAborted=安装未完成。%n%n请解决问题后重新运行安装程序。
 AbortRetryIgnoreSelectAction=请选择
@@ -184,22 +184,22 @@ UninstallNotFound=文件“%1”不存在，无法卸载。
 UninstallOpenError=无法打开文件“%1”，无法卸载
 UninstallUnsupportedVer=卸载日志“%1”的格式无法识别，无法卸载
 UninstallUnknownEntry=卸载日志中有未知条目（%1）
-ConfirmUninstall=确定要从这台电脑移除 %1 吗？%n%n账号、设备列表等云端数据不会被删除。
+ConfirmUninstall=确定要从这台电脑移除%1吗？%n%n账号、设备列表等云端数据不会被删除。
 UninstallOnlyOnWin64=只能在 64 位 Windows 上卸载。
-UninstallStatusLabel=正在移除 %1，请稍候…
-UninstalledAll=%1 已从这台电脑移除。
-UninstalledMost=%1 卸载完成。%n%n有些文件无法删除，可以手动移除。
-UninstalledAndNeedsRestart=需要重启电脑才能完成 %1 的卸载。%n%n现在重启吗？
+UninstallStatusLabel=正在移除%1，请稍候…
+UninstalledAll=%1已从这台电脑移除。
+UninstalledMost=%1卸载完成。%n%n有些文件无法删除，可以手动移除。
+UninstalledAndNeedsRestart=需要重启电脑才能完成%1的卸载。%n%n现在重启吗？
 UninstallDataCorrupted=文件“%1”已损坏，无法卸载
 WizardUninstalling=卸载
-StatusUninstalling=正在卸载 %1…
-ShutdownBlockReasonInstallingApp=正在安装 %1。
-ShutdownBlockReasonUninstallingApp=正在卸载 %1。
+StatusUninstalling=正在卸载%1…
+ShutdownBlockReasonInstallingApp=正在安装%1。
+ShutdownBlockReasonUninstallingApp=正在卸载%1。
 
 [CustomMessages]
 NameAndVersion=%1 版本 %2
 CreateDesktopIcon=创建桌面快捷方式(&D)
-LaunchProgram=打开 %1
-UninstallProgram=卸载 %1
-AutoStartProgram=开机后自动启动 %1
+LaunchProgram=打开%1
+UninstallProgram=卸载%1
+AutoStartProgram=开机后自动启动%1
 AutoStartProgramHint=开机后自动启动随控（远程开机后电脑能自动上线）
