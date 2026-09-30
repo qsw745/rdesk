@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>RDesk 需要访问本地网络以连接同一局域网内的远程设备</string>
+	<string>随控需要访问本地网络以连接同一局域网内的远程设备</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>RDesk 使用 Face ID 验证身份，快速登录你的账号</string>
+	<string>随控使用 Face ID 验证身份，快速登录你的账号</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -16,7 +16,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>RDesk</string>
+	<string>随控</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -24,7 +24,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>RDesk</string>
+	<string>随控</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
