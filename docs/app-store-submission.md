@@ -596,3 +596,12 @@ Flutter 工具链目前不为其生成 dSYM。所有 CocoaPods 依赖的 dSYM �
 仓库新增远程开机：登录账号后，手机或电脑可请求家中安卓助手通过局域网唤醒已配置的 Windows 有线网卡。安卓助手为独立常驻通知服务，不依赖录屏或无障碍；iOS 仅作为请求开机的控制端。Windows 被控桌面仍未实现。此功能、公开说明源文件与新增隐私字段均需在配套服务部署及新构建实测后再纳入审核材料；不代表当前 App Store 构建或元数据已经更新。
 
 新增保存字段为电脑 MAC、助手绑定、专用设备令牌摘要及最多 7 天 / 50 条的开机诊断。账号注销删除这些云端数据，开机页也提供删除目标和助手入口。正式上传前核对公开隐私页、支持页、隐私问卷及实际发布构建，不能只编辑仓库文件就宣称已上线。配置及实机验收见 `docs/remote-wake.md`。
+
+## 改名「随控」（待下个 iOS 版本，分支 `ios-rename-suikong`）
+
+2026-09-29 起 Mac/Windows/Android 2.3.2 已改名为「随控」，master 上的应用内文案也已是随控；iOS 仍以 RDesk 上架。下个 iOS 版本必须一起完成：
+
+1. 合并分支 `ios-rename-suikong`：主屏名称、Face ID 与本地网络权限说明、屏幕共享扩展显示名改为随控。Bundle ID `com.qsw.rdesk` 不变。
+2. App Store Connect 该版本的 App 名称改为「随控远程」（名称全局唯一，提交前在 ASC 中确认可用），副标题、描述、关键词、What's New 中的 RDesk 同步改为随控，并注明原名 RDesk。
+3. 审核备注、截图文字与 `docs/app-review-response.md` 的新草稿使用新名称；支持页 `qsw745.github.io/rdesk-support` 与隐私政策写作「随控（原名 RDesk）」并完成公网与多地区可达性检查。
+4. 审核演示机上的应用名称会随新构建改变，`scripts/check_review_host.sh` 按包名检查，不受影响。
