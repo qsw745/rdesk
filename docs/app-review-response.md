@@ -1,5 +1,11 @@
 # RDesk App Review 拒审与回复记录
 
+## 2026-10-01 2.3.2（build 25）Guideline 2.3.10 拒审与修复
+
+- 2026-10-01 08:57 CST Apple 拒审（审核设备 iPad Air 11-inch (M3)）：Guideline 2.3.10 Accurate Metadata——描述和「此版本的新增内容」提到第三方平台，要求删除 Android 相关文字。Apple 注明属可在下个版本修复的问题，二进制未被指出问题。
+- 修复（仅元数据，未重新构建）：描述中远程开机助手改为「家中一台常开的设备作为开机助手，例如 Mac」，「【跨平台】」段改为「【支持的设备】」只写 iPhone/iPad（主控、作为被控端仅共享画面）与 Mac（被控）；更新说明的远程开机改为「家中的电脑」。同时去掉 Windows 字样。经 API 回读，描述、更新说明、关键词、推广文本均无 Android/安卓/Windows。截图中设备卡片的系统标签（Android、Windows）未改，Apple 本次未指出。
+- 2026-10-04 00:12 在「回复 App 审核」发送英文说明；网页重新提交按钮不可用，API 先将提交项标记 `resolved`，再于 00:15 重新提交同一提交 `88fb0c74-c465-491a-8fe3-f44db5da0d00`，回读 2.3.2 为 `WAITING_FOR_REVIEW`。用户确认演示机在线；未经 `check_review_host.sh` 验证。这不代表已批准。
+
 ## 2026-10-01 2.3.2（build 25）改名「随控远程」提交
 
 - 合并 `ios-rename-suikong`：主屏名「随控」、权限说明与屏幕共享扩展「随控屏幕共享」；IPA 核验 2.3.2（25）、扩展同版本、最低 iOS 15、两份隐私清单、无相机/相册权限、Apple Distribution 签名；Xcode 账号上传成功（仅 `objective_c.framework` dSYM 已知警告）。
