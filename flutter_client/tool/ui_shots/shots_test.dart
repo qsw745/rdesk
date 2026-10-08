@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rdesk/app.dart';
 import 'package:rdesk/src/models/account.dart';
 import 'package:rdesk/src/models/device.dart';
+import 'package:rdesk/src/models/connection_info.dart';
 import 'package:rdesk/src/providers/connection_provider.dart';
 import 'package:rdesk/src/models/session.dart';
 import 'package:rdesk/src/models/wake.dart';
@@ -33,7 +34,8 @@ const server = 'https://qisw.top';
 Future<void> loadFamily(String family, List<String> files) async {
   final loader = FontLoader(family);
   for (final f in files) {
-    loader.addFont(Future.value(ByteData.sublistView(File(f).readAsBytesSync())));
+    loader
+        .addFont(Future.value(ByteData.sublistView(File(f).readAsBytesSync())));
   }
   await loader.load();
 }
@@ -55,12 +57,12 @@ class Shot {
 // App Store sizes: iPhone 6.5" 414x896 @3x, iPad 13" 1032x1376 @2x.
 const store65 = Size(414, 896);
 const store13 = Size(1032, 1376);
-Shot phoneStore(String name, String route) => Shot('store_iphone_$name', route,
-    TargetPlatform.iOS, store65,
-    dpr: 3, top: 44, bottom: 34);
-Shot padStore(String name, String route) => Shot('store_ipad_$name', route,
-    TargetPlatform.iOS, store13,
-    dpr: 2, top: 24, bottom: 20);
+Shot phoneStore(String name, String route) =>
+    Shot('store_iphone_$name', route, TargetPlatform.iOS, store65,
+        dpr: 3, top: 44, bottom: 34);
+Shot padStore(String name, String route) =>
+    Shot('store_ipad_$name', route, TargetPlatform.iOS, store13,
+        dpr: 2, top: 24, bottom: 20);
 
 const phone = Size(393, 852);
 const desktop = Size(1280, 820);
@@ -76,7 +78,8 @@ final shots = [
   padStore('1_devices', '/'),
   padStore('2_device', dev('318204557')),
   padStore('3_assist', '/assist'),
-  const Shot('ios_devices_empty', '/', TargetPlatform.iOS, phone, seeded: false),
+  const Shot('ios_devices_empty', '/', TargetPlatform.iOS, phone,
+      seeded: false),
   const Shot('ios_devices', '/', TargetPlatform.iOS, phone),
   Shot('ios_device_online', dev('318204557'), TargetPlatform.iOS, phone),
   Shot('ios_device_wake', dev('552910384'), TargetPlatform.iOS, phone),
@@ -100,7 +103,8 @@ final shots = [
   const Shot('mac_me', '/me', TargetPlatform.macOS, desktop),
   const Shot('win_devices', '/', TargetPlatform.windows, desktop),
   const Shot('win_wake', '/wake', TargetPlatform.windows, desktop),
-  const Shot('mac_devices_dark', '/', TargetPlatform.macOS, desktop, dark: true),
+  const Shot('mac_devices_dark', '/', TargetPlatform.macOS, desktop,
+      dark: true),
   const Shot('ios_remote', '/remote/demo', TargetPlatform.iOS, Size(852, 393)),
   const Shot('mac_remote', '/remote/demo', TargetPlatform.macOS, desktop),
   const Shot('ios_login', '/login', TargetPlatform.iOS, phone, seeded: false),
@@ -110,8 +114,8 @@ final shots = [
   const Shot('ios_saved', '/saved', TargetPlatform.iOS, phone),
   const Shot('ios_gestures', '/gesture-guide', TargetPlatform.iOS, phone),
   const Shot('android_host', '/mobile-host', TargetPlatform.android, phone),
-  const Shot('mac_unattended', '/unattended-setup', TargetPlatform.macOS,
-      desktop),
+  const Shot(
+      'mac_unattended', '/unattended-setup', TargetPlatform.macOS, desktop),
 ];
 
 void seed(BuildContext context) {
@@ -139,8 +143,25 @@ void seed(BuildContext context) {
       endpoint: server);
   context.read<ConnectionProvider>().debugSeed(
       const DeviceInfo(
-          deviceId: '888888888', os: 'ios', hostname: 'iPhone', version: '2.3.0'),
-      '739214');
+          deviceId: '888888888',
+          os: 'ios',
+          hostname: 'iPhone',
+          version: '2.3.0'),
+      '739214',
+      history: [
+        ConnectionRecord(
+            peerId: 'old-phone',
+            peerHostname: '小米 14',
+            peerOs: 'android',
+            connectedAt: DateTime.utc(2026, 9, 1),
+            connectionType: 'relay'),
+        ConnectionRecord(
+            peerId: '318204557',
+            peerHostname: '家里的 MacBook Pro',
+            peerOs: 'macos',
+            connectedAt: DateTime.utc(2026, 9, 1),
+            connectionType: 'relay'),
+      ]);
   final wake = context.read<WakeProvider>();
   wake.bindAccount('u1', server);
   wake.agents = const [
@@ -156,7 +177,19 @@ void seed(BuildContext context) {
         online: false,
         agentOnline: true,
         setupComplete: true,
-        revision: 1),
+        revision: 1,
+        lastSeenMs: 2),
+    WakeTarget(
+        id: 'old-t1',
+        name: '书房台式机',
+        deviceId: 'old-pc',
+        mac: '00:11:22:33:44:55',
+        agentId: 'retired-helper',
+        online: false,
+        agentOnline: false,
+        setupComplete: true,
+        revision: 1,
+        lastSeenMs: 1),
   ];
   wake.notifyListeners();
   context.read<SessionProvider>().setSession(SessionInfo(
@@ -169,13 +202,26 @@ void seed(BuildContext context) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const desktopChannel = MethodChannel('com.qsw.rdesk/desktop_host');
   setUpAll(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(desktopChannel, (call) async {
+      if (call.method == 'getPermissionState') {
+        return {'screenRecordingGranted': false, 'accessibilityGranted': false};
+      }
+      return null;
+    });
     final faces = [
       for (final w in [300, 400, 500, 600, 700, 800]) '$fonts/PingFangSC-$w.ttf'
     ];
     await loadFamily('PingFang SC', faces);
     await loadFamily('MaterialIcons', [materialIcons]);
     AppTheme.debugFontFamily = 'PingFang SC';
+  });
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(desktopChannel, null);
   });
   for (final shot in shots) {
     testWidgets(shot.name, (tester) async {
@@ -193,7 +239,7 @@ void main() {
       addTearDown(tester.view.reset);
       addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
       appRouter.go('/');
-      await tester.pumpWidget(const RDeskApp());
+      await tester.pumpWidget(const RDeskApp(initializeHostServices: false));
       await tester.pump(const Duration(milliseconds: 300));
       if (shot.seeded) {
         seed(tester.element(find.byType(Navigator).first));
@@ -206,6 +252,9 @@ void main() {
       }
       await expectLater(
           find.byType(RDeskApp), matchesGoldenFile('out/${shot.name}.png'));
+      await tester.pumpWidget(const SizedBox.shrink());
+      // Let outstanding host work finish after disposing the seeded app.
+      await tester.pump(const Duration(seconds: 3));
     }, variant: TargetPlatformVariant.only(shot.platform));
   }
 }

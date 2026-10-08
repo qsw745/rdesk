@@ -9,6 +9,12 @@ class DeviceDirectoryEntry {
   final bool accountOwned;
   final DateTime? lastSeen;
   final WakeTarget? wakeTarget;
+
+  /// Confirmed device-code aliases in this entry's server scope.
+  final List<String> relatedDeviceIds;
+
+  /// Directory routes for older confirmed device-code aliases.
+  final List<String> aliasKeys;
   const DeviceDirectoryEntry(
       {required this.key,
       required this.deviceId,
@@ -19,5 +25,7 @@ class DeviceDirectoryEntry {
       required this.favorite,
       this.accountOwned = false,
       this.lastSeen,
-      this.wakeTarget});
+      this.wakeTarget,
+      this.relatedDeviceIds = const [],
+      this.aliasKeys = const []});
 }

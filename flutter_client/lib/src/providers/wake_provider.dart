@@ -1,21 +1,28 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/wake.dart';
 import '../services/wake_api.dart';
 import '../services/wake_agent_channel.dart';
 import '../services/windows_wake_service.dart';
+import '../utils/wake_target_group.dart';
 
-class WakeProvider extends ChangeNotifier {
+class WakeProvider extends ChangeNotifier with WidgetsBindingObserver {
   final WakeApi api;
   final WakeAgentChannel agent;
   final WindowsWakeService? windows;
-  WakeProvider({required this.api, required this.agent, this.windows});
+  WakeProvider({required this.api, required this.agent, this.windows}) {
+    final binding = WidgetsBinding.instance;
+    _foreground = binding.lifecycleState == null ||
+        binding.lifecycleState == AppLifecycleState.resumed;
+    binding.addObserver(this);
+  }
   String? _userId, _server;
   int _generation = 0;
   bool _disposed = false, _visible = false, _refreshing = false;
+  bool _foreground = true;
   Future<void> _nativeTail = Future.value();
   Timer? _timer;
   List<WakeTarget> targets = [];
@@ -154,13 +161,26 @@ class WakeProvider extends ChangeNotifier {
   void setVisible(bool visible) {
     _visible = visible;
     _timer?.cancel();
-    if (visible) unawaited(refresh());
+    if (visible && _foreground) {
+      unawaited(refresh());
+    } else {
+      _schedule();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final foreground = state == AppLifecycleState.resumed;
+    if (_foreground == foreground) return;
+    _foreground = foreground;
+    _timer?.cancel();
+    if (foreground) unawaited(refresh());
   }
 
   void _schedule() {
     _timer?.cancel();
-    if (_visible && loggedIn && !_disposed) {
-      final active = history.values.expand((v) => v).any((r) => r.active);
+    final active = targets.any(isWaking);
+    if (_foreground && (_visible || active) && loggedIn && !_disposed) {
       _timer =
           Timer(Duration(seconds: active ? 2 : 15), () => unawaited(refresh()));
     }
@@ -178,19 +198,39 @@ class WakeProvider extends ChangeNotifier {
       scoped = await api.scoped();
       if (!_current(gen)) return;
       final newTargets = await scoped.targets();
-      final newAgents = await scoped.agents();
-      final histories = <String, List<WakeRequest>>{};
-      for (final target in newTargets) {
-        if (!_current(gen)) return;
-        histories[target.id] = await scoped.history(target.id);
-      }
-      final status = await agent.status();
       if (!_current(gen)) return;
       targets = newTargets;
-      agents = newAgents;
-      history = histories;
-      helper = status;
+      final targetIds = newTargets.map((t) => t.id).toSet();
+      history.removeWhere((id, _) => !targetIds.contains(id));
       error = null;
+      _notify();
+      Object? refreshError;
+      try {
+        final newAgents = await scoped.agents();
+        if (!_current(gen)) return;
+        agents = newAgents;
+      } catch (e) {
+        refreshError = e;
+      }
+      for (final target in newTargets) {
+        if (!_current(gen)) return;
+        try {
+          final newHistory = await scoped.history(target.id);
+          if (!_current(gen)) return;
+          history[target.id] = newHistory;
+        } catch (e) {
+          refreshError ??= e;
+        }
+      }
+      try {
+        final status = await agent.status();
+        if (!_current(gen)) return;
+        helper = status;
+      } catch (e) {
+        refreshError ??= e;
+      }
+      if (!_current(gen)) return;
+      error = refreshError == null ? null : _message(refreshError);
     } catch (e) {
       if (_current(gen)) error = _message(e);
     } finally {
@@ -213,6 +253,31 @@ class WakeProvider extends ChangeNotifier {
 
   WakeTarget? targetForDevice(String deviceId) =>
       targets.where((t) => t.deviceId == deviceId).firstOrNull;
+
+  Iterable<WakeTarget> _groupForTarget(WakeTarget target) {
+    final key = wakeTargetGroupKey(target);
+    return targets.where((t) => wakeTargetGroupKey(t) == key);
+  }
+
+  WakeRequest? latestRequestForTarget(WakeTarget target) {
+    final ids = {target.id, ..._groupForTarget(target).map((t) => t.id)};
+    WakeRequest? latest;
+    for (final id in ids) {
+      for (final request in history[id] ?? const <WakeRequest>[]) {
+        if (latest == null || request.createdAtMs > latest.createdAtMs) {
+          latest = request;
+        }
+      }
+    }
+    return latest;
+  }
+
+  bool isWaking(WakeTarget target) {
+    final members = _groupForTarget(target).toList();
+    if (target.online || members.any((t) => t.online)) return false;
+    final ids = {target.id, ...members.map((t) => t.id)};
+    return ids.any((id) => history[id]?.any((r) => r.active) ?? false);
+  }
 
   String _pendingKey(Uri uri, String user) => '${_key(uri, user)}.windows';
 
@@ -504,6 +569,7 @@ class WakeProvider extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     ++_generation;
     _timer?.cancel();
     unawaited(windows?.dispose() ?? Future.value());

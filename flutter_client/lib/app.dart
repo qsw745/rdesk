@@ -38,7 +38,10 @@ bool get _isMobilePlatform {
 }
 
 class RDeskApp extends StatelessWidget {
-  const RDeskApp({super.key});
+  /// Render fixtures without starting native hosts or LAN listeners.
+  @visibleForTesting
+  final bool initializeHostServices;
+  const RDeskApp({super.key, this.initializeHostServices = true});
 
   @override
   Widget build(BuildContext context) {
@@ -85,14 +88,14 @@ class RDeskApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AddressBookProvider()..load()),
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) =>
-              AndroidHostProvider()..initialize(enabled: _isMobilePlatform),
+          create: (_) => AndroidHostProvider()
+            ..initialize(enabled: initializeHostServices && _isMobilePlatform),
         ),
         ChangeNotifierProvider(
           lazy: false,
           create: (_) {
             final provider = DesktopHostProvider();
-            if (_isDesktopPlatform) {
+            if (initializeHostServices && _isDesktopPlatform) {
               unawaited(provider.initialize(enabled: true));
               unawaited(provider.startHosting());
             }

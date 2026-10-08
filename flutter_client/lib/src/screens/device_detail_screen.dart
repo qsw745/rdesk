@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/device_directory_entry.dart';
 import '../models/wake.dart';
-import '../providers/address_book_provider.dart';
 import '../providers/wake_provider.dart';
 import '../ui/components.dart';
 import '../ui/device_actions.dart';
@@ -18,7 +17,7 @@ class DeviceDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final entry = watchDeviceDirectory(context)
-        .where((e) => e.key == deviceKey)
+        .where((e) => e.key == deviceKey || e.aliasKeys.contains(deviceKey))
         .firstOrNull;
     if (entry == null) {
       return Scaffold(
@@ -68,7 +67,7 @@ class _DeviceView extends StatelessWidget {
             icon: Icons.power_settings_new_rounded,
             label: '远程开机',
             tone: RdTone.power,
-            onTap: entry.online || wake.busy
+            onTap: entry.online || wake.busy || wake.isWaking(target)
                 ? null
                 : () => wakeDevice(context, target)),
       RdActionButton(
@@ -362,21 +361,26 @@ class _WakeCard extends StatelessWidget {
     final t = Theme.of(context).textTheme;
     final p = RdPalette.of(context);
     final helper = wake.agents.where((a) => a.id == target.agentId).firstOrNull;
-    final latest = wake.history[target.id]?.firstOrNull;
-    final (String, RdTone)? result = latest == null
-        ? null
-        : switch (latest.phase) {
-            WakePhase.queued || WakePhase.claimed => ('正在发送开机信号', RdTone.power),
-            WakePhase.sent => ('已发出，等待电脑上线', RdTone.power),
-            WakePhase.online => ('上次开机成功', RdTone.online),
-            WakePhase.unconfirmed => ('已发出，但未等到电脑上线', RdTone.warning),
-            WakePhase.expired || WakePhase.failed || WakePhase.interrupted => (
-                '上次开机没有成功',
-                RdTone.danger
-              ),
-            WakePhase.cancelled => ('上次开机已取消', RdTone.neutral),
-            WakePhase.unknown => null,
-          };
+    final latest = wake.latestRequestForTarget(target);
+    final (String, RdTone)? result = online
+        ? ('电脑已上线', RdTone.online)
+        : latest == null
+            ? null
+            : switch (latest.phase) {
+                WakePhase.queued || WakePhase.claimed => (
+                    '正在发送开机信号',
+                    RdTone.power
+                  ),
+                WakePhase.sent => ('已发出，等待电脑上线', RdTone.power),
+                WakePhase.online => ('上次开机成功', RdTone.online),
+                WakePhase.unconfirmed => ('已发出，但未等到电脑上线', RdTone.warning),
+                WakePhase.expired ||
+                WakePhase.failed ||
+                WakePhase.interrupted =>
+                  ('上次开机没有成功', RdTone.danger),
+                WakePhase.cancelled => ('上次开机已取消', RdTone.neutral),
+                WakePhase.unknown => null,
+              };
     return RdCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
@@ -430,9 +434,7 @@ class _MoreMenu extends StatelessWidget {
           case 'wake':
             if (context.mounted) context.push('/wake');
           case 'forget':
-            await context.read<AddressBookProvider>().removeEntry(
-                entry.deviceId,
-                endpointScope: entry.endpointScope);
+            await toggleFavorite(context, entry);
             if (context.mounted) context.go('/');
         }
       },
@@ -441,7 +443,7 @@ class _MoreMenu extends StatelessWidget {
             value: 'favorite', child: Text(entry.favorite ? '取消收藏' : '收藏')),
         if (target != null)
           const PopupMenuItem(value: 'wake', child: Text('远程开机设置')),
-        if (entry.favorite && !entry.accountOwned)
+        if (entry.favorite && !entry.accountOwned && target == null)
           const PopupMenuItem(value: 'forget', child: Text('从列表移除')),
       ],
     );

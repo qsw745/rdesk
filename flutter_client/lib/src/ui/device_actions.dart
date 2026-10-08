@@ -37,6 +37,10 @@ List<DeviceDirectoryEntry> watchDeviceDirectory(BuildContext context) {
 String devicePath(DeviceDirectoryEntry e) =>
     '/device/${Uri.encodeComponent(e.key)}';
 
+/// Connection history alone does not establish a currently registered device.
+bool isPrimaryDevice(DeviceDirectoryEntry e) =>
+    e.accountOwned || e.favorite || e.wakeTarget != null;
+
 /// What this build can do with a directory entry. Windows and iOS hosts are
 /// not remotely controllable in the shipped product.
 class DeviceAbilities {
@@ -80,9 +84,9 @@ bool canConnectNow(DeviceDirectoryEntry e, DeviceAbilities a) =>
 ({String label, RdTone tone}) deviceStatus(
     DeviceDirectoryEntry e, WakeProvider wake) {
   final target = e.wakeTarget;
-  final latest = target == null ? null : wake.history[target.id]?.firstOrNull;
+  final latest = target == null ? null : wake.latestRequestForTarget(target);
   if (e.online) return (label: '在线', tone: RdTone.online);
-  if (latest != null && latest.active) {
+  if (target != null && wake.isWaking(target)) {
     return (label: '正在开机', tone: RdTone.power);
   }
   if (latest?.phase == WakePhase.unconfirmed &&
@@ -155,7 +159,10 @@ Future<void> toggleFavorite(
     BuildContext context, DeviceDirectoryEntry item) async {
   final book = context.read<AddressBookProvider>();
   if (item.favorite) {
-    await book.removeEntry(item.deviceId, endpointScope: item.endpointScope);
+    final ids = {item.deviceId, ...item.relatedDeviceIds};
+    for (final id in ids) {
+      await book.removeEntry(id, endpointScope: item.endpointScope);
+    }
   } else {
     await book.addEntry(
         deviceId: item.deviceId,
@@ -172,9 +179,8 @@ Future<void> wakeDevice(BuildContext context, WakeTarget target) async {
   final messenger = ScaffoldMessenger.of(context);
   final ok = await wake.wake(target);
   messenger.showSnackBar(SnackBar(
-      content: Text(ok
-          ? '开机信号已发出，电脑启动并运行随控后会显示在线'
-          : wake.error ?? '开机请求没有发出，请稍后重试')));
+      content: Text(
+          ok ? '开机信号已发出，电脑启动并运行随控后会显示在线' : wake.error ?? '开机请求没有发出，请稍后重试')));
 }
 
 Future<void> showAddDeviceDialog(BuildContext context) async {

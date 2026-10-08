@@ -14,6 +14,7 @@ import '../ui/device_actions.dart';
 import '../ui/tokens.dart';
 import '../utils/theme.dart';
 import '../utils/platform_capabilities.dart';
+import '../utils/wake_target_group.dart';
 import '../widgets/account_auth_dialog.dart';
 
 /// "我的" on phones, "账号" on desktop: account, shortcuts and settings.
@@ -26,7 +27,8 @@ class ProfileScreen extends StatelessWidget {
     final auth = context.watch<AuthProvider>();
     final wake = context.watch<WakeProvider>();
     final session = auth.session;
-    final devices = watchDeviceDirectory(context);
+    final devices =
+        watchDeviceDirectory(context).where(isPrimaryDevice).toList();
     final online = devices.where((e) => e.online).length;
 
     String wakeSubtitle() {
@@ -36,7 +38,7 @@ class ProfileScreen extends StatelessWidget {
         return code == null ? '本机正在作为家中开机助手' : describeHelperError(code);
       }
       if (wake.targets.isEmpty) return '电脑关机也能用手机开机';
-      return '${wake.targets.length} 台电脑可远程开机';
+      return '${groupWakeTargets(wake.targets).length} 台电脑可远程开机';
     }
 
     return RdPage(

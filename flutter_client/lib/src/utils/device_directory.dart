@@ -3,6 +3,7 @@ import '../models/address_book.dart';
 import '../models/connection_info.dart';
 import '../models/device_directory_entry.dart';
 import '../models/wake.dart';
+import 'wake_target_group.dart';
 
 String? normalizedEndpointScope(String? value) {
   if (value == null || value.trim().isEmpty) return null;
@@ -13,6 +14,13 @@ String? normalizedEndpointScope(String? value) {
       uri.host.isEmpty ||
       uri.userInfo.isNotEmpty) {
     return null;
+  }
+  // Only shipped HTTP aliases of the official service share this identity.
+  // Unknown sources and arbitrary self-hosted HTTP origins stay separate.
+  if (uri.scheme == 'http' &&
+      uri.host.toLowerCase() == 'qisw.top' &&
+      (uri.port == 80 || uri.port == 21116)) {
+    return 'https://qisw.top';
   }
   return uri.origin.toLowerCase();
 }
@@ -28,6 +36,22 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
     required List<WakeTarget> wakeTargets}) {
   final scope = normalizedEndpointScope(endpointScope);
   final rows = <String, DeviceDirectoryEntry>{};
+  final groups = scope == null
+      ? wakeTargets
+          .map((t) => WakeTargetGroup(primary: t, members: [t]))
+          .toList()
+      : groupWakeTargets(wakeTargets,
+          accountDeviceIds: accountDevices.map((d) => d.deviceId).toSet());
+  final aliases = <String, String>{};
+  final groupByDeviceId = <String, WakeTargetGroup>{};
+  if (scope != null) {
+    for (final group in groups) {
+      groupByDeviceId[group.primary.deviceId] = group;
+      for (final member in group.members) {
+        aliases[member.deviceId] = group.primary.deviceId;
+      }
+    }
+  }
   void put(String id, String? source,
       {String? name,
       String? platform,
@@ -36,20 +60,40 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
       bool? accountOwned,
       DateTime? lastSeen,
       WakeTarget? wake}) {
-    final key = deviceDirectoryKey(source, id);
+    final sourceScope = normalizedEndpointScope(source);
+    final currentScope = scope != null && sourceScope == scope;
+    final deviceId = currentScope ? aliases[id] ?? id : id;
+    final key = deviceDirectoryKey(sourceScope, deviceId);
     final old = rows[key];
+    final group = currentScope ? groupByDeviceId[deviceId] : null;
+    final otherIds = group?.members
+            .map((t) => t.deviceId)
+            .where((id) => id != deviceId)
+            .toSet()
+            .toList() ??
+        <String>[];
+    otherIds.sort();
+    final relatedIds =
+        group == null ? const <String>[] : [deviceId, ...otherIds];
     rows[key] = DeviceDirectoryEntry(
         key: key,
-        deviceId: id,
-        name: name?.isNotEmpty == true ? name! : old?.name ?? id,
+        deviceId: deviceId,
+        name: name?.isNotEmpty == true ? name! : old?.name ?? deviceId,
         platform:
             platform?.isNotEmpty == true ? platform! : old?.platform ?? '未知系统',
-        endpointScope: normalizedEndpointScope(source),
+        endpointScope: sourceScope,
         online: online ?? old?.online ?? false,
         favorite: favorite ?? old?.favorite ?? false,
         accountOwned: accountOwned ?? old?.accountOwned ?? false,
-        lastSeen: lastSeen ?? old?.lastSeen,
-        wakeTarget: wake ?? old?.wakeTarget);
+        lastSeen: lastSeen != null &&
+                (old?.lastSeen == null || lastSeen.isAfter(old!.lastSeen!))
+            ? lastSeen
+            : old?.lastSeen,
+        wakeTarget: wake ?? old?.wakeTarget,
+        relatedDeviceIds: List.unmodifiable(relatedIds),
+        aliasKeys: List.unmodifiable(relatedIds
+            .map((id) => deviceDirectoryKey(sourceScope, id))
+            .where((alias) => alias != key)));
   }
 
   final sortedHistory = List<ConnectionRecord>.of(history)
@@ -58,9 +102,13 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
     put(h.peerId, h.endpointScope,
         name: h.peerHostname, platform: h.peerOs, lastSeen: h.connectedAt);
   }
-  for (final t in wakeTargets) {
+  for (final group in groups) {
+    final t = group.primary;
     put(t.deviceId, scope,
-        name: t.name, platform: 'windows', online: t.online, wake: t);
+        name: t.name,
+        platform: 'windows',
+        online: group.members.any((t) => t.online),
+        wake: t);
   }
   for (final d in accountDevices) {
     put(d.deviceId, scope,
@@ -74,10 +122,14 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
     put(s.deviceId, s.endpointScope,
         name: s.alias,
         favorite: true,
-        platform:
-            rows.containsKey(deviceDirectoryKey(s.endpointScope, s.deviceId))
-                ? null
-                : s.platform);
+        platform: rows.containsKey(deviceDirectoryKey(
+                s.endpointScope,
+                normalizedEndpointScope(s.endpointScope) == scope &&
+                        scope != null
+                    ? aliases[s.deviceId] ?? s.deviceId
+                    : s.deviceId))
+            ? null
+            : s.platform);
   }
   return rows.values.toList()
     ..sort((a, b) {

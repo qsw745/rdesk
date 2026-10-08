@@ -90,7 +90,8 @@ class _Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = RdPalette.of(context);
     final t = Theme.of(context).textTheme;
-    final devices = watchDeviceDirectory(context);
+    final devices =
+        watchDeviceDirectory(context).where(isPrimaryDevice).toList();
     final onDevicePage = location.startsWith('/device/');
 
     Widget nav(int index, String label, IconData icon, IconData active) =>
@@ -146,7 +147,10 @@ class _Sidebar extends StatelessWidget {
                     _DeviceItem(
                         name: e.name,
                         online: e.online,
-                        selected: location == devicePath(e),
+                        selected: location == devicePath(e) ||
+                            e.aliasKeys.any((key) =>
+                                location ==
+                                '/device/${Uri.encodeComponent(key)}'),
                         onTap: () => context.go(devicePath(e))),
                 ],
               ),

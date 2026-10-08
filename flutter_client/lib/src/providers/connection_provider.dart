@@ -23,9 +23,11 @@ class ConnectionProvider extends ChangeNotifier {
 
   /// Seeds this device's identity for widget tests and UI screenshots.
   @visibleForTesting
-  void debugSeed(DeviceInfo device, String temporaryPassword) {
+  void debugSeed(DeviceInfo device, String temporaryPassword,
+      {List<ConnectionRecord>? history}) {
     _localDevice = device;
     _temporaryPassword = temporaryPassword;
+    if (history != null) _recentConnections = List.of(history);
     notifyListeners();
   }
 

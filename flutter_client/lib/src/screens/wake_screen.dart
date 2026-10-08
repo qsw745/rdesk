@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../models/wake.dart';
 import '../providers/connection_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../providers/wake_provider.dart';
 import '../services/desktop_wake_agent.dart';
 import '../services/login_item_service.dart';
@@ -16,6 +18,8 @@ import '../ui/components.dart';
 import '../ui/device_actions.dart';
 import '../ui/tokens.dart';
 import '../utils/platform_capabilities.dart';
+import '../utils/device_directory.dart';
+import '../utils/wake_target_group.dart';
 
 /// Remote wake in one place: this PC's switch (Windows), this device as a
 /// home helper (Android, macOS) and the PCs the account can wake.
@@ -603,6 +607,13 @@ class _TargetList extends StatelessWidget {
   Widget build(BuildContext context) {
     final wake = context.watch<WakeProvider>();
     final t = Theme.of(context).textTheme;
+    final auth = context.watch<AuthProvider>();
+    final scope = context.watch<SettingsProvider>().signalingServer;
+    final accountIds = normalizedEndpointScope(auth.devicesEndpoint) ==
+            normalizedEndpointScope(scope)
+        ? auth.devices.map((e) => e.deviceId).toSet()
+        : <String>{};
+    final groups = groupWakeTargets(wake.targets, accountDeviceIds: accountIds);
     if (wake.targets.isEmpty) {
       return RdCard(
         padding: const EdgeInsets.all(20),
@@ -622,10 +633,13 @@ class _TargetList extends StatelessWidget {
       );
     }
     return Column(children: [
-      for (final target in wake.targets)
+      for (final group in groups)
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
-          child: _TargetCard(target: target),
+          child: _TargetCard(
+              group: group,
+              online: group.members
+                  .any((t) => t.online || accountIds.contains(t.deviceId))),
         ),
       if (wake.usableHelpers.isNotEmpty)
         Padding(
@@ -646,11 +660,14 @@ class _TargetList extends StatelessWidget {
 }
 
 class _TargetCard extends StatelessWidget {
-  final WakeTarget target;
-  const _TargetCard({required this.target});
+  final WakeTargetGroup group;
+  final bool online;
+  const _TargetCard({required this.group, required this.online});
+  WakeTarget get target => group.primary;
 
   Future<void> _changeHelper(BuildContext context) async {
     final wake = context.read<WakeProvider>();
+    final generation = wake.identityGeneration;
     final picked = await showDialog<WakeAgent>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -672,17 +689,23 @@ class _TargetCard extends StatelessWidget {
         ],
       ),
     );
-    if (picked != null && picked.id != target.agentId) {
+    if (context.mounted &&
+        wake.identityGeneration == generation &&
+        picked != null &&
+        picked.id != target.agentId) {
       await wake.rebind(target, picked.id);
     }
   }
 
   Future<void> _remove(BuildContext context) async {
     final wake = context.read<WakeProvider>();
+    final generation = wake.identityGeneration;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('移除「${target.name}」？'),
+        title: Text(group.members.length > 1
+            ? '移除「${target.name}」的全部开机配置？'
+            : '移除「${target.name}」？'),
         content: const Text('移除后将无法远程开机这台电脑，需要在电脑上重新开启。'),
         actions: [
           TextButton(
@@ -694,7 +717,14 @@ class _TargetCard extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) await wake.remove(target);
+    if (ok == true &&
+        context.mounted &&
+        wake.identityGeneration == generation) {
+      for (final member in group.members) {
+        if (wake.identityGeneration != generation) break;
+        if (!await wake.remove(member)) break;
+      }
+    }
   }
 
   @override
@@ -702,9 +732,9 @@ class _TargetCard extends StatelessWidget {
     final wake = context.watch<WakeProvider>();
     final p = RdPalette.of(context);
     final t = Theme.of(context).textTheme;
-    final latest = wake.history[target.id]?.firstOrNull;
-    final waking = latest?.active ?? false;
-    final (String label, RdTone tone) = target.online
+    final latest = wake.latestRequestForTarget(target);
+    final waking = !online && wake.isWaking(target);
+    final (String label, RdTone tone) = online
         ? ('在线', RdTone.online)
         : waking
             ? ('正在开机', RdTone.power)
@@ -714,7 +744,7 @@ class _TargetCard extends StatelessWidget {
     return RdCard(
       padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
       child: Row(children: [
-        RdDeviceGlyph(platform: 'windows', online: target.online),
+        RdDeviceGlyph(platform: 'windows', online: online),
         const SizedBox(width: 14),
         Expanded(
           child:
@@ -723,7 +753,7 @@ class _TargetCard extends StatelessWidget {
             const SizedBox(height: 4),
             Row(children: [
               RdStatusPill(label, tone: tone),
-              if (!target.online && !target.agentOnline) ...[
+              if (!online && !target.agentOnline) ...[
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text('助手离线',
@@ -733,7 +763,7 @@ class _TargetCard extends StatelessWidget {
             ]),
           ]),
         ),
-        if (!target.online)
+        if (!online)
           FilledButton.icon(
             style: FilledButton.styleFrom(
                 backgroundColor: p.power,

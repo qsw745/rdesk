@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rdesk/src/models/wake.dart';
+import 'package:rdesk/src/models/device_directory_entry.dart';
 import 'package:rdesk/src/providers/wake_provider.dart';
 import 'package:rdesk/src/services/desktop_wake_agent.dart';
 import 'package:rdesk/src/services/wake_api.dart';
+import 'package:rdesk/src/services/wake_agent_channel.dart';
 import 'package:rdesk/src/services/windows_wake_service.dart';
+import 'package:rdesk/src/ui/device_actions.dart';
 import 'wake_api_test.dart' show RealHttp;
 import 'wake_provider_test.dart' show TestAgent;
 
@@ -21,6 +25,7 @@ class FakeWakeServer {
   final histories = <String, List<Map<String, Object?>>>{};
   final historyQueries = <String>[];
   String? failedRead;
+  final failedHistoryTargets = <String>{};
   Future<void> Function(HttpRequest)? beforeReply;
 
   Uri get base => Uri.parse('http://127.0.0.1:${server.port}');
@@ -44,7 +49,12 @@ class FakeWakeServer {
       } else if (r.method == 'GET' && path == '/api/wake/requests') {
         final targetId = r.uri.queryParameters['target_id']!;
         historyQueries.add(targetId);
-        reply = {'requests': histories[targetId] ?? []};
+        if (failedHistoryTargets.contains(targetId)) {
+          r.response.statusCode = 503;
+          reply = {'code': 'storage', 'message': '开机记录暂时无法读取'};
+        } else {
+          reply = {'requests': histories[targetId] ?? []};
+        }
       } else if (r.method == 'POST' && path == '/api/wake/targets') {
         targets.add({
           'id': 't1',
@@ -103,9 +113,36 @@ Map<String, Object?> targetJson(
       'revision': 1,
     };
 
+class StatusFailureAgent extends TestAgent {
+  bool failStatus = false;
+  @override
+  Future<WakeAgentStatus> status() async {
+    if (failStatus) throw StateError('本机助手状态暂时无法读取');
+    return super.status();
+  }
+}
+
+Future<bool> waitForWake(WakeProvider wake, bool Function() condition) async {
+  if (condition()) return true;
+  final changed = Completer<bool>();
+  void listener() {
+    if (condition() && !changed.isCompleted) changed.complete(true);
+  }
+
+  wake.addListener(listener);
+  try {
+    return await changed.future
+        .timeout(const Duration(seconds: 3), onTimeout: () => false);
+  } finally {
+    wake.removeListener(listener);
+  }
+}
+
 void main() {
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
   late FakeWakeServer fake;
   setUp(() async {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
     HttpOverrides.global = RealHttp();
@@ -113,12 +150,196 @@ void main() {
     await fake.start();
   });
   tearDown(() async {
+    binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     HttpOverrides.global = null;
     await fake.server.close(force: true);
   });
 
   WakeApi api() =>
       WakeApi(baseUri: () async => fake.base, accountToken: () async => 'acct');
+
+  group('开机状态持续刷新', () {
+    test('同一电脑旧目标的最新请求会显示在合并后的目标上', () {
+      final old = WakeTarget.fromJson(targetJson(id: 'old'));
+      final current = WakeTarget.fromJson(targetJson());
+      final wake = WakeProvider(api: api(), agent: TestAgent())
+        ..targets = [old, current]
+        ..history = {
+          'old': [
+            const WakeRequest(
+                id: 'active',
+                targetId: 'old',
+                phase: WakePhase.sent,
+                createdAtMs: 2)
+          ],
+          't1': [
+            const WakeRequest(
+                id: 'prior',
+                targetId: 't1',
+                phase: WakePhase.failed,
+                createdAtMs: 1)
+          ]
+        };
+      addTearDown(wake.dispose);
+      final entry = DeviceDirectoryEntry(
+          key: 'current',
+          deviceId: current.deviceId,
+          name: current.name,
+          platform: 'windows',
+          endpointScope: 'server',
+          online: false,
+          favorite: false,
+          wakeTarget: current);
+
+      expect(deviceStatus(entry, wake).label, '正在开机');
+      expect(wake.latestRequestForTarget(current)?.id, 'active');
+      expect(wake.isWaking(current), isTrue);
+    });
+
+    test('在线状态优先于同一电脑旧目标的已发送请求', () {
+      final old = WakeTarget.fromJson(targetJson(id: 'old'));
+      final current = WakeTarget.fromJson(targetJson(online: true));
+      final wake = WakeProvider(api: api(), agent: TestAgent())
+        ..targets = [old, current]
+        ..history = {
+          'old': [
+            const WakeRequest(
+                id: 'active',
+                targetId: 'old',
+                phase: WakePhase.sent,
+                createdAtMs: 1)
+          ]
+        };
+      addTearDown(wake.dispose);
+      final entry = DeviceDirectoryEntry(
+          key: 'current',
+          deviceId: current.deviceId,
+          name: current.name,
+          platform: 'windows',
+          endpointScope: 'server',
+          online: true,
+          favorite: false,
+          wakeTarget: current);
+
+      expect(deviceStatus(entry, wake).label, '在线');
+      expect(wake.isWaking(current), isFalse);
+      expect(wake.isWaking(old), isFalse);
+    });
+
+    test('不进入开机页也会轮询活动请求直到电脑上线', () async {
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [targetJson(agentOnline: true)];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      expect(await wake.wake(wake.targets.single), isTrue);
+      fake.targets = [targetJson(agentOnline: true, online: true)];
+      fake.histories['t1'] = [
+        {'id': 'r1', 'target_id': 't1', 'phase': 'online', 'created_at_ms': 1}
+      ];
+
+      expect(
+          await waitForWake(
+              wake,
+              () =>
+                  wake.targets.single.online &&
+                  !wake.history['t1']!.single.active),
+          isTrue);
+    });
+
+    test('后台停止活动轮询，回到前台立即继续刷新', () async {
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [targetJson(agentOnline: true)];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      expect(await wake.wake(wake.targets.single), isTrue);
+      fake.histories['t1'] = [
+        {'id': 'r1', 'target_id': 't1', 'phase': 'queued', 'created_at_ms': 1}
+      ];
+      wake.setVisible(true);
+      expect(
+          await waitForWake(
+              wake,
+              () =>
+                  fake.paths
+                      .where((p) => p == 'GET /api/wake/targets')
+                      .length >=
+                  3),
+          isTrue);
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      final reads =
+          fake.paths.where((p) => p == 'GET /api/wake/targets').length;
+      fake.targets = [targetJson(agentOnline: true, online: true)];
+      fake.histories['t1'] = [
+        {'id': 'r1', 'target_id': 't1', 'phase': 'online', 'created_at_ms': 1}
+      ];
+      await Future<void>.delayed(const Duration(milliseconds: 2200));
+      expect(
+          fake.paths.where((p) => p == 'GET /api/wake/targets').length, reads);
+      expect(wake.targets.single.online, isFalse);
+
+      binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      expect(await waitForWake(wake, () => wake.targets.single.online), isTrue);
+    });
+
+    test('无关目标历史读取失败不挡住最新在线状态', () async {
+      fake.targets = [targetJson(), targetJson(id: 'other')];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      fake.targets = [targetJson(online: true), targetJson(id: 'other')];
+      fake.histories['t1'] = [
+        {'id': 'r1', 'target_id': 't1', 'phase': 'online', 'created_at_ms': 1}
+      ];
+      fake.failedHistoryTargets.add('other');
+
+      await wake.refresh();
+      expect(wake.targets.first.online, isTrue);
+      expect(wake.history['t1']!.single.phase, WakePhase.online);
+      expect(wake.error, '开机记录暂时无法读取');
+    });
+
+    test('本机助手状态失败不挡住最新在线状态', () async {
+      fake.targets = [targetJson()];
+      final agent = StatusFailureAgent();
+      final wake = WakeProvider(api: api(), agent: agent);
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      fake.targets = [targetJson(online: true)];
+      agent.failStatus = true;
+
+      await wake.refresh();
+      expect(wake.targets.single.online, isTrue);
+      expect(wake.error, '本机助手状态暂时无法读取');
+    });
+
+    test('同组电脑已在线后，旧目标历史失败不会维持活动轮询', () async {
+      fake.targets = [targetJson(id: 'old'), targetJson()];
+      fake.histories['old'] = [
+        {'id': 'r1', 'target_id': 'old', 'phase': 'sent', 'created_at_ms': 1}
+      ];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      fake.targets = [targetJson(id: 'old'), targetJson(online: true)];
+      fake.failedHistoryTargets.add('old');
+      await wake.refresh();
+      expect(wake.history['old']!.single.active, isTrue);
+      final reads =
+          fake.paths.where((p) => p == 'GET /api/wake/targets').length;
+
+      await Future<void>.delayed(const Duration(milliseconds: 2200));
+      expect(
+          fake.paths.where((p) => p == 'GET /api/wake/targets').length, reads);
+      expect(wake.isWaking(wake.targets.first), isFalse);
+    });
+  });
 
   group('开机时家中助手自动切换', () {
     test('绑定的助手离线时，改用在线助手再发送开机', () async {

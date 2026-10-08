@@ -21,6 +21,7 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   Timer? _timer;
   late String _filter;
   String _query = '';
+  bool _showRecent = false;
   bool _refreshing = false, _foreground = true;
 
   @override
@@ -79,20 +80,25 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final all = watchDeviceDirectory(context);
-    final rows = all
+    final devices = all.where(isPrimaryDevice).toList();
+    bool matchesQuery(DeviceDirectoryEntry e) =>
+        '${e.name} ${e.deviceId} ${e.relatedDeviceIds.join(' ')}'
+            .toLowerCase()
+            .contains(_query.toLowerCase());
+    final recent =
+        all.where((e) => !isPrimaryDevice(e) && matchesQuery(e)).toList();
+    final rows = devices
         .where((e) =>
             (_filter != '在线' || e.online) &&
             (_filter != '收藏' || e.favorite) &&
-            ('${e.name} ${e.deviceId}'
-                .toLowerCase()
-                .contains(_query.toLowerCase())))
+            matchesQuery(e))
         .toList();
-    final online = all.where((e) => e.online).length;
+    final online = devices.where((e) => e.online).length;
     final wide = RdPage.wide(context);
 
     return RdPage(
       title: '我的设备',
-      subtitle: all.isEmpty ? null : '共 ${all.length} 台 · $online 台在线',
+      subtitle: devices.isEmpty ? null : '共 ${devices.length} 台 · $online 台在线',
       onRefresh: _refresh,
       maxWidth: 1180,
       actions: [
@@ -133,7 +139,8 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
           showSearch: all.length > 4 || _query.isNotEmpty,
         ),
         const SizedBox(height: Rd.s16),
-        if (rows.isEmpty)
+        if (rows.isEmpty &&
+            (_filter != '全部' || recent.isEmpty || _query.isEmpty))
           Padding(
             padding: const EdgeInsets.only(top: 48),
             child: RdEmptyState(
@@ -154,7 +161,7 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                   : null,
             ),
           )
-        else
+        else if (rows.isNotEmpty)
           LayoutBuilder(builder: (context, box) {
             final columns = box.maxWidth >= 1000
                 ? 3
@@ -175,6 +182,29 @@ class _MyDevicesScreenState extends State<MyDevicesScreen>
                 SizedBox(width: width, child: DeviceGridCard(entry: e)),
             ]);
           }),
+        if (_filter == '全部' && recent.isNotEmpty) ...[
+          const SizedBox(height: Rd.s16),
+          RdCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              leading: const Icon(Icons.history_rounded),
+              title: Text('最近连接（${recent.length}）'),
+              subtitle: const Text('以前连接过的设备'),
+              trailing: Icon(_showRecent
+                  ? Icons.expand_less_rounded
+                  : Icons.expand_more_rounded),
+              onTap: () => setState(() => _showRecent = !_showRecent),
+            ),
+          ),
+          if (_showRecent || _query.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final e in recent)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: DeviceListCard(entry: e),
+              ),
+          ],
+        ],
       ],
     );
   }
@@ -263,8 +293,7 @@ Widget? _primaryAction(BuildContext context, DeviceDirectoryEntry e,
   final abilities = DeviceAbilities.of(context, e);
   final wake = context.watch<WakeProvider>();
   final target = e.wakeTarget;
-  final waking = target != null &&
-      (wake.history[target.id]?.any((r) => r.active) ?? false);
+  final waking = target != null && !e.online && wake.isWaking(target);
   if (!e.online && abilities.canWake && target != null) {
     final p = RdPalette.of(context);
     return FilledButton.icon(
