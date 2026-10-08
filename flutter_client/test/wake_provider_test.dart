@@ -161,15 +161,47 @@ void main() {
     final entered = Completer<void>(), release = Completer<void>();
     server.listen((request) async {
       await request.drain<void>();
-      calls++;
-      entered.complete();
-      await release.future;
-      request.response.write(jsonEncode({
-        'id': 'request',
-        'target_id': 'pc',
-        'phase': 'sent',
-        'created_at_ms': 1
-      }));
+      Object body;
+      if (request.method == 'GET' && request.uri.path == '/api/wake/targets') {
+        body = {
+          'targets': [
+            {
+              'id': 'pc',
+              'name': '电脑',
+              'device_id': '123',
+              'mac': '02:11:22:33:44:55',
+              'agent_id': 'agent',
+              'online': false,
+              'agent_online': true,
+              'setup_complete': true,
+              'revision': 1
+            }
+          ]
+        };
+      } else if (request.method == 'GET' &&
+          request.uri.path == '/api/wake/agents') {
+        body = {
+          'agents': [
+            {'id': 'agent', 'name': '助手', 'enabled': true, 'online': true}
+          ]
+        };
+      } else if (request.method == 'GET' &&
+          request.uri.path == '/api/wake/requests') {
+        body = {'requests': []};
+      } else {
+        expect(request.method, 'POST');
+        expect(request.uri.path, '/api/wake/requests');
+        calls++;
+        entered.complete();
+        await release.future;
+        body = {
+          'id': 'request',
+          'target_id': 'pc',
+          'phase': 'sent',
+          'created_at_ms': 1
+        };
+      }
+      request.response.write(jsonEncode(body));
       await request.response.close();
     });
     final wake = WakeProvider(

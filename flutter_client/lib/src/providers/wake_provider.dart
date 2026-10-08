@@ -438,25 +438,43 @@ class WakeProvider extends ChangeNotifier {
         }
       });
   Future<bool> wake(WakeTarget target) => _mutate((scoped, gen) async {
-        if (target.online) throw StateError('电脑已经在线');
-        if (history[target.id]?.any((r) => r.active) ?? false) {
+        // Page snapshots may predate a helper restart or another device's edit.
+        final latestTargets = await scoped.targets();
+        if (!_current(gen)) return;
+        targets = latestTargets;
+        final latest =
+            latestTargets.where((t) => t.id == target.id).firstOrNull;
+        if (latest == null) throw StateError('这台电脑的远程开机设置已移除，请刷新设备列表');
+        if (latest.online) throw StateError('电脑已经在线');
+        final latestHistory = await scoped.history(latest.id);
+        if (!_current(gen)) return;
+        history[latest.id] = latestHistory;
+        if (latestHistory.any((r) => r.active)) {
           throw StateError('正在开机，请稍候');
         }
-        if (!target.setupComplete || !target.agentOnline) {
-          // The bound helper is away: use another online helper instead.
-          final alternative = agents
-              .where((a) => a.enabled && a.online && a.id != target.agentId)
-              .firstOrNull;
+        final latestAgents = await scoped.agents();
+        if (!_current(gen)) return;
+        agents = latestAgents;
+        final boundHelper = agents
+            .where((a) => a.id == latest.agentId && a.enabled && a.online)
+            .firstOrNull;
+        if (boundHelper == null) {
+          // The bound helper is away: use a currently online helper instead.
+          final alternative =
+              agents.where((a) => a.enabled && a.online).firstOrNull;
           if (alternative == null) {
             throw StateError('家中没有在线的开机助手。请在家里的安卓手机或 Mac 上打开随控并开启开机助手。');
           }
-          await scoped.updateTarget(target.id,
-              name: target.name, mac: target.mac, agentId: alternative.id);
+          await scoped.updateTarget(latest.id,
+              name: latest.name, mac: latest.mac, agentId: alternative.id);
           if (!_current(gen)) return;
         }
-        final request = await scoped.requestWake(target.id);
+        final request = await scoped.requestWake(latest.id);
         if (_current(gen)) {
-          history[target.id] = [request, ...?history[target.id]];
+          history[latest.id] = [
+            request,
+            ...?history[latest.id]?.where((r) => r.id != request.id)
+          ];
           _schedule();
         }
       });

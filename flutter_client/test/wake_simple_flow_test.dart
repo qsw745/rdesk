@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -17,6 +18,10 @@ class FakeWakeServer {
   final paths = <String>[];
   List<Map<String, Object?>> agents = [];
   List<Map<String, Object?>> targets = [];
+  final histories = <String, List<Map<String, Object?>>>{};
+  final historyQueries = <String>[];
+  String? failedRead;
+  Future<void> Function(HttpRequest)? beforeReply;
 
   Uri get base => Uri.parse('http://127.0.0.1:${server.port}');
 
@@ -26,14 +31,20 @@ class FakeWakeServer {
       final raw = await utf8.decoder.bind(r).join();
       final body = raw.isEmpty ? <String, dynamic>{} : jsonDecode(raw) as Map;
       paths.add('${r.method} ${r.uri.path}');
+      await beforeReply?.call(r);
       Object reply = <String, Object>{};
       final path = r.uri.path;
-      if (r.method == 'GET' && path == '/api/wake/agents') {
+      if (r.method == 'GET' && path == failedRead) {
+        r.response.statusCode = 503;
+        reply = {'code': 'storage', 'message': '开机服务暂时无法读取数据'};
+      } else if (r.method == 'GET' && path == '/api/wake/agents') {
         reply = {'agents': agents};
       } else if (r.method == 'GET' && path == '/api/wake/targets') {
         reply = {'targets': targets};
       } else if (r.method == 'GET' && path == '/api/wake/requests') {
-        reply = {'requests': []};
+        final targetId = r.uri.queryParameters['target_id']!;
+        historyQueries.add(targetId);
+        reply = {'requests': histories[targetId] ?? []};
       } else if (r.method == 'POST' && path == '/api/wake/targets') {
         targets.add({
           'id': 't1',
@@ -46,7 +57,7 @@ class FakeWakeServer {
         });
         reply = {'id': 't1', 'token': 'target-token'};
       } else if (r.method == 'PUT' && path.startsWith('/api/wake/targets/')) {
-        final t = targets.first;
+        final t = targets.singleWhere((t) => t['id'] == path.split('/').last);
         t['agent_id'] = body['agent_id'];
         t['agent_online'] = agents
             .any((a) => a['id'] == body['agent_id'] && a['online'] == true);
@@ -76,6 +87,20 @@ Map<String, Object?> agentJson(String id, String name,
       'online': online,
       'enabled': true,
       'last_seen_ms': seen
+    };
+
+Map<String, Object?> targetJson(
+        {String id = 't1', bool agentOnline = false, bool online = false}) =>
+    {
+      'id': id,
+      'name': '书房电脑',
+      'device_id': '552910384',
+      'mac': '00:11:22:33:44:55',
+      'agent_id': 'phone',
+      'agent_online': agentOnline,
+      'online': online,
+      'setup_complete': true,
+      'revision': 1,
     };
 
 void main() {
@@ -141,6 +166,124 @@ void main() {
       await wake.refresh();
       expect(await wake.wake(wake.targets.single), isFalse);
       expect(wake.error, contains('没有在线的开机助手'));
+      expect(fake.paths, isNot(contains('POST /api/wake/requests')));
+    });
+
+    test('绑定助手恢复在线后，旧页面状态不能拒绝开机', () async {
+      fake.agents = [agentJson('phone', '家中手机', online: false)];
+      fake.targets = [targetJson(), targetJson(id: 'other')];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      final cached = wake.targets.first;
+
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [
+        targetJson(agentOnline: true),
+        targetJson(id: 'other', agentOnline: true)
+      ];
+      fake.paths.clear();
+      fake.historyQueries.clear();
+      expect(await wake.wake(cached), isTrue);
+      expect(fake.paths, contains('GET /api/wake/targets'));
+      expect(fake.paths, contains('GET /api/wake/agents'));
+      expect(fake.paths, isNot(contains('PUT /api/wake/targets/t1')));
+      expect(fake.paths.last, 'POST /api/wake/requests');
+      expect(fake.historyQueries, ['t1']);
+      expect(wake.targets.first.agentOnline, isTrue);
+    });
+
+    test('目标和助手读取间恢复在线的同一助手可以发送开机', () async {
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [targetJson()];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      expect(wake.targets.single.agentOnline, isFalse);
+      expect(wake.agents.single.online, isTrue);
+
+      expect(await wake.wake(wake.targets.single), isTrue);
+      expect(fake.paths, isNot(contains('PUT /api/wake/targets/t1')));
+      expect(fake.paths.last, 'POST /api/wake/requests');
+    });
+
+    test('过期的本地活跃历史不会阻止服务器已允许的新请求', () async {
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [targetJson(agentOnline: true)];
+      fake.histories['t1'] = [
+        {'id': 'old', 'target_id': 't1', 'phase': 'queued', 'created_at_ms': 1}
+      ];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      fake.histories['t1'] = [];
+
+      expect(await wake.wake(wake.targets.single), isTrue);
+      expect(wake.history['t1']!.single.id, 'r1');
+      expect(fake.paths.last, 'POST /api/wake/requests');
+    });
+
+    test('服务器已有活跃请求时不重新绑定或提交', () async {
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [targetJson(agentOnline: true)];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      fake.histories['t1'] = [
+        {'id': 'active', 'target_id': 't1', 'phase': 'sent', 'created_at_ms': 1}
+      ];
+      fake.paths.clear();
+
+      expect(await wake.wake(wake.targets.single), isFalse);
+      expect(wake.error, contains('正在开机'));
+      expect(wake.history['t1']!.single.id, 'active');
+      expect(fake.paths, isNot(contains('POST /api/wake/requests')));
+      expect(fake.paths.any((p) => p.startsWith('PUT')), isFalse);
+    });
+
+    test('动作读取助手失败时保留服务端错误，不使用旧状态发送', () async {
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [targetJson(agentOnline: true)];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      fake.failedRead = '/api/wake/agents';
+      fake.paths.clear();
+
+      expect(await wake.wake(wake.targets.single), isFalse);
+      expect(wake.error, '开机服务暂时无法读取数据');
+      expect(wake.busy, isFalse);
+      expect(fake.paths, isNot(contains('POST /api/wake/requests')));
+    });
+
+    test('动作核验期间切换账号，晚到回包不能提交开机', () async {
+      fake.agents = [agentJson('phone', '家中手机')];
+      fake.targets = [targetJson(agentOnline: true)];
+      final wake = WakeProvider(api: api(), agent: TestAgent());
+      addTearDown(wake.dispose);
+      await wake.bindAccount('user', 'server');
+      await wake.refresh();
+      final entered = Completer<void>(), release = Completer<void>();
+      fake.beforeReply = (r) async {
+        if (r.method == 'GET' && r.uri.path == '/api/wake/agents') {
+          entered.complete();
+          await release.future;
+        }
+      };
+      final pending = wake.wake(wake.targets.single);
+      await entered.future.timeout(const Duration(seconds: 3));
+      await wake.bindAccount('other', 'server');
+      release.complete();
+
+      expect(await pending, isFalse);
+      expect(wake.targets, isEmpty);
+      expect(wake.agents, isEmpty);
+      expect(wake.busy, isFalse);
       expect(fake.paths, isNot(contains('POST /api/wake/requests')));
     });
   });
