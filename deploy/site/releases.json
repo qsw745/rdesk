@@ -1,30 +1,30 @@
 {
-  "date": "2026-09-29",
+  "date": "2026-10-09",
   "wake_service_ready": true,
-  "source_commit": "b90c7dd",
+  "source_commit": "5e09d3e",
   "platforms": [
     {
       "id": "macos",
       "symbol": "M",
       "tag": "Apple 芯片 / Intel",
       "name": "macOS",
-      "version": "2.3.2",
-      "requirements": "macOS 12 或更高版本",
+      "version": "2.3.5",
+      "requirements": "macOS 13 或更高版本",
       "capability": "可远程控制和共享桌面；可作为家中开机助手，重启后可自动恢复。",
       "button": "下载 Apple 芯片版",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.2-macos-x64.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.5-macos-x64.zip",
         "label": "下载 Intel 版（ZIP）"
       },
-      "note": "两个版本的应用均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.2-macos-arm64.dmg",
-      "sha256": "2b0d63bcdcba71cf8a2ddadf82eacde4d5aa44e2b93ce74f8653b516273d67c0",
+      "note": "两个版本均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。若旧版应用内更新立即提示下载失败，请从本页手动下载并替换一次。",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.5-macos-arm64.dmg",
+      "sha256": "55d67283832628eea0ca5acaa2164590deeb7aad8345bdcf949b0dd5194f614f",
       "size": "16.1 MB",
-      "build_number": 25,
+      "build_number": 28,
       "release_notes": [
-        "RDesk 更名为「随控」：图标不变，账号、设备和设置全部保留。",
-        "设置 → 常规新增「登录 Mac 后自动打开随控」，Mac 重启后自动上线。",
-        "修正菜单里「关于」「隐藏」「退出」显示为占位文字的问题。"
+        "修复 Mac 更新下载失败，正确打包 Apple 芯片与 Intel 原生库。",
+        "合并同一设备的重复记录，电脑上线后及时结束「正在开机」状态。",
+        "开机前刷新最新家中助手状态，优先使用可用助手。"
       ]
     },
     {
@@ -86,14 +86,6 @@
     }
   ],
   "files": {
-    "RDesk-2.3.2-macos-arm64.dmg": {
-      "sha256": "2b0d63bcdcba71cf8a2ddadf82eacde4d5aa44e2b93ce74f8653b516273d67c0",
-      "bytes": 16833000
-    },
-    "RDesk-2.3.2-macos-x64.zip": {
-      "sha256": "eee203726a1a217a1799632b0aefbb9adc4c50f597a7dc3a39e844cf2c0225bd",
-      "bytes": 16441230
-    },
     "RDesk-2.3.2-windows-x64-setup.exe": {
       "sha256": "f6b1031d07ac566776fe36f1d9ad1270fad49aaa9b55aa9574d23115c594406b",
       "bytes": 13164648
@@ -105,9 +97,17 @@
     "RDesk-2.3.2-android.apk": {
       "sha256": "aad75b20b35e307d6cfd172b8bd2089a4205c75ae61ab04aff2e37927dfa67ae",
       "bytes": 56822657
+    },
+    "RDesk-2.3.5-macos-arm64.dmg": {
+      "sha256": "55d67283832628eea0ca5acaa2164590deeb7aad8345bdcf949b0dd5194f614f",
+      "bytes": 16842722
+    },
+    "RDesk-2.3.5-macos-x64.zip": {
+      "sha256": "16ab6aef541b72d652a3eaebc82d8c8df47c302e2a56aca92ea1ce04b3e40d1b",
+      "bytes": 16440563
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": "RDesk 已更名为「随控」。2.3.2 已上线 Windows、Android、Mac：Windows 支持最小化到托盘和开机自启。iPhone 商店版本仍为 2.1.0；实际开机效果取决于电脑主板与网卡。",
+  "service_notice": "Mac 2.3.5 已修复更新下载失败、重复设备和开机状态不及时刷新。Windows、Android 保留 2.3.2；iPhone / iPad 请通过 App Store 获取已上架版本。",
   "schema_version": 1
 }

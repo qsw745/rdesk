@@ -6,6 +6,7 @@ import io
 import json
 from pathlib import Path
 import tarfile
+import time
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--artifacts', type=Path, action='append', required=True)
@@ -34,10 +35,14 @@ manifest = ''.join(f'{hashlib.sha256(data).hexdigest()}  {name}\n'
                    for name, data in sorted(files.items()))
 files['MANIFEST.sha256'] = manifest.encode()
 args.output.parent.mkdir(parents=True, exist_ok=True)
+release_epoch = int(time.time())
 with tarfile.open(args.output, 'w:gz') as archive:
     for name, data in sorted(files.items()):
         info = tarfile.TarInfo(name)
         info.size, info.mode = len(data), 0o644
+        # A zero mtime yields Last-Modified: 1970 and can retain an old page
+        # after a release when browsers send only If-Modified-Since.
+        info.mtime = release_epoch
         info.uid = info.gid = 0
         info.uname = info.gname = 'root'
         archive.addfile(info, io.BytesIO(data))
