@@ -27,6 +27,10 @@ bash scripts/release_macos.sh x86_64   # dist/RDesk-<版本>-macos-x64.zip
 
 脚本按架构独立构建，内嵌并签名开机助手，Developer ID 签名后公证并装订应用；arm64 另制作带「应用程序」快捷方式的 DMG，再单独签名、公证、装订。需要登录钥匙串中的 Developer ID 证书与 notarytool 配置 `rdesk`（见 [macOS 分发](macos-distribution.md)）。
 
+同一工作目录内的构建须串行。两个 macOS 构建入口会先清理 Flutter 构建图及共享的原生库输出，避免切换 Apple 芯片／Intel 架构时复用错误框架。`scripts/verify_macos_install.sh` 在签名检查前扫描全包 Mach-O：每个框架、原生库和助手都必须包含主程序的全部架构；Developer ID 签名或公证通过不能替代这项检查。
+
+需要验证原生缓存接口及真实下载时，可在隔离的签名 Release 副本中使用 `flutter_client/tool/update_probe.dart` 作为入口。它不启动远控、不读取账号，调用真实路径接口并使用正式更新服务下载及校验。诊断版不能用于正式发行；恢复默认 `lib/main.dart` 后重新构建正式应用。下载校验通过仍须独立检查下载包内的架构。
+
 ## Android
 
 在本地配置原发布签名，执行 `flutter build apk --release`。用 Android SDK 的 `apksigner verify` 核对签名、`aapt dump badging` 核对包名与版本；存在已连接测试手机时覆盖安装验证。不要把密钥、口令或本地签名配置提交到仓库。

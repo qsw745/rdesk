@@ -36,6 +36,9 @@ notarize() {
 
 echo "━━━ 构建 RDesk $VERSION ($ARCH) ━━━"
 cd "$CLIENT"
+# DerivedData isolation alone does not isolate Flutter's native asset output.
+# Rebuild the graph and shared native libraries before switching architecture.
+rm -rf "$CLIENT/.dart_tool/flutter_build" "$CLIENT/build/native_assets/macos"
 flutter build macos --release --config-only
 rm -rf "$DERIVED"
 xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \

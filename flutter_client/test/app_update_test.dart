@@ -200,6 +200,41 @@ void main() {
       await expectLater(
           service.verify(file, release()), throwsA(isA<UpdateFailure>()));
     });
+    test('原生缓存接口异常应提示缓存问题，不发起请求且允许重试', () async {
+      var cacheCalls = 0;
+      var requests = 0;
+      service.dispose();
+      service = AppUpdateService(
+          clientFactory: () => LocalClient(server.port),
+          temporaryDirectory: () async {
+            if (cacheCalls++ == 0) {
+              throw ArgumentError(
+                  'native library has incompatible architecture');
+            }
+            return temporary;
+          });
+      respond = (r) {
+        requests++;
+        r.response.add([1, 2, 3]);
+        r.response.close();
+      };
+      await expectLater(
+          service.download(release(), (_) {}),
+          throwsA(isA<UpdateFailure>()
+              .having((e) => e.message, '提示', contains('更新缓存'))));
+      expect(requests, 0);
+      expect(await temporary.list().length, 0);
+      final file = await service.download(release(), (_) {});
+      expect(await file.readAsBytes(), [1, 2, 3]);
+      expect(requests, 1);
+    });
+    test('缓存目录不可创建应提示缓存问题', () async {
+      await File('${temporary.path}/rdesk-updates').writeAsString('blocked');
+      await expectLater(
+          service.download(release(), (_) {}),
+          throwsA(isA<UpdateFailure>()
+              .having((e) => e.message, '提示', contains('更新缓存'))));
+    });
     test('截断、超长、摘要错误、HTML、重定向均拒绝且清理文件', () async {
       final cases = <void Function(HttpRequest)>[
         (r) {

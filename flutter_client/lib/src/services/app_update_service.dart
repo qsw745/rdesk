@@ -95,12 +95,17 @@ class AppUpdateService {
     RandomAccessFile? writer;
     var complete = false;
     try {
-      final root =
-          Directory('${(await temporaryDirectory()).path}/rdesk-updates');
-      await root.create(recursive: true);
-      directory = await root.createTemp('download-');
-      final partial = File('${directory.path}/${release.filename}.part');
-      writer = await partial.open(mode: FileMode.write);
+      late File partial;
+      try {
+        final root =
+            Directory('${(await temporaryDirectory()).path}/rdesk-updates');
+        await root.create(recursive: true);
+        directory = await root.createTemp('download-');
+        partial = File('${directory.path}/${release.filename}.part');
+        writer = await partial.open(mode: FileMode.write);
+      } catch (_) {
+        throw const UpdateFailure('无法准备更新缓存，请重启应用后重试，或从官网下载新版');
+      }
       final response = await _get(client, release.uri);
       if (response.contentLength != -1 &&
           response.contentLength != release.bytes) {

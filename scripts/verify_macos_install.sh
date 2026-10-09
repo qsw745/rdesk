@@ -11,6 +11,9 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+python3 "$SCRIPT_DIR/verify_macos_architectures.py" "$APP_PATH"
+
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 SIGNATURE_INFO="$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)"

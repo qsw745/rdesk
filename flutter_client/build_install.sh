@@ -81,6 +81,9 @@ install_macos_app() {
 
 build_macos() {
   echo "━━━ 构建 macOS (release) ━━━"
+  # Native asset output is shared by architecture-specific Xcode builds. A
+  # cached Flutter graph can otherwise reuse an Intel library in an arm64 app.
+  rm -rf .dart_tool/flutter_build build/native_assets/macos
   flutter build macos --release --config-only
   xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner \
     -configuration Release -derivedDataPath build/macos -jobs 2 \
