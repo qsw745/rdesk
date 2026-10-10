@@ -531,7 +531,7 @@ class RemoteActionSheet extends StatelessWidget {
 
   void _showMonitorPicker(BuildContext context) {
     final session = context.read<SessionProvider>();
-    final monitors = session.availableMonitors;
+    final displays = session.displays;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -553,28 +553,38 @@ class RemoteActionSheet extends StatelessWidget {
                 ),
               ),
             ),
-            ...List.generate(monitors.length, (i) {
+            ...List.generate(displays.length, (i) {
               final selected = session.currentMonitor == i;
+              final description = displays[i].description;
               return ListTile(
                 leading: Icon(
                   Icons.monitor_outlined,
                   color: selected ? AppTheme.primaryBlue : Colors.white70,
                 ),
                 title: Text(
-                  monitors[i],
+                  displays[i].title,
                   style: const TextStyle(color: Colors.white),
                 ),
-                subtitle: Text(
-                  '显示器 ${i + 1}',
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
-                ),
+                subtitle: description.isEmpty
+                    ? null
+                    : Text(
+                        description,
+                        style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.5)),
+                      ),
                 trailing: selected
                     ? const Icon(Icons.check_rounded,
                         color: AppTheme.primaryBlue)
                     : null,
-                onTap: () {
-                  session.setMonitor(i);
+                onTap: () async {
+                  final messenger = ScaffoldMessenger.maybeOf(context);
                   Navigator.pop(ctx);
+                  if (await session.setMonitor(i)) return;
+                  messenger
+                    ?..hideCurrentSnackBar()
+                    ..showSnackBar(SnackBar(
+                        content:
+                            Text('没有切换到${displays[i].title}，对方电脑没有响应')));
                 },
               );
             }),

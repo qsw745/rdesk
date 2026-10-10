@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/session_provider.dart';
 import '../utils/theme.dart';
 import 'connection_timer.dart';
+import 'remote_display_tabs.dart';
 
 /// Desktop-style top bar with monitor tabs, connection timer, and control center toggle.
 class DesktopViewerTopBar extends StatelessWidget {
@@ -23,8 +24,6 @@ class DesktopViewerTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final session = context.watch<SessionProvider>();
-    final monitors = session.availableMonitors;
-    final currentMonitor = session.currentMonitor;
     final latency = session.currentSession?.latencyMs;
     final isOnline = session.isRemoteOnline;
     final connectedAt = session.currentSession?.connectedAt;
@@ -50,35 +49,25 @@ class DesktopViewerTopBar extends StatelessWidget {
             children: [
               const SizedBox(width: 12),
 
-              // Monitor tabs
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      ...List.generate(monitors.length, (i) {
-                        final isActive = i == currentMonitor;
-                        return _MonitorTab(
-                          label: monitors[i],
-                          isActive: isActive,
-                          isDark: isDark,
-                          onTap: () => session.setMonitor(i),
-                          onClose: monitors.length > 1
-                              ? () {} // placeholder for future tab close
-                              : null,
-                        );
-                      }),
-                    ],
+              // One tab per screen of the other computer; scrolls sideways
+              // when there are more than fit.
+              const Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: RemoteDisplayTabs(),
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
 
               // Connection timer
               if (connectedAt != null) ...[
                 Icon(
                   Icons.signal_cellular_alt,
                   size: 14,
-                  color: _signalColor(latency, isOnline),
+                  color: _signalColor(latency, isOnline, isDark),
                 ),
                 const SizedBox(width: 6),
                 ConnectionTimer(
@@ -109,90 +98,13 @@ class DesktopViewerTopBar extends StatelessWidget {
     );
   }
 
-  Color _signalColor(int? latency, bool online) {
+  Color _signalColor(int? latency, bool online, bool isDark) {
     if (!online) return Colors.redAccent;
-    if (latency == null) return Colors.white38;
-    if (latency < 50) return Colors.greenAccent;
-    if (latency < 150) return Colors.amberAccent;
+    // Not measured yet: neutral, and visible on a light bar too.
+    if (latency == null) return isDark ? Colors.white38 : Colors.black38;
+    if (latency < 50) return isDark ? Colors.greenAccent : Colors.green;
+    if (latency < 150) return isDark ? Colors.amberAccent : Colors.orange;
     return Colors.redAccent;
-  }
-}
-
-class _MonitorTab extends StatelessWidget {
-  final String label;
-  final bool isActive;
-  final bool isDark;
-  final VoidCallback onTap;
-  final VoidCallback? onClose;
-
-  const _MonitorTab({
-    required this.label,
-    required this.isActive,
-    required this.isDark,
-    required this.onTap,
-    this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 34,
-        margin: const EdgeInsets.only(right: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: BoxDecoration(
-          color: isActive
-              ? (isDark
-                  ? Colors.white.withValues(alpha: 0.08)
-                  : Colors.black.withValues(alpha: 0.04))
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-          border: isActive
-              ? const Border(
-                  bottom: BorderSide(
-                    color: AppTheme.primaryBlue,
-                    width: 2,
-                  ),
-                )
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.monitor,
-              size: 14,
-              color: isActive
-                  ? (isDark ? Colors.white : Colors.black87)
-                  : (isDark ? Colors.white38 : Colors.black38),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                color: isActive
-                    ? (isDark ? Colors.white : Colors.black87)
-                    : (isDark ? Colors.white54 : Colors.black54),
-              ),
-            ),
-            if (onClose != null) ...[
-              const SizedBox(width: 6),
-              GestureDetector(
-                onTap: onClose,
-                child: Icon(
-                  Icons.close,
-                  size: 12,
-                  color: isDark ? Colors.white24 : Colors.black26,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 }
 

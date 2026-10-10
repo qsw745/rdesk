@@ -28,11 +28,15 @@ class DesktopPermissionException implements Exception {
   String toString() => message;
 }
 
+/// Mouse gestures the native `performMouse` channel method accepts; the
+/// enum name is the wire value of its `kind` argument.
+enum _MouseKind { click, rightClick, drag, scroll }
+
 /// A pure-Dart host service for desktop (macOS / Windows / Linux).
 ///
 /// On macOS it uses:
 ///   • Native ScreenCaptureKit for on-demand screen capture (JPEG).
-///   • Python + Quartz CGEvent for mouse / keyboard simulation.
+///   • Native CGEvent, posted by the app itself, for mouse / keyboard / text.
 ///   • `pbcopy` / `pbpaste` for clipboard.
 ///
 /// On Windows the runner's native `DesktopHostBridge` serves the same channel:
@@ -303,11 +307,12 @@ class DesktopHostService {
     required double normalizedX,
     required double normalizedY,
   }) async {
-    if (Platform.isMacOS) {
-      return _macMouseClick(normalizedX, normalizedY);
-    }
     if (Platform.isWindows) return _windows.click(normalizedX, normalizedY);
-    return false;
+    if (!Platform.isMacOS) return false;
+    return _performMouse(_MouseKind.click, {
+      'x': normalizedX,
+      'y': normalizedY,
+    });
   }
 
   Future<bool> performRemoteLongPress({
@@ -315,13 +320,14 @@ class DesktopHostService {
     required double normalizedY,
   }) async {
     // On desktop, long press = right click
-    if (Platform.isMacOS) {
-      return _macMouseRightClick(normalizedX, normalizedY);
-    }
     if (Platform.isWindows) {
       return _windows.rightClick(normalizedX, normalizedY);
     }
-    return false;
+    if (!Platform.isMacOS) return false;
+    return _performMouse(_MouseKind.rightClick, {
+      'x': normalizedX,
+      'y': normalizedY,
+    });
   }
 
   Future<bool> performRemoteDrag({
@@ -330,11 +336,14 @@ class DesktopHostService {
     required double endX,
     required double endY,
   }) async {
-    if (Platform.isMacOS) {
-      return _macMouseDrag(startX, startY, endX, endY);
-    }
     if (Platform.isWindows) return _windows.drag(startX, startY, endX, endY);
-    return false;
+    if (!Platform.isMacOS) return false;
+    return _performMouse(_MouseKind.drag, {
+      'startX': startX,
+      'startY': startY,
+      'endX': endX,
+      'endY': endY,
+    });
   }
 
   /// Viewers send every drag as a path. macOS still drags in a straight
@@ -351,11 +360,19 @@ class DesktopHostService {
   }
 
   Future<bool> performRemoteTextInput(String text) async {
-    if (Platform.isMacOS) {
-      return _macTypeText(text);
-    }
     if (Platform.isWindows) return _windows.typeText(text);
-    return false;
+    if (!Platform.isMacOS) return false;
+    try {
+      // The text is user input: never log it.
+      return await _desktopChannel.invokeMethod<bool>(
+            'performTextInput',
+            <String, Object>{'text': text},
+          ) ??
+          false;
+    } catch (error) {
+      debugPrint('[RDesk] performTextInput native channel failed: $error');
+      return false;
+    }
   }
 
   Future<bool> setClipboardText(String text) async {
@@ -433,9 +450,9 @@ class DesktopHostService {
     // Map to reasonable keyboard shortcuts.
     switch (action) {
       case 'scroll_up':
-        return _macScroll(3);
+        return _scroll(_scrollLinesPerAction);
       case 'scroll_down':
-        return _macScroll(-3);
+        return _scroll(-_scrollLinesPerAction);
       case 'delete':
         return _macKeyPress(51); // keycode 51 = Delete
       case 'enter':
@@ -544,116 +561,41 @@ class DesktopHostService {
     }
   }
 
-  // ---------- macOS CGEvent helpers via Python+Quartz ----------
+  // ---------- native input helpers ----------
 
-  Future<(int, int)> _getScreenSize() async {
-    final result = await Process.run(
-        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3', [
-      '-c',
-      'import Quartz; d=Quartz.CGDisplayBounds(Quartz.CGMainDisplayID()); print(int(d.size.width), int(d.size.height))',
-    ]);
-    if (result.exitCode == 0) {
-      final parts = (result.stdout as String).trim().split(' ');
-      if (parts.length == 2) {
-        return (int.tryParse(parts[0]) ?? 1920, int.tryParse(parts[1]) ?? 1080);
-      }
+  /// Lines scrolled per `scroll_up` / `scroll_down` action; positive is up.
+  static const _scrollLinesPerAction = 3;
+
+  /// Sends a mouse gesture to the native host. Coordinates are normalized to
+  /// the captured frame; the native side maps them onto the selected display.
+  Future<bool> _performMouse(
+    _MouseKind kind,
+    Map<String, num> arguments,
+  ) async {
+    if (arguments.values.any((value) => !value.isFinite)) {
+      debugPrint('[RDesk] performMouse rejected: non-finite ${kind.name}');
+      return false;
     }
-    return (1920, 1080);
-  }
-
-  Future<(double, double)> _normalizedToAbsolute(double nx, double ny) async {
-    final screen = await _getScreenSize();
-    return (nx * screen.$1, ny * screen.$2);
-  }
-
-  Future<bool> _macMouseClick(double nx, double ny) async {
-    final (x, y) = await _normalizedToAbsolute(nx, ny);
-    debugPrint(
-        '[RDesk] _macMouseClick: normalized=($nx, $ny) → absolute=($x, $y)');
-    final script = '''
-import Quartz, time, sys
-p = ($x, $y)
-# Check if we can create events (accessibility permission)
-evt = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, p, 0)
-if evt is None:
-    print("ERROR: Cannot create CGEvent - accessibility permission likely denied", file=sys.stderr)
-    sys.exit(1)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, evt)
-time.sleep(0.02)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, p, 0))
-time.sleep(0.05)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, p, 0))
-print(f"OK: clicked at {p}")
-''';
-    final result = await Process.run(
-        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
-        ['-c', script]);
-    if (result.exitCode != 0) {
-      debugPrint('[RDesk] _macMouseClick FAILED: exit=${result.exitCode} '
-          'stderr=${result.stderr}');
-    } else {
-      debugPrint('[RDesk] _macMouseClick: ${(result.stdout as String).trim()}');
+    try {
+      return await _desktopChannel.invokeMethod<bool>(
+            'performMouse',
+            <String, Object>{'kind': kind.name, ...arguments},
+          ) ??
+          false;
+    } catch (error) {
+      debugPrint('[RDesk] performMouse native channel failed: $error');
+      return false;
     }
-    return result.exitCode == 0;
   }
 
-  Future<bool> _macMouseRightClick(double nx, double ny) async {
-    final (x, y) = await _normalizedToAbsolute(nx, ny);
-    final script = '''
-import Quartz, time
-p = ($x, $y)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, p, 0))
-time.sleep(0.02)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventRightMouseDown, p, Quartz.kCGMouseButtonRight))
-time.sleep(0.05)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventRightMouseUp, p, Quartz.kCGMouseButtonRight))
-''';
-    final result = await Process.run(
-        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
-        ['-c', script]);
-    return result.exitCode == 0;
-  }
-
-  Future<bool> _macMouseDrag(double sx, double sy, double ex, double ey) async {
-    final (startX, startY) = await _normalizedToAbsolute(sx, sy);
-    final (endX, endY) = await _normalizedToAbsolute(ex, ey);
-    final script = '''
-import Quartz, time
-sp = ($startX, $startY)
-ep = ($endX, $endY)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, sp, 0))
-time.sleep(0.02)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, sp, 0))
-steps = 10
-for i in range(1, steps + 1):
-    t = i / steps
-    x = sp[0] + (ep[0] - sp[0]) * t
-    y = sp[1] + (ep[1] - sp[1]) * t
-    Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDragged, (x, y), 0))
-    time.sleep(0.02)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, ep, 0))
-''';
-    final result = await Process.run(
-        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
-        ['-c', script]);
-    return result.exitCode == 0;
-  }
-
-  Future<bool> _macTypeText(String text) async {
-    // Use AppleScript for reliable text input (handles Unicode)
-    final escaped = text.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-    final result = await Process.run('osascript', [
-      '-e',
-      'tell application "System Events" to keystroke "$escaped"',
-    ]);
-    return result.exitCode == 0;
-  }
+  Future<bool> _scroll(int lines) =>
+      _performMouse(_MouseKind.scroll, {'deltaY': lines});
 
   /// 唤醒被控端显示器。
   ///
   /// 用系统自带的 caffeinate（`-u` 模拟一次用户活动，`-t 1` 只维持 1 秒），
-  /// 而不是走 _macKeyPress：唤醒屏幕不需要真的注入按键，也就不必依赖那条路径
-  /// 里手动安装的 pyobjc。此前 macOS 被控端没有这个分支，观看端点「唤醒屏幕」
+  /// 而不是走 _macKeyPress：唤醒屏幕不需要真的注入按键，也就不依赖那条路径
+  /// 所需的辅助功能授权。此前 macOS 被控端没有这个分支，观看端点「唤醒屏幕」
   /// 会静默失败。
   Future<bool> _macWakeScreen() async {
     final result = await Process.run('/usr/bin/caffeinate', ['-u', '-t', '1']);
@@ -695,17 +637,5 @@ Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Q
       debugPrint('[RDesk] performKeyPress native channel failed: $error');
       return false;
     }
-  }
-
-  Future<bool> _macScroll(int amount) async {
-    final script = '''
-import Quartz
-e = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitLine, 1, $amount)
-Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
-''';
-    final result = await Process.run(
-        '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
-        ['-c', script]);
-    return result.exitCode == 0;
   }
 }

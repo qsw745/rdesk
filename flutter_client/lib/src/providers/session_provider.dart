@@ -3,14 +3,36 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 
+import '../models/remote_display.dart';
 import '../models/session.dart';
 import '../services/rdesk_bridge_service.dart';
 import '../utils/canvas_rotation.dart';
 
+typedef DisplayFetcher = Future<List<RemoteDisplay>?> Function(
+    String sessionId);
+typedef MonitorSwitcher = Future<bool> Function(
+    String sessionId, String action);
+
 class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
-  SessionProvider() {
+  /// The fetcher, switcher and delay are replaceable for tests; by default
+  /// they talk to the computer being viewed.
+  SessionProvider({
+    DisplayFetcher? fetchDisplays,
+    MonitorSwitcher? switchMonitor,
+    Duration displayRetryDelay = const Duration(seconds: 2),
+  })  : _fetchDisplays = fetchDisplays,
+        _switchMonitor = switchMonitor,
+        _displayRetryDelay = displayRetryDelay {
     WidgetsBinding.instance.addObserver(this);
   }
+
+  final DisplayFetcher? _fetchDisplays;
+  final MonitorSwitcher? _switchMonitor;
+  final Duration _displayRetryDelay;
+  static const _displayFetchAttempts = 4;
+  Timer? _displayRetry;
+  bool _switchingMonitor = false;
+  bool _disposed = false;
 
   /// 判定远端离线前允许的无帧时长。
   ///
@@ -87,7 +109,7 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   int _fpsLimit = 30;
   int _jpegQuality = 75;
   int _currentMonitor = 0;
-  List<String> _availableMonitors = ['主显示器'];
+  List<RemoteDisplay> _displays = const [RemoteDisplay.fallback];
   bool _viewOnly = false;
   int _rotationQuarterTurns = 0;
   bool _pointerMode = false;
@@ -111,7 +133,11 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   int get fpsLimit => _fpsLimit;
   int get jpegQuality => _jpegQuality;
   int get currentMonitor => _currentMonitor;
-  List<String> get availableMonitors => List.unmodifiable(_availableMonitors);
+
+  /// The screens of the computer being viewed; never empty.
+  List<RemoteDisplay> get displays => _displays;
+  List<String> get availableMonitors =>
+      List.unmodifiable([for (final display in _displays) display.label]);
 
   /// 仅观看：只收画面，不向被控端发任何输入。
   bool get viewOnly => _viewOnly;
@@ -128,6 +154,11 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void setSession(SessionInfo session, {String? accessPassword}) {
     final oldSession = _currentSession;
     if (oldSession != null) unawaited(pauseScreenViewing(oldSession.sessionId));
+    if (oldSession?.sessionId != session.sessionId) {
+      // Another computer has other screens.
+      _displays = const [RemoteDisplay.fallback];
+      _currentMonitor = 0;
+    }
     _screenViewing = false;
     _currentSession = session;
     _sessionPassword = accessPassword;
@@ -145,13 +176,25 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(_fetchDisplayList(session.sessionId));
   }
 
-  Future<void> _fetchDisplayList(String sessionId) async {
-    try {
-      final displays = await _bridge.fetchRemoteDisplays(sessionId);
-      if (displays.isNotEmpty) {
-        updateAvailableMonitors(displays);
-      }
-    } catch (_) {}
+  /// Asks the other computer which screens it has. A request that fails is
+  /// tried again a few times: giving up at once used to leave a computer
+  /// with two screens showing one for the whole session.
+  Future<void> _fetchDisplayList(String sessionId, [int attempt = 0]) async {
+    _displayRetry?.cancel();
+    if (_disposed || _currentSession?.sessionId != sessionId) return;
+    final custom = _fetchDisplays;
+    // Without an address for this session there is nobody to ask again.
+    if (custom == null && !_bridge.hasSessionEndpoint(sessionId)) return;
+    final displays =
+        await (custom ?? _bridge.fetchRemoteDisplays)(sessionId);
+    if (_disposed || _currentSession?.sessionId != sessionId) return;
+    if (displays != null) {
+      updateDisplays(displays);
+      return;
+    }
+    if (attempt + 1 >= _displayFetchAttempts) return;
+    _displayRetry = Timer(_displayRetryDelay * (attempt + 1),
+        () => unawaited(_fetchDisplayList(sessionId, attempt + 1)));
   }
 
   void updateFrame(Uint8List frameData, int width, int height) {
@@ -196,23 +239,48 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  void setMonitor(int index) {
-    if (index < 0 || index >= _availableMonitors.length) return;
-    _currentMonitor = index;
-    if (_currentSession != null) {
-      _bridge.sendRemoteAction(
-        _currentSession!.sessionId,
-        'switch_monitor_$index',
-      );
-    }
+  /// Shows another of the other computer's screens. Choosing what to look
+  /// at is not input, so it is allowed while only watching. Returns whether
+  /// the other computer switched; when it did not, the selection goes back.
+  Future<bool> setMonitor(int position) async {
+    if (position < 0 || position >= _displays.length) return false;
+    final confirmed = _currentMonitor;
+    if (position == confirmed) return true;
+    // One switch at a time: with two under way, a late or failed answer to
+    // the first would leave the tab on a screen the host is not showing.
+    if (_switchingMonitor) return false;
+    final session = _currentSession;
+    if (session == null) return false;
+
+    _switchingMonitor = true;
+    _currentMonitor = position;
     notifyListeners();
+    final action = 'switch_monitor_${_displays[position].index}';
+    var switched = false;
+    try {
+      switched = await (_switchMonitor ?? _bridge.sendRemoteAction)(
+          session.sessionId, action);
+    } finally {
+      _switchingMonitor = false;
+    }
+    final sameSession =
+        !_disposed && _currentSession?.sessionId == session.sessionId;
+    if (!switched && sameSession) {
+      _currentMonitor = confirmed < _displays.length ? confirmed : 0;
+      notifyListeners();
+    }
+    return switched;
   }
 
-  void updateAvailableMonitors(List<String> monitors) {
-    _availableMonitors = monitors.isEmpty ? ['主显示器'] : monitors;
-    if (_currentMonitor >= _availableMonitors.length) {
-      _currentMonitor = 0;
-    }
+  void updateDisplays(List<RemoteDisplay> displays) {
+    _displays = displays.isEmpty
+        ? const [RemoteDisplay.fallback]
+        : List.unmodifiable(displays);
+    // Follow the host when it says which screen it is showing, unless a
+    // switch this viewer asked for is still on its way.
+    final shown = _displays.indexWhere((display) => display.isSelected);
+    if (shown >= 0 && !_switchingMonitor) _currentMonitor = shown;
+    if (_currentMonitor >= _displays.length) _currentMonitor = 0;
     notifyListeners();
   }
 
@@ -245,6 +313,9 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
   void clearSession() {
     final session = _currentSession;
     if (session != null) unawaited(pauseScreenViewing(session.sessionId));
+    _displayRetry?.cancel();
+    _displays = const [RemoteDisplay.fallback];
+    _currentMonitor = 0;
     _currentSession = null;
     _sessionPassword = null;
     _currentFrame = null;
@@ -460,6 +531,8 @@ class SessionProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _disposed = true;
+    _displayRetry?.cancel();
     final session = _currentSession;
     if (session != null) unawaited(pauseScreenViewing(session.sessionId));
     WidgetsBinding.instance.removeObserver(this);

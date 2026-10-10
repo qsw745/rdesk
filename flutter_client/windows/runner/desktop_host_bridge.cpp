@@ -92,10 +92,16 @@ Value PermissionState() {
                    {Value("accessibilityGranted"), Value(true)}});
 }
 
-Value DisplayList() {
+// `selected` is the index capture and input use; like them, an index that
+// no longer exists means the first display.
+Value DisplayList(int selected) {
   List list;
   int index = 0;
-  for (const DisplayInfo& display : EnumerateDisplays()) {
+  const std::vector<DisplayInfo> displays = EnumerateDisplays();
+  if (selected < 0 || static_cast<size_t>(selected) >= displays.size()) {
+    selected = 0;
+  }
+  for (const DisplayInfo& display : displays) {
     const int width = static_cast<int>(display.rect.width());
     const int height = static_cast<int>(display.rect.height());
     const std::string label =
@@ -106,7 +112,8 @@ Value DisplayList() {
                               std::to_string(height) + ")")},
         {Value("width"), Value(width)},
         {Value("height"), Value(height)},
-        {Value("isMain"), Value(display.primary)}});
+        {Value("isMain"), Value(display.primary)},
+        {Value("selected"), Value(index == selected)}});
     ++index;
   }
   return Value(list);
@@ -222,7 +229,7 @@ void DesktopHostBridge::Handle(const flutter::MethodCall<Value>& call,
                               {Value("encoded"), Value(encoded_frames_)},
                               {Value("backend"), Value(backend_)}}));
   } else if (method == "listDisplays") {
-    result->Success(DisplayList());
+    result->Success(DisplayList(selected_display_));
   } else if (method == "switchDisplay") {
     selected_display_ = static_cast<int>(IntArg(args, "index", 0));
     result->Success(Value(true));

@@ -17,6 +17,7 @@ import '../models/account.dart';
 import '../models/connection_info.dart';
 import '../models/device.dart';
 import '../models/file_entry.dart';
+import '../models/remote_display.dart';
 import '../models/trusted_peer.dart';
 import '../utils/constants.dart';
 import '../utils/platform_capabilities.dart';
@@ -1967,23 +1968,31 @@ class RdeskBridgeService {
     return _postControl(controlUri, <String, String>{'text': text});
   }
 
-  Future<List<String>> fetchRemoteDisplays(String sessionId) async {
+  /// Whether this session has an address to send requests to.
+  bool hasSessionEndpoint(String sessionId) =>
+      _sessionPreviewEndpoints.containsKey(sessionId);
+
+  /// The screens of the computer being viewed, or null when the list could
+  /// not be fetched. A failure is not "one screen": callers retry instead of
+  /// hiding the other screens for the rest of the session.
+  Future<List<RemoteDisplay>?> fetchRemoteDisplays(String sessionId) async {
     final controlUri = _resolveControlUri(sessionId, '/displays');
-    if (controlUri == null) return ['主显示器'];
+    if (controlUri == null) return null;
     try {
       final request = await _getControlClient.getUrl(controlUri);
-      final response = await request.close();
+      final response =
+          await request.close().timeout(const Duration(seconds: 10));
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
-        return ['主显示器'];
+        debugPrint('[RDesk] display list not available: '
+            'HTTP ${response.statusCode}');
+        return null;
       }
       final body = await utf8.decoder.bind(response).join();
-      final list = jsonDecode(body) as List<dynamic>;
-      return list
-          .map((d) => (d as Map<String, dynamic>)['name'] as String? ?? '显示器')
-          .toList();
-    } catch (_) {
-      return ['主显示器'];
+      return RemoteDisplay.parseList(jsonDecode(body));
+    } on Exception catch (error) {
+      debugPrint('[RDesk] display list not fetched: ${error.runtimeType}');
+      return null;
     }
   }
 

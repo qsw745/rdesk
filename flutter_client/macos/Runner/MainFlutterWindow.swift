@@ -24,11 +24,16 @@ class MainFlutterWindow: NSWindow {
 
 // MARK: - DesktopHostPlugin
 
-/// Handles desktop host MethodChannel: screen capture (ScreenCaptureKit), permissions.
+/// Handles desktop host MethodChannel: screen capture (ScreenCaptureKit),
+/// permissions, and remote input (CGEvent).
 class DesktopHostPlugin {
   private static let channelName = "com.qsw.rdesk/desktop_host"
   /// Currently selected display index (0 = main display).
   private static var _selectedDisplayIndex = 0
+  /// The display capture last resolved that index to. Remote coordinates are
+  /// normalized to the captured frame, so input targets this display instead
+  /// of resolving the index a second time against a different display list.
+  private static var _capturedDisplayID: CGDirectDisplayID?
 
   // Capture intent is separate from host availability. All lifecycle state is
   // owned by the main actor / Flutter platform thread.
@@ -84,6 +89,27 @@ class DesktopHostPlugin {
   private static var _screenPermissionRequested = false
   private static var _accessibilityPermissionRequested = false
 
+  // MARK: Remote input state
+
+  /// Injected input runs here, in arrival order. Gestures and text pause
+  /// between events, which must not stall the platform thread, and a later key
+  /// press must not overtake text that is still being typed.
+  private static let _inputQueue = DispatchQueue(
+    label: "com.qsw.rdesk.desktop_host.input", qos: .userInteractive)
+
+  private static let _pointerSettleInterval: TimeInterval = 0.02
+  private static let _clickHoldInterval: TimeInterval = 0.05
+  private static let _dragSteps = 10
+  private static let _dragStepInterval: TimeInterval = 0.02
+  private static let _textStrokeInterval: TimeInterval = 0.002
+
+  private enum MouseAction {
+    case click(CGPoint)
+    case rightClick(CGPoint)
+    case drag(from: CGPoint, to: CGPoint)
+    case scroll(lines: Int32)
+  }
+
   static func register(with messenger: FlutterBinaryMessenger) {
     clearLegacyScreenshot()
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
@@ -126,6 +152,7 @@ class DesktopHostPlugin {
         let args = call.arguments as? [String: Any]
         let index = args?["index"] as? Int ?? 0
         _selectedDisplayIndex = index
+        _capturedDisplayID = nil
         NSLog("[RDesk] switchDisplay: index=\(index)")
         result(nil)
       case "openScreenRecordingSettings":
@@ -147,7 +174,26 @@ class DesktopHostPlugin {
           return
         }
         let modifiers = args["modifiers"] as? [String] ?? []
-        result(performKeyPress(keyCode: keyCode, modifiers: modifiers))
+        runInput(result) { performKeyPress(keyCode: keyCode, modifiers: modifiers) }
+      case "performMouse":
+        guard
+          let args = call.arguments as? [String: Any],
+          let action = mouseAction(from: args)
+        else {
+          NSLog("[RDesk] performMouse rejected: invalid arguments")
+          result(false)
+          return
+        }
+        runInput(result) { performMouse(action) }
+      case "performTextInput":
+        guard
+          let args = call.arguments as? [String: Any],
+          let text = args["text"] as? String
+        else {
+          result(false)
+          return
+        }
+        runInput(result) { performTextInput(text) }
       case "launchMissionControlAction":
         guard
           let args = call.arguments as? [String: Any],
@@ -160,6 +206,14 @@ class DesktopHostPlugin {
       default:
         result(FlutterMethodNotImplemented)
       }
+    }
+  }
+
+  /// Runs `work` on the input queue and answers on the platform thread.
+  private static func runInput(_ result: @escaping FlutterResult, _ work: @escaping () -> Bool) {
+    _inputQueue.async {
+      let ok = work()
+      DispatchQueue.main.async { result(ok) }
     }
   }
 
@@ -218,6 +272,178 @@ class DesktopHostPlugin {
     return true
   }
 
+  // MARK: Mouse and text input
+
+  /// Resolves a `performMouse` call against the display the viewer is looking
+  /// at. Must run on the platform thread, which owns the display selection.
+  private static func mouseAction(from args: [String: Any]) -> MouseAction? {
+    func point(_ xKey: String, _ yKey: String) -> CGPoint? {
+      guard
+        let x = (args[xKey] as? NSNumber)?.doubleValue,
+        let y = (args[yKey] as? NSNumber)?.doubleValue,
+        let display = inputDisplayID()
+      else {
+        return nil
+      }
+      return DesktopInputMapping.globalPoint(
+        normalizedX: x, normalizedY: y, in: CGDisplayBounds(display))
+    }
+
+    switch args["kind"] as? String {
+    case "click":
+      return point("x", "y").map { .click($0) }
+    case "rightClick":
+      return point("x", "y").map { .rightClick($0) }
+    case "drag":
+      guard let start = point("startX", "startY"), let end = point("endX", "endY") else {
+        return nil
+      }
+      return .drag(from: start, to: end)
+    case "scroll":
+      guard let lines = (args["deltaY"] as? NSNumber)?.intValue else { return nil }
+      return .scroll(lines: Int32(clamping: lines))
+    default:
+      return nil
+    }
+  }
+
+  /// The display remote pointer coordinates refer to: the one being captured,
+  /// or the selected index when nothing has been captured since the last switch.
+  private static func inputDisplayID() -> CGDirectDisplayID? {
+    if let captured = _capturedDisplayID, CGDisplayIsOnline(captured) != 0 {
+      return captured
+    }
+    return DesktopInputMapping.display(at: _selectedDisplayIndex, in: orderedDisplayIDs())
+  }
+
+  /// Posts pointer events from the signed RDesk process, for the same TCC
+  /// attribution reason as `performKeyPress`.
+  private static func performMouse(_ action: MouseAction) -> Bool {
+    guard AXIsProcessTrusted() else {
+      NSLog("[RDesk] performMouse blocked: accessibility permission missing")
+      return false
+    }
+    guard let source = CGEventSource(stateID: .hidSystemState) else { return false }
+
+    let posted: Bool
+    switch action {
+    case .click(let point):
+      posted = click(at: point, button: .left, source: source)
+    case .rightClick(let point):
+      posted = click(at: point, button: .right, source: source)
+    case .drag(let start, let end):
+      posted = drag(from: start, to: end, source: source)
+    case .scroll(let lines):
+      posted = scroll(lines: lines, source: source)
+    }
+    NSLog("[RDesk] performMouse \(posted ? "posted" : "failed"): \(action)")
+    return posted
+  }
+
+  private static func scroll(lines: Int32, source: CGEventSource) -> Bool {
+    guard
+      let event = CGEvent(
+        scrollWheelEvent2Source: source, units: .line,
+        wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0)
+    else {
+      return false
+    }
+    event.post(tap: .cghidEventTap)
+    return true
+  }
+
+  private static func postMouse(
+    _ type: CGEventType, at point: CGPoint, button: CGMouseButton, source: CGEventSource
+  ) -> Bool {
+    guard
+      let event = CGEvent(
+        mouseEventSource: source, mouseType: type,
+        mouseCursorPosition: point, mouseButton: button)
+    else {
+      return false
+    }
+    event.post(tap: .cghidEventTap)
+    return true
+  }
+
+  private static func click(at point: CGPoint, button: CGMouseButton, source: CGEventSource) -> Bool {
+    let isRight = button == .right
+    guard postMouse(.mouseMoved, at: point, button: .left, source: source) else { return false }
+    Thread.sleep(forTimeInterval: _pointerSettleInterval)
+    guard
+      postMouse(isRight ? .rightMouseDown : .leftMouseDown, at: point, button: button, source: source)
+    else {
+      return false
+    }
+    Thread.sleep(forTimeInterval: _clickHoldInterval)
+    return postMouse(isRight ? .rightMouseUp : .leftMouseUp, at: point, button: button, source: source)
+  }
+
+  private static func drag(from start: CGPoint, to end: CGPoint, source: CGEventSource) -> Bool {
+    guard postMouse(.mouseMoved, at: start, button: .left, source: source) else { return false }
+    Thread.sleep(forTimeInterval: _pointerSettleInterval)
+    guard postMouse(.leftMouseDown, at: start, button: .left, source: source) else { return false }
+
+    var moved = true
+    for point in DesktopInputMapping.dragPath(from: start, to: end, steps: _dragSteps) {
+      guard postMouse(.leftMouseDragged, at: point, button: .left, source: source) else {
+        moved = false
+        break
+      }
+      Thread.sleep(forTimeInterval: _dragStepInterval)
+    }
+    // Release even after a failed step so the remote button is never left held.
+    return postMouse(.leftMouseUp, at: end, button: .left, source: source) && moved
+  }
+
+  /// Types text as Unicode key events, independent of the host keyboard
+  /// layout. The text itself is never logged.
+  private static func performTextInput(_ text: String) -> Bool {
+    guard AXIsProcessTrusted() else {
+      NSLog("[RDesk] performTextInput blocked: accessibility permission missing")
+      return false
+    }
+    guard let source = CGEventSource(stateID: .hidSystemState) else { return false }
+
+    let strokes = DesktopInputMapping.textStrokes(for: text)
+    for stroke in strokes {
+      guard postTextStroke(stroke, source: source) else { return false }
+      Thread.sleep(forTimeInterval: _textStrokeInterval)
+    }
+    NSLog("[RDesk] performTextInput posted: strokes=\(strokes.count)")
+    return true
+  }
+
+  private static func postTextStroke(
+    _ stroke: DesktopInputMapping.TextStroke, source: CGEventSource
+  ) -> Bool {
+    let keyCode: CGKeyCode
+    let units: [UInt16]
+    switch stroke {
+    case .key(let code):
+      keyCode = code
+      units = []
+    case .unicode(let value):
+      keyCode = 0
+      units = value
+    }
+    guard
+      let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+      let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+    else {
+      return false
+    }
+    for event in [keyDown, keyUp] {
+      // A modifier held on the host keyboard must not turn text into shortcuts.
+      event.flags = []
+      if !units.isEmpty {
+        event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
+      }
+      event.post(tap: .cghidEventTap)
+    }
+    return true
+  }
+
   /// Launches macOS' own Mission Control helper with the action argument used
   /// by the installed system app. This is independent of configurable keyboard
   /// shortcuts and runs from RDesk's active Aqua session.
@@ -266,38 +492,52 @@ class DesktopHostPlugin {
 
   // MARK: Display listing (CG-based, no TCC prompt)
 
+  /// Online displays, main display first, then by displayID. `switchDisplay`
+  /// indexes into this order.
+  private static func orderedDisplayIDs() -> [CGDirectDisplayID] {
+    var ids = [CGDirectDisplayID](repeating: 0, count: 10)
+    var count: UInt32 = 0
+    CGGetOnlineDisplayList(UInt32(ids.count), &ids, &count)
+    return DesktopInputMapping.orderedDisplays(Array(ids.prefix(Int(count))), main: CGMainDisplayID())
+  }
+
+  /// What each screen calls itself ("VG27AQL3A", "Built-in Retina Display"),
+  /// by display ID. Mirrored screens are not listed by AppKit and get none.
+  private static func displayModelNames() -> [CGDirectDisplayID: String] {
+    var names: [CGDirectDisplayID: String] = [:]
+    for screen in NSScreen.screens {
+      let key = NSDeviceDescriptionKey("NSScreenNumber")
+      guard let number = screen.deviceDescription[key] as? NSNumber else { continue }
+      let name = screen.localizedName.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !name.isEmpty { names[number.uint32Value] = name }
+    }
+    return names
+  }
+
   /// List displays using CoreGraphics — never triggers a permission prompt.
   private static func listDisplays(result: @escaping FlutterResult) {
-    var cgDisplayIDs = [CGDirectDisplayID](repeating: 0, count: 10)
-    var cgCount: UInt32 = 0
-    CGGetOnlineDisplayList(10, &cgDisplayIDs, &cgCount)
     let mainID = CGMainDisplayID()
-
-    // Build display info from CG (always available, no TCC).
-    var displays: [(id: CGDirectDisplayID, width: Int, height: Int)] = []
-    for i in 0..<Int(cgCount) {
-      let did = cgDisplayIDs[i]
-      let bounds = CGDisplayBounds(did)
-      displays.append((did, Int(bounds.width), Int(bounds.height)))
-    }
-
-    // Sort: main display first, then by displayID.
-    displays.sort { a, b in
-      if a.id == mainID { return true }
-      if b.id == mainID { return false }
-      return a.id < b.id
-    }
-
-    let list = displays.enumerated().map { (i, d) -> [String: Any] in
-      let isMain = d.id == mainID
-      let name = isMain ? "主显示器" : "显示器 \(i + 1)"
-      return [
+    let models = displayModelNames()
+    let ordered = orderedDisplayIDs()
+    // The selection outlives a viewer's session: the next viewer has to be
+    // told which screen it is looking at.
+    let selected = max(0, min(_selectedDisplayIndex, ordered.count - 1))
+    let list = ordered.enumerated().map { (i, id) -> [String: Any] in
+      let bounds = CGDisplayBounds(id)
+      let width = Int(bounds.width)
+      let height = Int(bounds.height)
+      var entry: [String: Any] = [
         "index": i,
-        "name": "\(name) (\(d.width)×\(d.height))",
-        "width": d.width,
-        "height": d.height,
-        "isMain": isMain,
+        // Older viewers show this text as it is; newer ones build their own
+        // label from the fields below.
+        "name": "显示屏 \(i + 1)（\(models[id] ?? "\(width)×\(height)")）",
+        "width": width,
+        "height": height,
+        "isMain": id == mainID,
+        "selected": i == selected,
       ]
+      if let model = models[id] { entry["model"] = model }
+      return entry
     }
     NSLog("[RDesk] listDisplays: \(list.count) displays, mainID=\(mainID)")
     result(list)
@@ -368,6 +608,7 @@ class DesktopHostPlugin {
           result(FlutterError(code: "CAPTURE_FAILED", message: "No display found", details: nil))
           return
         }
+        _capturedDisplayID = display.displayID
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
         let maxD = CGFloat(maxDimension)
