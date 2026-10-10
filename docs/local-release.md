@@ -43,7 +43,7 @@ bash scripts/release_macos.sh x86_64   # dist/RDesk-<版本>-macos-x64.zip
 2. 执行 `python3 scripts/prepare_website.py` 生成静态页面。
 3. 执行 `python3 scripts/package_website.py --artifacts <安装包目录> --output <本地成品.tar.gz>`；多个目录可重复传入 `--artifacts`。脚本核对全部安装包并打包页面，缺失或摘要错误会中止。
 4. 上传成品到 `rdesk-new`（SSH 用户 ubuntu），解压至 `/opt/rdesk-website/releases/<版本>`，执行 `sha256sum -c MANIFEST.sha256`，将所有者设为 root:root，并确保 nginx 可读。
-5. 保留旧目录和 current 链接，原子切换 `/opt/rdesk-website/current`。例如在该目录下创建 `current.next` 相对链接，再用 `mv -Tf current.next current` 替换。
+5. 原子切换 `/opt/rdesk-website/current`，只保留当前版和上一版两个目录（上一版用于回滚）；更早的目录在切换并核对后删除。新目录除清单内的安装包外，只额外带上一版的安装包：更新器把清单缓存最长 6 小时。删除时写死绝对路径，不用变量拼接。例如在该目录下创建 `current.next` 相对链接，再用 `mv -Tf current.next current` 替换。
 6. 验证公开页面、HEAD、Range 断点续传和下载文件摘要。更新域名入口或源站 nginx 前，先备份、执行 `nginx -t`，再平滑重载。
 
 首次部署与回滚路径见 [自有服务器迁移记录](validation/website-self-hosted-2026-09-20.md)。配置模板分别为 `deploy/nginx.rdesk-website-origin.conf` 与 `deploy/nginx.rdesk-website-edge.conf`，均为 server 内的片段，不能当完整虚拟主机文件使用。
