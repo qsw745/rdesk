@@ -2,14 +2,15 @@ mod wake;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::path::Path as FsPath;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
-use axum::body::Bytes;
+use axum::body::{Body, Bytes};
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{DefaultBodyLimit, Path, Query, State, WebSocketUpgrade};
-use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -87,6 +88,8 @@ struct AppState {
     ws_host_cmd_tx: Arc<DashMap<String, tokio::sync::mpsc::UnboundedSender<String>>>,
     /// File transfer temporary storage
     file_store: Arc<DashMap<String, FileBlob>>,
+    /// Bytes promised to file transfers that are arriving or being held.
+    file_bytes: Arc<AtomicUsize>,
     /// File listing requests/responses
     file_list_responses: Arc<DashMap<String, oneshot::Sender<String>>>,
 }
@@ -128,6 +131,7 @@ impl AppState {
             frame_broadcasters: Arc::new(DashMap::new()),
             ws_host_cmd_tx: Arc::new(DashMap::new()),
             file_store: Arc::new(DashMap::new()),
+            file_bytes: Arc::new(AtomicUsize::new(0)),
             file_list_responses: Arc::new(DashMap::new()),
         }
     }
@@ -469,7 +473,8 @@ async fn main() -> Result<()> {
         .route("/api/file/list", post(file_list_request))
         .route(
             "/api/file/upload",
-            post(file_upload).layer(DefaultBodyLimit::max(FILE_MAX_BYTES)),
+            // The handler reads the body itself, after it has checked the sender.
+            post(file_upload).layer(DefaultBodyLimit::disable()),
         )
         .route("/api/file/host/download/:file_id", get(file_host_download))
         .route("/api/file/download/:file_id", get(file_download))
@@ -1853,33 +1858,106 @@ fn safe_file_name(raw: &str) -> Option<String> {
     Some(cleaned)
 }
 
+/// Room in the relay's memory for one file transfer, counted from the moment
+/// the upload is admitted so concurrent uploads cannot overshoot the total.
+/// Dropping it gives the room back, however the transfer ended.
+#[derive(Debug)]
+struct FileReservation {
+    total: Arc<AtomicUsize>,
+    bytes: usize,
+}
+
+impl FileReservation {
+    fn try_new(total: &Arc<AtomicUsize>, bytes: usize) -> Option<Self> {
+        total
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |held| {
+                held.checked_add(bytes)
+                    .filter(|next| *next <= FILE_STORE_MAX_BYTES)
+            })
+            .ok()?;
+        Some(Self {
+            total: total.clone(),
+            bytes,
+        })
+    }
+}
+
+impl Drop for FileReservation {
+    fn drop(&mut self) {
+        self.total.fetch_sub(self.bytes, Ordering::SeqCst);
+    }
+}
+
+/// Removes a held file when the request that brought it ends, including
+/// when the sender disconnects and the request is dropped mid-wait.
+struct HeldFile {
+    store: Arc<DashMap<String, FileBlob>>,
+    file_id: String,
+}
+
+impl Drop for HeldFile {
+    fn drop(&mut self) {
+        self.store.remove(&self.file_id);
+    }
+}
+
+/// Decides whether to accept an upload from its query and headers alone,
+/// before any of the body is read.
+fn admit_file(
+    state: &AppState,
+    query: &FileUploadQuery,
+    headers: &HeaderMap,
+) -> Result<(String, FileReservation), (StatusCode, &'static str)> {
+    if !validate_viewer(state, &query.device_id, &query.token) {
+        return Err((StatusCode::UNAUTHORIZED, ""));
+    }
+    let Some(filename) = safe_file_name(&query.filename) else {
+        return Err((StatusCode::BAD_REQUEST, "文件名无效"));
+    };
+    let declared = headers
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok());
+    let Some(size) = declared else {
+        return Err((StatusCode::LENGTH_REQUIRED, "缺少文件大小"));
+    };
+    if size > FILE_MAX_BYTES {
+        return Err((StatusCode::PAYLOAD_TOO_LARGE, "文件超过中转上限"));
+    }
+    let Some(reservation) = FileReservation::try_new(&state.file_bytes, size) else {
+        return Err((StatusCode::INSUFFICIENT_STORAGE, "中转空间不足，请稍后再试"));
+    };
+    Ok((filename, reservation))
+}
+
 /// A viewer sends a file for the host. The relay holds it only until the
 /// host has fetched it, and reports whether the host saved it.
 async fn file_upload(
     State(state): State<AppState>,
     Query(query): Query<FileUploadQuery>,
-    body: Bytes,
+    headers: HeaderMap,
+    body: Body,
 ) -> Response {
-    relay_file(state, query, body, FILE_RECEIVE_TIMEOUT).await
+    let (filename, reservation) = match admit_file(&state, &query, &headers) {
+        Ok(admitted) => admitted,
+        Err((status, "")) => return status.into_response(),
+        Err((status, message)) => return error_response(status, message),
+    };
+    let data = match axum::body::to_bytes(body, reservation.bytes).await {
+        Ok(data) if data.len() == reservation.bytes => data,
+        _ => return error_response(StatusCode::BAD_REQUEST, "文件没有传完"),
+    };
+    // `reservation` lives until the host has answered or the request ends.
+    relay_file(state, query, filename, data, FILE_RECEIVE_TIMEOUT).await
 }
 
 async fn relay_file(
     state: AppState,
     query: FileUploadQuery,
+    filename: String,
     body: Bytes,
     host_wait: Duration,
 ) -> Response {
-    if !validate_viewer(&state, &query.device_id, &query.token) {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    let Some(filename) = safe_file_name(&query.filename) else {
-        return error_response(StatusCode::BAD_REQUEST, "文件名无效");
-    };
-    let held: usize = state.file_store.iter().map(|entry| entry.data.len()).sum();
-    if body.len() > FILE_MAX_BYTES || held + body.len() > FILE_STORE_MAX_BYTES {
-        return error_response(StatusCode::INSUFFICIENT_STORAGE, "中转空间不足，请稍后再试");
-    }
-
     let file_id = new_token();
     let size = body.len();
     state.file_store.insert(
@@ -1891,6 +1969,10 @@ async fn relay_file(
             device_id: query.device_id.clone(),
         },
     );
+    let _held = HeldFile {
+        store: state.file_store.clone(),
+        file_id: file_id.clone(),
+    };
 
     let relay_query = RelayViewerQuery {
         device_id: query.device_id.clone(),
@@ -1907,9 +1989,6 @@ async fn relay_file(
 
     match outcome {
         Ok(result) => {
-            if !result.ok {
-                state.file_store.remove(&file_id);
-            }
             info!(device_id = %query.device_id, size, saved = result.ok, "relayed file");
             (
                 StatusCode::OK,
@@ -1917,10 +1996,7 @@ async fn relay_file(
             )
                 .into_response()
         }
-        Err(status) => {
-            state.file_store.remove(&file_id);
-            status.into_response()
-        }
+        Err(status) => status.into_response(),
     }
 }
 
