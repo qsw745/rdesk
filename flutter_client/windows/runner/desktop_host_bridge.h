@@ -21,7 +21,7 @@
 //   captureScreen{generation, maxDimension, quality} -> {bytes, width, height}
 //       errors SESSION_LOCKED, SECURE_DESKTOP, CAPTURE_FAILED
 //   captureDiagnostics, listDisplays, switchDisplay{index}
-//   performMouse{kind, x, y, endX, endY, amount} -> bool
+//   performMouse{kind, x, y, endX, endY, amount, points} -> bool
 //   performKeyPress{keyCode, modifiers} -> bool
 //   typeText{text} -> bool, wakeDisplay -> bool
 // Capture and input run on one worker thread; replies return to the platform

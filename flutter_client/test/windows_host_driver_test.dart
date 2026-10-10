@@ -82,6 +82,45 @@ void main() {
           {'kind': 'drag', 'x': 0.1, 'y': 0.2, 'endX': 0.3, 'endY': 0.4});
     });
 
+    test('路径拖动把全部途经点交给原生层', () async {
+      expect(
+          await driver.dragPath(const [
+            [0.1, 0.2],
+            [0.15, 0.25],
+            [0.3, 0.4],
+          ]),
+          isTrue);
+
+      expect(calls.single.method, 'performMouse');
+      expect(calls.single.arguments, {
+        'kind': 'dragPath',
+        'points': [
+          [0.1, 0.2],
+          [0.15, 0.25],
+          [0.3, 0.4],
+        ],
+      });
+    });
+
+    test('路径少于两点、含越界点或格式不对时拒绝', () async {
+      expect(await driver.dragPath(const [
+        [0.1, 0.2]
+      ]), isFalse);
+      expect(
+          await driver.dragPath(const [
+            [0.1, 0.2],
+            [1.4, 0.2],
+          ]),
+          isFalse);
+      expect(
+          await driver.dragPath(const [
+            [0.1, 0.2],
+            [0.3],
+          ]),
+          isFalse);
+      expect(calls, isEmpty);
+    });
+
     test('超出画面的坐标被拒绝且不触达原生层', () async {
       expect(await driver.click(1.2, 0.5), isFalse);
       expect(await driver.drag(0.1, 0.1, double.nan, 0.2), isFalse);

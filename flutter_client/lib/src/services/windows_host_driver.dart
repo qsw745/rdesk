@@ -14,6 +14,9 @@ class WindowsHostDriver {
 
   static const _scrollLines = 3;
 
+  /// Viewers subsample a drag to a few dozen points.
+  static const maxPathPoints = 64;
+
   Future<bool> click(double x, double y) =>
       _mouse({'kind': 'click', 'x': x, 'y': y});
 
@@ -22,6 +25,16 @@ class WindowsHostDriver {
 
   Future<bool> drag(double x, double y, double endX, double endY) =>
       _mouse({'kind': 'drag', 'x': x, 'y': y, 'endX': endX, 'endY': endY});
+
+  /// A drag that follows the viewer's finger or mouse through [points],
+  /// each `[x, y]` in 0..1.
+  Future<bool> dragPath(List<List<double>> points) async {
+    if (points.length < 2 || points.length > maxPathPoints) return false;
+    final valid = points.every((point) =>
+        point.length == 2 && point.every((v) => !v.isNaN && v >= 0 && v <= 1));
+    if (!valid) return false;
+    return _invoke('performMouse', {'kind': 'dragPath', 'points': points});
+  }
 
   Future<bool> typeText(String text) async {
     if (text.isEmpty) return false;

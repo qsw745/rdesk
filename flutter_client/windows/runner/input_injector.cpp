@@ -13,6 +13,10 @@ constexpr DWORD kSettleMs = 15;
 constexpr DWORD kPressMs = 30;
 constexpr DWORD kDragStepMs = 12;
 constexpr int kDragSteps = 12;
+// Moves inserted between two points of a path drag, so that applications
+// see continuous movement rather than jumps.
+constexpr int kPathSegmentSteps = 3;
+constexpr size_t kMaxPathPoints = 64;
 constexpr size_t kMaxTextLength = 4096;
 // Keystrokes per SendInput call: small enough to notice a rejection early.
 constexpr size_t kTextBatch = 32;
@@ -84,9 +88,10 @@ INPUT UnicodeKey(wchar_t unit, bool down) {
 }
 
 // Resolves a position for a pointer action. False when it is out of range,
-// or when the window there would not receive the input.
+// or, for a position where a button goes down (|pressed_here|), when the
+// window there would not receive the input.
 bool Resolve(int display_index, double x, double y,
-             host_geometry::Point* absolute) {
+             host_geometry::Point* absolute, bool pressed_here = true) {
   if (!host_geometry::IsNormalized(x) || !host_geometry::IsNormalized(y)) {
     return false;
   }
@@ -94,7 +99,8 @@ bool Resolve(int display_index, double x, double y,
   if (!DisplayAt(display_index, &display)) return false;
   const host_geometry::Point pixel =
       host_geometry::ToDesktopPixel(display.rect, x, y);
-  if (RunsAboveThisProcess(WindowFromPoint(POINT{pixel.x, pixel.y}))) {
+  if (pressed_here &&
+      RunsAboveThisProcess(WindowFromPoint(POINT{pixel.x, pixel.y}))) {
     return false;
   }
   *absolute = host_geometry::ToAbsolute(VirtualDesktopRect(), pixel);
@@ -119,7 +125,7 @@ bool Drag(int display_index, double x, double y, double end_x, double end_y) {
   host_geometry::Point from;
   host_geometry::Point to;
   if (!DesktopReady() || !Resolve(display_index, x, y, &from) ||
-      !Resolve(display_index, end_x, end_y, &to)) {
+      !Resolve(display_index, end_x, end_y, &to, /*pressed_here=*/false)) {
     return false;
   }
   if (!SendOne(MouseAt(from, MOUSEEVENTF_MOVE))) return false;
@@ -135,6 +141,40 @@ bool Drag(int display_index, double x, double y, double end_x, double end_y) {
   }
   // Release even after a failed move: a held button would hijack the host.
   const bool released = SendRelease(MouseAt(to, MOUSEEVENTF_LEFTUP));
+  return ok && released;
+}
+
+bool DragThrough(int display_index,
+                 const std::vector<std::pair<double, double>>& path) {
+  if (path.size() < 2 || path.size() > kMaxPathPoints || !DesktopReady()) {
+    return false;
+  }
+  std::vector<host_geometry::Point> points;
+  points.reserve(path.size());
+  for (size_t i = 0; i < path.size(); ++i) {
+    host_geometry::Point at;
+    if (!Resolve(display_index, path[i].first, path[i].second, &at,
+                 /*pressed_here=*/i == 0)) {
+      return false;
+    }
+    points.push_back(at);
+  }
+  if (!SendOne(MouseAt(points.front(), MOUSEEVENTF_MOVE))) return false;
+  Sleep(kSettleMs);
+  if (!SendOne(MouseAt(points.front(), MOUSEEVENTF_LEFTDOWN))) return false;
+  Sleep(kPressMs);
+  bool ok = true;
+  for (size_t i = 1; i < points.size() && ok; ++i) {
+    for (const host_geometry::Point& step : host_geometry::DragPath(
+             points[i - 1], points[i], kPathSegmentSteps)) {
+      ok = SendOne(MouseAt(step, MOUSEEVENTF_MOVE));
+      if (!ok) break;
+      Sleep(kDragStepMs);
+    }
+  }
+  // Release even after a failed move: a held button would hijack the host.
+  const bool released =
+      SendRelease(MouseAt(points.back(), MOUSEEVENTF_LEFTUP));
   return ok && released;
 }
 

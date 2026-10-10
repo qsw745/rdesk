@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -46,6 +47,7 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
   Offset? _pointerDownPos;
   DateTime? _pointerDownTime;
   bool _pointerMoved = false;
+  bool _pointerSecondary = false;
 
   /// 指针模式下虚拟指针的位置（画面空间归一化坐标）。
   Offset _pointerFramePos = const Offset(0.5, 0.5);
@@ -234,6 +236,10 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                 _pointerDownPos = event.localPosition;
                 _pointerDownTime = DateTime.now();
                 _pointerMoved = false;
+                // A mouse has a real right button; a touch screen stands in
+                // for it with a long press.
+                _pointerSecondary = event.kind == PointerDeviceKind.mouse &&
+                    (event.buttons & kSecondaryMouseButton) != 0;
               }
             },
             onPointerMove: (event) {
@@ -268,7 +274,8 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
                     'duration=${duration.inMilliseconds}ms pos=$downPos');
                 if (moved) return;
 
-                final isLongPress = duration >= _longPressThreshold;
+                final isLongPress =
+                    _pointerSecondary || duration >= _longPressThreshold;
                 // 指针模式下落点是虚拟指针的位置，而不是手指位置。
                 final target =
                     pointerMode ? _pointerFramePos : toFrame(downPos);
@@ -408,6 +415,13 @@ class _RemoteCanvasState extends State<RemoteCanvas> {
         // Non-zoom mode: original gesture handling with tap + drag support.
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onSecondaryTapUp: widget.onRemoteLongPress == null
+              ? null
+              : (details) {
+                  final normalized = toFrame(details.localPosition);
+                  if (normalized == null) return;
+                  widget.onRemoteLongPress!(normalized);
+                },
           onTapUp: widget.onRemoteTap == null
               ? null
               : (details) {

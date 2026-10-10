@@ -302,6 +302,19 @@ class DesktopHostService {
     return false;
   }
 
+  /// Viewers send every drag as a path. macOS still drags in a straight
+  /// line between its ends; Windows follows the path.
+  Future<bool> performRemoteDragPath(List<List<double>> points) async {
+    if (points.length < 2) return false;
+    if (Platform.isWindows) return _windows.dragPath(points);
+    return performRemoteDrag(
+      startX: points.first[0],
+      startY: points.first[1],
+      endX: points.last[0],
+      endY: points.last[1],
+    );
+  }
+
   Future<bool> performRemoteTextInput(String text) async {
     if (Platform.isMacOS) {
       return _macTypeText(text);

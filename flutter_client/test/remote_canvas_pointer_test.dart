@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -112,5 +113,50 @@ void main() {
     expect(provider.rotationQuarterTurns, 1);
     expect(tester.takeException(), isNull);
     expect(find.text('点击'), findsOneWidget);
+  });
+
+  testWidgets('鼠标右键单击发送右键（长按指令），而不是左键点击', (tester) async {
+    final taps = <Offset>[];
+    final rightClicks = <Offset>[];
+    await _pumpCanvas(
+      tester,
+      pointerMode: false,
+      onRemoteTap: taps.add,
+      onRemoteLongPress: rightClicks.add,
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(RemoteCanvas)),
+      kind: PointerDeviceKind.mouse,
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pump(const Duration(milliseconds: 40));
+    await gesture.up();
+    await tester.pump();
+
+    expect(taps, isEmpty);
+    expect(rightClicks, hasLength(1));
+  });
+
+  testWidgets('鼠标左键快速单击仍然是左键点击', (tester) async {
+    final taps = <Offset>[];
+    final rightClicks = <Offset>[];
+    await _pumpCanvas(
+      tester,
+      pointerMode: false,
+      onRemoteTap: taps.add,
+      onRemoteLongPress: rightClicks.add,
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(RemoteCanvas)),
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pump(const Duration(milliseconds: 40));
+    await gesture.up();
+    await tester.pump();
+
+    expect(taps, hasLength(1));
+    expect(rightClicks, isEmpty);
   });
 }

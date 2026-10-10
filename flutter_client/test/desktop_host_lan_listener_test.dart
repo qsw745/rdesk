@@ -257,4 +257,22 @@ void main() {
     });
     expect(retry.status, 401);
   }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+  test('路径拖动指令在桌面被控端有对应处理，不会落空', () async {
+    await hostReady();
+    final token = await authenticate();
+
+    final ok = await call('/input/drag_path', token: token, body: {
+      'points': [
+        [0.1, 0.2],
+        [0.2, 0.3],
+        [0.5, 0.6],
+      ],
+    });
+    final malformed =
+        await call('/input/drag_path', token: token, body: {'points': 'x'});
+
+    expect(ok.status, 200);
+    expect(malformed.status, 400);
+  }, skip: !(Platform.isMacOS || Platform.isWindows));
 }

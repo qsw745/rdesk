@@ -323,6 +323,29 @@ void DesktopHostBridge::PerformMouse(const Map& args, Result result) {
               [notches]() { return input_injector::Scroll(notches); });
     return;
   }
+  if (kind == "dragPath") {
+    std::vector<std::pair<double, double>> path;
+    const Value* raw = Find(args, "points");
+    const auto* list = raw ? std::get_if<List>(raw) : nullptr;
+    bool valid = list != nullptr;
+    for (size_t i = 0; valid && i < list->size(); ++i) {
+      const auto* point = std::get_if<List>(&(*list)[i]);
+      const auto* px = point && point->size() == 2
+                           ? std::get_if<double>(&(*point)[0])
+                           : nullptr;
+      const auto* py = px ? std::get_if<double>(&(*point)[1]) : nullptr;
+      valid = px && py;
+      if (valid) path.emplace_back(*px, *py);
+    }
+    if (!valid) {
+      result->Success(Value(false));
+      return;
+    }
+    PostInput(std::move(result), [display, path]() {
+      return input_injector::DragThrough(display, path);
+    });
+    return;
+  }
   double x = 0;
   double y = 0;
   if (!DoubleArg(args, "x", &x) || !DoubleArg(args, "y", &y)) {

@@ -597,6 +597,21 @@ class DesktopHostProvider extends ChangeNotifier {
 
   // ---------- LAN HTTP relay (same as Android) ----------
 
+  /// A drag path from a viewer: at least two `[x, y]` points. Null when the
+  /// payload is not one, so a malformed request never becomes input.
+  @visibleForTesting
+  static List<List<double>>? parseDragPath(Object? raw) {
+    if (raw is! List || raw.length < 2) return null;
+    final points = <List<double>>[];
+    for (final item in raw) {
+      if (item is! List || item.length != 2) return null;
+      final x = item[0], y = item[1];
+      if (x is! num || y is! num) return null;
+      points.add([x.toDouble(), y.toDouble()]);
+    }
+    return points;
+  }
+
   /// The availability loop and a hosting transition can both get here.
   @visibleForTesting
   Future<void> debugEnsureLanRelay() => _ensureLanRelay();
@@ -876,6 +891,24 @@ class DesktopHostProvider extends ChangeNotifier {
             endX: endX,
             endY: endY,
           );
+          response.headers.contentType = ContentType.json;
+          response.write(jsonEncode(<String, Object?>{'ok': ok}));
+          await response.close();
+          return;
+        }
+
+        if (request.uri.path == '/input/drag_path' &&
+            request.method == 'POST') {
+          final body = await utf8.decoder.bind(request).join();
+          final payload = jsonDecode(body) as Map<String, dynamic>;
+          final points = parseDragPath(payload['points']);
+          if (points == null) {
+            response.statusCode = HttpStatus.badRequest;
+            response.write('invalid path');
+            await response.close();
+            return;
+          }
+          final ok = await _service.performRemoteDragPath(points);
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{'ok': ok}));
           await response.close();
@@ -1225,6 +1258,12 @@ class DesktopHostProvider extends ChangeNotifier {
           if (x != null && y != null) {
             ok = await _service.performRemoteLongPress(
                 normalizedX: x, normalizedY: y);
+          }
+          break;
+        case 'drag_path':
+          final points = parseDragPath(command.payload['points']);
+          if (points != null) {
+            ok = await _service.performRemoteDragPath(points);
           }
           break;
         case 'drag':

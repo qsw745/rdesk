@@ -380,6 +380,28 @@ void DriveInput(HWND window) {
   Check((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0,
         "the mouse button is released after the drag");
 
+  // The same selection made as a path, the way viewers send every drag.
+  input_injector::Click(0, x, y, false);
+  Sleep(200);
+  double mid_x = 0;
+  double mid_y = 0;
+  POINT mid{};
+  Normalised(display, client.right / 2, 14, &mid_x, &mid_y, &mid);
+  Check(input_injector::DragThrough(
+            0, {{x, y}, {mid_x, mid_y}, {end_x, end_y}}),
+        "path drag is accepted");
+  Sleep(300);
+  Selection(&start, &end);
+  Check(end > start, "path drag selects text");
+  GetCursorPos(&cursor);
+  Check(std::abs(cursor.x - drag_end.x) <= 1 &&
+            std::abs(cursor.y - drag_end.y) <= 1,
+        "path drag ends on its last point");
+  Check((GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0,
+        "the mouse button is released after the path drag");
+  Check(!input_injector::DragThrough(0, {{x, y}}),
+        "a path of one point is refused");
+
   Check(input_injector::Scroll(3), "scroll is accepted");
   Sleep(200);
   Check(g_wheel.load() > 0, "the wheel event reaches the window");
