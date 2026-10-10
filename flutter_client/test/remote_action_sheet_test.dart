@@ -28,7 +28,7 @@ void main() {
                 onDisconnect: () {},
                 onFileManager: () {},
                 onToggleToolbar: () {},
-                onRemoteAction: (action) async => actions.add(action),
+                onRemoteAction: (action) async => (actions..add(action)).isNotEmpty,
                 onPushClipboard: () async {},
                 onPullClipboard: () async {},
                 autoHideToolbar: false,
@@ -47,7 +47,7 @@ void main() {
   Future<SessionProvider> openActionSheet(
     WidgetTester tester, {
     Size viewport = const Size(390, 844),
-    Future<void> Function(String action)? onRemoteAction,
+    Future<bool> Function(String action)? onRemoteAction,
     VoidCallback? onToggleToolbar,
   }) async {
     tester.view.devicePixelRatio = 1;
@@ -75,7 +75,7 @@ void main() {
                       onDisconnect: () {},
                       onFileManager: () {},
                       onToggleToolbar: onToggleToolbar ?? () {},
-                      onRemoteAction: onRemoteAction ?? (_) async {},
+                      onRemoteAction: onRemoteAction ?? (_) async => true,
                       onPushClipboard: () async {},
                       onPullClipboard: () async {},
                     ),
@@ -126,7 +126,7 @@ void main() {
             body: RemoteKeyboardSheet(
               peerOs: 'macOS',
               onSendText: (_) async {},
-              onRemoteAction: (action) async => actions.add(action),
+              onRemoteAction: (action) async => (actions..add(action)).isNotEmpty,
             ),
           ),
         ),
@@ -153,7 +153,7 @@ void main() {
             body: RemoteKeyboardSheet(
               peerOs: 'macOS',
               onSendText: (_) async {},
-              onRemoteAction: (_) async {},
+              onRemoteAction: (_) async => true,
             ),
           ),
         ),
@@ -184,7 +184,7 @@ void main() {
                 onDisconnect: () {},
                 onFileManager: () {},
                 onToggleToolbar: () {},
-                onRemoteAction: (_) async {},
+                onRemoteAction: (_) async => true,
                 onPushClipboard: () async {},
                 onPullClipboard: () async {},
                 autoHideToolbar: false,
@@ -259,7 +259,7 @@ void main() {
             body: RemoteKeyboardSheet(
               peerOs: 'windows',
               onSendText: (_) async {},
-              onRemoteAction: (action) async => actions.add(action),
+              onRemoteAction: (action) async => (actions..add(action)).isNotEmpty,
             ),
           ),
         ),
@@ -286,7 +286,7 @@ void main() {
   testWidgets('Windows 被控端提供重启和关机，确认后才发送', (tester) async {
     final actions = <String>[];
     final session = await openActionSheet(tester,
-        onRemoteAction: (action) async => actions.add(action));
+        onRemoteAction: (action) async => (actions..add(action)).isNotEmpty);
     attach(session, 'windows');
     await tester.pumpAndSettle();
 
@@ -302,8 +302,30 @@ void main() {
     await tester.tap(find.text('关机'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '关机'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
     expect(actions, ['power_shutdown']);
+    expect(find.text('对方电脑已接受，约 10 秒后关机'), findsOneWidget);
+  });
+
+  testWidgets('对方没有执行重启时如实提示，不说已发送', (tester) async {
+    // 例如对方是不认识这个指令的旧版本。
+    final session =
+        await openActionSheet(tester, onRemoteAction: (_) async => false);
+    attach(session, 'windows');
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('重启电脑'), 200,
+        scrollable: find.byType(Scrollable).last);
+    await tester.tap(find.text('重启电脑'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '重启'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('对方电脑没有重启'), findsOneWidget);
+    expect(find.textContaining('已接受'), findsNothing);
+    expect(find.textContaining('已发送'), findsNothing);
   });
 
   testWidgets('仅观看时不提供重启和关机', (tester) async {
@@ -354,7 +376,7 @@ void main() {
             body: RemoteKeyboardSheet(
               peerOs: 'macOS',
               onSendText: (text) async => sentTexts.add(text),
-              onRemoteAction: (_) async {},
+              onRemoteAction: (_) async => true,
             ),
           ),
         ),
@@ -380,7 +402,7 @@ void main() {
             body: RemoteKeyboardSheet(
               peerOs: 'android',
               onSendText: (text) async => sentTexts.add(text),
-              onRemoteAction: (_) async {},
+              onRemoteAction: (_) async => true,
             ),
           ),
         ),

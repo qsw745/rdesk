@@ -207,9 +207,9 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                   peerOs: peerOs,
                   onPushClipboard: () => _pushClipboard(context),
                   onPullClipboard: () => _pullClipboard(context),
-                  onRemoteAction: (action) async {
+                  onRemoteAction: (action) {
                     HapticFeedback.selectionClick();
-                    await context.read<SessionProvider>().sendAction(
+                    return context.read<SessionProvider>().sendAction(
                           widget.sessionId,
                           action,
                         );

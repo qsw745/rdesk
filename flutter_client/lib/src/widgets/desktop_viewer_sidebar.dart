@@ -14,7 +14,7 @@ class DesktopViewerSidebar extends StatefulWidget {
   final String sessionId;
   final VoidCallback onDisconnect;
   final VoidCallback onFileManager;
-  final Future<void> Function(String action) onRemoteAction;
+  final Future<bool> Function(String action) onRemoteAction;
   final Future<void> Function() onRemoteTextInput;
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
@@ -403,10 +403,9 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
     );
   }
 
-  Future<void> _power(BuildContext context, {required bool shutdown}) async {
-    final action = await confirmRemotePower(context, shutdown: shutdown);
-    if (action != null) widget.onRemoteAction(action);
-  }
+  Future<void> _power(BuildContext context, {required bool shutdown}) =>
+      requestRemotePower(context,
+          shutdown: shutdown, send: widget.onRemoteAction);
 
   void _toggleFullscreen(BuildContext context) {
     final isFullscreen = MediaQuery.of(context).padding.top == 0;

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -20,6 +21,10 @@ void main() {
     test('设备保留名和空名字换成可用的名字', () {
       expect(sanitizeIncomingFileName('CON'), '_CON');
       expect(sanitizeIncomingFileName('nul.txt'), '_nul.txt');
+      // Windows 按第一个点之前的部分认设备名。
+      expect(sanitizeIncomingFileName('NUL.tar.gz'), '_NUL.tar.gz');
+      expect(sanitizeIncomingFileName('com1.a.b'), '_com1.a.b');
+      expect(sanitizeIncomingFileName('console.txt'), 'console.txt');
       expect(sanitizeIncomingFileName('..'), '未命名文件');
       expect(sanitizeIncomingFileName('   '), '未命名文件');
     });
@@ -27,8 +32,20 @@ void main() {
     test('过长的名字截短但保留扩展名', () {
       final name = sanitizeIncomingFileName('${'长' * 300}.pdf');
 
-      expect(name.length, lessThanOrEqualTo(120));
+      // 各桌面文件系统的文件名上限是 255 字节，汉字每个占 3 字节。
+      expect(utf8.encode(name).length, lessThanOrEqualTo(200));
       expect(name, endsWith('.pdf'));
+      expect(name, startsWith('长长长'));
+    });
+
+    test('截短不会切开一个字符，也不会留下结尾的点或空格', () {
+      final emoji = sanitizeIncomingFileName('${'😀' * 100}.txt');
+      expect(() => utf8.encode(emoji), returnsNormally);
+      expect(emoji.runes.every((rune) => rune == 0x1F600 || rune < 0x80), isTrue);
+
+      final spaced = sanitizeIncomingFileName('${'a' * 195}  . .b');
+      expect(spaced, isNot(matches(RegExp(r'[. ]$'))));
+      expect(utf8.encode(spaced).length, lessThanOrEqualTo(200));
     });
   });
 
@@ -60,6 +77,37 @@ void main() {
       expect(second.name, 'a (1).txt');
       expect(third.name, 'a (2).txt');
       expect(await File('${dir.path}/a.txt').readAsBytes(), [1]);
+    });
+
+    test('接收过程中用临时名，完成后才出现最终文件名', () async {
+      final seenWhileReceiving = <String>[];
+      Stream<List<int>> slow() async* {
+        yield [1, 2];
+        seenWhileReceiving
+            .addAll(dir.listSync().map((e) => e.uri.pathSegments.last));
+        yield [3];
+      }
+
+      final saved = await store.save('video.mp4', slow(), maxBytes: 10);
+
+      expect(seenWhileReceiving, hasLength(1));
+      expect(seenWhileReceiving.single, endsWith('.part'));
+      expect(dir.listSync().map((e) => e.uri.pathSegments.last), ['video.mp4']);
+      expect(await saved.file.readAsBytes(), [1, 2, 3]);
+    });
+
+    test('两个同名文件同时到达，各自完整保存', () async {
+      final results = await Future.wait([
+        store.save('a.txt', Stream.fromIterable([[1], [1]]), maxBytes: 10),
+        store.save('a.txt', Stream.fromIterable([[2], [2]]), maxBytes: 10),
+      ]);
+
+      expect(results.map((r) => r.name).toSet(), {'a.txt', 'a (1).txt'});
+      final contents = [
+        for (final r in results) await r.file.readAsBytes(),
+      ];
+      expect(contents, containsAll([[1, 1], [2, 2]]));
+      expect(dir.listSync(), hasLength(2));
     });
 
     test('超过大小上限时中止，不留下半个文件', () async {

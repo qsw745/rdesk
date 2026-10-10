@@ -31,7 +31,7 @@ void main() {
               onDisconnect: () {},
               onFileManager: () {},
               onToggleToolbar: () {},
-              onRemoteAction: (_) async {},
+              onRemoteAction: (_) async => true,
               onPushClipboard: () async {},
               onPullClipboard: () async {},
             ),
@@ -60,7 +60,7 @@ void main() {
               body: RemoteKeyboardSheet(
                 peerOs: peerOs,
                 onSendText: (_) async {},
-                onRemoteAction: (_) async {},
+                onRemoteAction: (_) async => true,
               ),
             ),
           ),

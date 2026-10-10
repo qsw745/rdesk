@@ -40,7 +40,9 @@ abstract final class WindowsUiFont {
             .load();
         _loaded = true;
         return;
-      } on Exception catch (error) {
+      } on Object catch (error) {
+        // Everything, errors included: this runs before the first frame,
+        // and a font is never worth an application that does not start.
         debugPrint('[RDesk] interface font not loaded: ${error.runtimeType}');
       }
     }

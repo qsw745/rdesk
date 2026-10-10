@@ -5,8 +5,22 @@ import 'package:flutter/foundation.dart';
 import '../models/file_entry.dart';
 import '../services/rdesk_bridge_service.dart';
 
+typedef FileSender = Future<FileSendResult> Function(
+    String sessionId, String localPath,
+    {Future<void>? cancelled});
+
 class FileTransferProvider extends ChangeNotifier {
+  FileTransferProvider({FileSender? send}) : _send = send;
+
   final _bridge = RdeskBridgeService.instance;
+
+  /// Replaceable for tests; defaults to the real transfer.
+  final FileSender? _send;
+
+  /// Follows the session: a watching-only session writes nothing to the
+  /// other computer, files included.
+  bool viewOnly = false;
+  final Map<int, Completer<void>> _uploadCancels = {};
   List<FileEntry> _localFiles = [];
   List<FileEntry> _remoteFiles = [];
   String _localPath = RdeskBridgeService.instance.defaultBrowserPath;
@@ -78,8 +92,11 @@ class FileTransferProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sends one file to the other computer, which saves it in its Downloads
+  /// folder ([remotePath] is not honoured by desktop hosts).
   Future<FileSendResult> uploadFile(
       String sessionId, String localPath, String remotePath) async {
+    if (viewOnly) return const FileSendResult(FileSendOutcome.viewOnly);
     final fileName = localPath.split(Platform.pathSeparator).last;
     final file = File(localPath);
     final totalBytes = file.existsSync() ? file.lengthSync() : 1024 * 1024;
@@ -98,7 +115,17 @@ class FileTransferProvider extends ChangeNotifier {
 
     // The entry shows what really happened: no made-up progress, and
     // "completed" only once the other computer confirmed the save.
-    final result = await _bridge.sendFileToHost(sessionId, localPath);
+    final cancel = _uploadCancels[id] = Completer<void>();
+    FileSendResult result;
+    try {
+      result = await (_send ?? _bridge.sendFileToHost)(sessionId, localPath,
+          cancelled: cancel.future);
+    } on Exception catch (error) {
+      debugPrint('[RDesk] file not sent: ${error.runtimeType}');
+      result = const FileSendResult(FileSendOutcome.failed);
+    } finally {
+      _uploadCancels.remove(id);
+    }
     final idx = _transfers.indexWhere((tr) => tr.id == id);
     if (idx >= 0 && _transfers[idx].state == TransferState.transferring) {
       _transfers[idx] = TransferProgress(
@@ -174,6 +201,8 @@ class FileTransferProvider extends ChangeNotifier {
   void cancelTransfer(int id) {
     _progressTimers[id]?.cancel();
     _progressTimers.remove(id);
+    final upload = _uploadCancels.remove(id);
+    if (upload != null && !upload.isCompleted) upload.complete();
     final idx = _transfers.indexWhere((t) => t.id == id);
     if (idx >= 0) {
       _transfers[idx] = TransferProgress(

@@ -31,6 +31,9 @@ class RemoteFileDropState extends State<RemoteFileDrop> {
   bool _hovering = false;
   int _sending = 0;
 
+  @visibleForTesting
+  int get sending => _sending;
+
   Future<void> sendFiles(List<String> paths) async {
     if (paths.isEmpty) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -44,13 +47,39 @@ class RemoteFileDropState extends State<RemoteFileDrop> {
     }
     final send = widget.send ?? RdeskBridgeService.instance.sendFileToHost;
     setState(() => _sending += paths.length);
+    var saved = 0;
+    final outcomes = <String>[];
+    final problems = <String>[];
     for (final path in paths) {
       final name = path.split(RegExp(r'[/\\]')).last;
       say('正在发送「$name」…');
-      final result = await send(widget.sessionId, path);
+      var ok = false;
+      String outcome;
+      try {
+        final result = await send(widget.sessionId, path);
+        ok = result.saved;
+        outcome = result.describe(name);
+      } on Exception catch (error) {
+        debugPrint('[RDesk] dropped file not sent: ${error.runtimeType}');
+        outcome = '「$name」发送失败';
+      }
       if (!mounted) return;
       setState(() => _sending--);
-      say(result.describe(name));
+      outcomes.add(outcome);
+      if (ok) {
+        saved++;
+      } else {
+        problems.add(outcome);
+      }
+    }
+    // The next "sending…" replaces each file's own message at once, so the
+    // last word covers every file: none of the failures may go unseen.
+    if (outcomes.length == 1) {
+      say(outcomes.single);
+    } else if (problems.isEmpty) {
+      say('$saved 个文件已保存到对方电脑的「下载」文件夹');
+    } else {
+      say('已保存 $saved 个文件到对方电脑的「下载」文件夹；${problems.join('；')}');
     }
   }
 

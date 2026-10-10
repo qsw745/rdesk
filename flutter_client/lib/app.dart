@@ -84,7 +84,10 @@ class RDeskApp extends StatelessWidget {
             return wake!;
           },
         ),
-        ChangeNotifierProvider(create: (_) => FileTransferProvider()),
+        ChangeNotifierProxyProvider<SessionProvider, FileTransferProvider>(
+          create: (_) => FileTransferProvider(),
+          update: (_, session, files) => files!..viewOnly = session.viewOnly,
+        ),
         ChangeNotifierProvider(create: (_) => AddressBookProvider()..load()),
         ChangeNotifierProvider(
           lazy: false,

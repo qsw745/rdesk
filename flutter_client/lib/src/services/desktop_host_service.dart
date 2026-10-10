@@ -474,7 +474,11 @@ class DesktopHostService {
 
   Future<bool> _runWindowsShutdown(List<String> arguments) async {
     try {
-      final result = await Process.run('shutdown.exe', arguments);
+      // By full path: a bare name is looked up in the application's own
+      // folder first, which the signed-in user can write to.
+      final root = Platform.environment['SystemRoot'] ?? r'C:\Windows';
+      final result =
+          await Process.run('$root\\System32\\shutdown.exe', arguments);
       return result.exitCode == 0;
     } on ProcessException catch (error) {
       debugPrint('[RDesk] shutdown.exe not started: ${error.errorCode}');

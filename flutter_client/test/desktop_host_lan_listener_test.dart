@@ -51,6 +51,9 @@ void main() {
   // What the fake relay hands the host next, and the file it holds for it.
   Map<String, Object?>? relayCommand;
   List<int>? relayFile;
+  // When set, the fake relay holds the file back until this completes.
+  Completer<void>? relayFileGate;
+  var relayFileRequested = false;
   final relayResults = <Map<String, dynamic>>[];
   String? captureError;
   var rotations = 0;
@@ -114,6 +117,8 @@ void main() {
       } else if (req.uri.path.startsWith('/api/file/host/download/')) {
         final file = relayFile;
         relayFile = null;
+        relayFileRequested = true;
+        await relayFileGate?.future;
         if (file == null ||
             req.uri.queryParameters['host_token'] != 'test-host') {
           req.response.statusCode = 404;
@@ -161,6 +166,8 @@ void main() {
     downloads = await Directory.systemTemp.createTemp('rdesk-host-test');
     relayCommand = null;
     relayFile = null;
+    relayFileGate = null;
+    relayFileRequested = false;
     relayResults.clear();
     host = DesktopHostProvider(
         lanPort: port,
@@ -173,6 +180,7 @@ void main() {
   });
 
   tearDown(() async {
+    relayFileGate?.complete();
     host.dispose();
     await relay.close(force: true);
     if (await downloads.exists()) await downloads.delete(recursive: true);
@@ -408,6 +416,75 @@ void main() {
       expect(relayResults.single['text'], 'notes.txt');
       expect(await File('${downloads.path}/notes.txt').readAsString(),
           'via relay');
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+    test('经中继：文件迟迟不到时，被控端照常处理其他指令', () async {
+      relayFile = utf8.encode('slow');
+      final gate = relayFileGate = Completer<void>();
+      relayCommand = {
+        'command_id': 'cmd-file',
+        'kind': 'file_receive',
+        'payload': {'file_id': 'file-1', 'filename': 'slow.txt', 'size': 4},
+      };
+      await hostReady();
+      await eventually(() => relayFileRequested);
+
+      relayCommand = {
+        'command_id': 'cmd-key',
+        'kind': 'action',
+        'payload': {'action': 'enter'},
+      };
+      await eventually(() => service.inputs.contains('action enter'));
+      expect(relayResults.map((r) => r['command_id']), ['cmd-key']);
+
+      gate.complete();
+      relayFileGate = null;
+      await eventually(() => relayResults.length == 2);
+      final fileResult =
+          relayResults.firstWhere((r) => r['command_id'] == 'cmd-file');
+      expect(fileResult['ok'], true);
+      expect(fileResult['text'], 'slow.txt');
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+    test('经中继：保存时出现意料之外的错误也回报失败，不让对方空等', () async {
+      host.dispose();
+      host = DesktopHostProvider(
+          lanPort: port,
+          service: service,
+          incomingFiles: IncomingFileStore(
+              directory: () async =>
+                  throw const FormatException('no downloads folder')));
+      relayFile = utf8.encode('x');
+      relayCommand = {
+        'command_id': 'cmd-3',
+        'kind': 'file_receive',
+        'payload': {'file_id': 'file-1', 'filename': 'a.txt', 'size': 1},
+      };
+      await hostReady();
+
+      await eventually(() => relayResults.isNotEmpty);
+
+      expect(relayResults.single['command_id'], 'cmd-3');
+      expect(relayResults.single['ok'], false);
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+    test('局域网直连：声明的大小超过上限时不读内容直接拒绝', () async {
+      await hostReady();
+      final token = await authenticate();
+      final socket = await Socket.connect(InternetAddress.loopbackIPv4, port);
+      addTearDown(socket.destroy);
+      socket.write('POST /files/upload?session_token=$token&filename=big.bin '
+          'HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+          'Content-Length: ${RdeskBridgeService.lanFileMaxBytes + 1}\r\n\r\n');
+      await socket.flush();
+
+      final reply = await utf8.decoder
+          .bind(socket)
+          .first
+          .timeout(const Duration(seconds: 4));
+
+      expect(reply, startsWith('HTTP/1.1 413'));
+      expect(downloads.listSync(), isEmpty);
     }, skip: !(Platform.isMacOS || Platform.isWindows));
 
     test('中继上已经没有这个文件时回报失败，不留下空文件', () async {

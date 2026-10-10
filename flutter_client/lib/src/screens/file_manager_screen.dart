@@ -384,12 +384,18 @@ class _FileBrowser extends StatelessWidget {
                       }
                     },
                     onUpload: isLocal && !entry.isDir
-                        ? () {
-                            provider.uploadFile(
+                        ? () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            final result = await provider.uploadFile(
                               sessionId,
                               '${provider.localPath}/${entry.name}',
                               '${provider.remotePath}/${entry.name}',
                             );
+                            // Says where it went, or why it did not arrive.
+                            messenger
+                              ..hideCurrentSnackBar()
+                              ..showSnackBar(SnackBar(
+                                  content: Text(result.describe(entry.name))));
                           }
                         : null,
                     onDownload: !isLocal && !entry.isDir

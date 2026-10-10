@@ -62,6 +62,56 @@ class DesktopHostProvider extends ChangeNotifier {
     return saved;
   }
 
+  // The relay waits 50 seconds for the answer; past that the sender has
+  // already been told the transfer timed out.
+  static const _relayFileWindow = Duration(seconds: 45);
+  static const _relayFileIdleTimeout = Duration(seconds: 15);
+
+  /// Fetches a file a viewer sent through the relay, saves it, and always
+  /// tells the relay how it went so the sender is not left waiting.
+  Future<void> _receiveRelayedFile(HostedRelayCommand command, String deviceId,
+      String hostToken, int generation) async {
+    final fileId = command.payload['file_id'];
+    final filename = command.payload['filename'];
+    var ok = false;
+    String? savedAs;
+    try {
+      if (fileId is String && filename is String) {
+        final started = Stopwatch()..start();
+        final data = await _bridge.openHostedFile(
+            deviceId: deviceId, hostToken: hostToken, fileId: fileId);
+        final saved = await _saveIncoming(
+            filename,
+            data.timeout(_relayFileIdleTimeout).map((chunk) {
+              if (started.elapsed > _relayFileWindow) {
+                throw TimeoutException('relay stopped waiting for this file');
+              }
+              return chunk;
+            }),
+            RdeskBridgeService.relayFileMaxBytes);
+        ok = true;
+        savedAs = saved.name;
+      }
+    } on IncomingFileTooLarge {
+      ok = false;
+    } on Exception catch (error) {
+      debugPrint('[RDesk] relayed file not saved: ${error.runtimeType}');
+    } finally {
+      if (_hostCurrent(generation)) {
+        try {
+          await _bridge.submitHostedCommandResult(
+              deviceId: deviceId,
+              hostToken: hostToken,
+              commandId: command.commandId,
+              ok: ok,
+              text: savedAs);
+        } on Exception catch (error) {
+          debugPrint('[RDesk] file result not reported: ${error.runtimeType}');
+        }
+      }
+    }
+  }
+
   /// Replaces the temporary password where the UI shows it as well.
   final Future<void> Function()? _rotateTemporaryPassword;
 
@@ -995,6 +1045,16 @@ class DesktopHostProvider extends ChangeNotifier {
         if (request.uri.path == '/files/upload' && request.method == 'POST') {
           final name = request.uri.queryParameters['filename'] ?? '';
           response.headers.contentType = ContentType.json;
+          if (request.contentLength > RdeskBridgeService.lanFileMaxBytes) {
+            // An ordinary response is only sent once the whole body has
+            // been read, so refuse on the bare connection and drop it.
+            final socket = await response.detachSocket(writeHeaders: false);
+            socket.write('HTTP/1.1 413 Payload Too Large\r\n'
+                'Content-Length: 0\r\nConnection: close\r\n\r\n');
+            await socket.flush();
+            socket.destroy();
+            return;
+          }
           try {
             final saved = await _saveIncoming(
                 name, request, RdeskBridgeService.lanFileMaxBytes);
@@ -1362,27 +1422,11 @@ class DesktopHostProvider extends ChangeNotifier {
           }
           break;
         case 'file_receive':
-          final fileId = command.payload['file_id'];
-          final filename = command.payload['filename'];
-          if (fileId is String && filename is String) {
-            try {
-              final data = await _bridge.openHostedFile(
-                  deviceId: device.deviceId,
-                  hostToken: hostToken,
-                  fileId: fileId);
-              final saved = await _saveIncoming(
-                  filename, data, RdeskBridgeService.relayFileMaxBytes);
-              ok = true;
-              text = saved.name;
-            } on IncomingFileTooLarge {
-              ok = false;
-            } on IOException catch (error) {
-              debugPrint(
-                  '[RDesk] relayed file not saved: ${error.runtimeType}');
-              ok = false;
-            }
-          }
-          break;
+          // Fetching a file takes a while; clicks and keys must keep
+          // flowing meanwhile, so the transfer reports its own result.
+          unawaited(_receiveRelayedFile(
+              command, device.deviceId, hostToken, generation));
+          return;
         case 'drag_path':
           final points = parseDragPath(command.payload['points']);
           if (points != null) {

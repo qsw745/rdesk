@@ -8,6 +8,7 @@ import '../models/key_mapping.dart';
 import '../providers/connection_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/remote_peer_platform.dart';
 import '../widgets/desktop_viewer_sidebar.dart';
 import '../widgets/desktop_viewer_top_bar.dart';
 import '../widgets/hardware_keyboard_forwarder.dart';
@@ -41,8 +42,15 @@ class _DesktopViewerLayoutState extends State<DesktopViewerLayout> {
     final now = DateTime.now();
     if (now.difference(_lastScrollAt) < _scrollStep) return;
     _lastScrollAt = now;
-    context.read<SessionProvider>().sendAction(widget.sessionId,
-        event.scrollDelta.dy < 0 ? 'scroll_up' : 'scroll_down');
+    final session = context.read<SessionProvider>();
+    final wheelUp = event.scrollDelta.dy < 0;
+    // Computers take these as wheel directions. An Android host takes them
+    // as the direction the finger swipes, which moves the page the other way.
+    final fingerSwipes =
+        remotePeerPlatformOf(session.currentSession?.peerOs ?? '') ==
+            RemotePeerPlatform.android;
+    session.sendAction(widget.sessionId,
+        wheelUp != fingerSwipes ? 'scroll_up' : 'scroll_down');
   }
 
   @override
@@ -137,9 +145,9 @@ class _DesktopViewerLayoutState extends State<DesktopViewerLayout> {
                           onDisconnect: () => _disconnect(context),
                           onFileManager: () =>
                               context.go('/files/${widget.sessionId}'),
-                          onRemoteAction: (action) async {
+                          onRemoteAction: (action) {
                             HapticFeedback.selectionClick();
-                            await context
+                            return context
                                 .read<SessionProvider>()
                                 .sendAction(widget.sessionId, action);
                           },

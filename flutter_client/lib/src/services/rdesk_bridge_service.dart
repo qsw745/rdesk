@@ -173,6 +173,12 @@ enum FileSendOutcome {
 
   /// The other computer runs a version that cannot receive files.
   unsupported,
+
+  /// This session only watches; nothing may be written to the other side.
+  viewOnly,
+
+  /// The sender stopped the transfer. The other side may already have it.
+  cancelled,
   failed,
 }
 
@@ -193,6 +199,8 @@ class FileSendResult {
         FileSendOutcome.timedOut => '发送「$fileName」超时，对方可能没有收到',
         FileSendOutcome.relayBusy => '中转服务器暂时没有空间，请稍后再发「$fileName」',
         FileSendOutcome.unsupported => '对方电脑上的随控版本不支持接收文件',
+        FileSendOutcome.viewOnly => '当前是仅观看，不能向对方发送文件',
+        FileSendOutcome.cancelled => '已取消发送「$fileName」',
         FileSendOutcome.failed => '「$fileName」发送失败',
       };
 }
@@ -1352,49 +1360,60 @@ class RdeskBridgeService {
   /// Sends a local file to the computer being controlled, which saves it in
   /// its Downloads folder. Reports what actually happened: the result is
   /// [FileSendOutcome.saved] only once the other side confirmed the save.
-  Future<FileSendResult> sendFileToHost(
-      String sessionId, String localPath) async {
+  ///
+  /// Never throws: whatever goes wrong comes back as an outcome. Completing
+  /// [cancelled] aborts the transfer.
+  Future<FileSendResult> sendFileToHost(String sessionId, String localPath,
+      {Future<void>? cancelled}) async {
     final endpoint = _sessionPreviewEndpoints[sessionId];
     if (endpoint == null) return const FileSendResult(FileSendOutcome.failed);
-    final file = File(localPath);
-    if (!await file.exists() ||
-        await FileSystemEntity.isDirectory(localPath)) {
-      return const FileSendResult(FileSendOutcome.notAFile);
-    }
-    final length = await file.length();
-    final filename = localPath.split(RegExp(r'[/\\]')).last;
-    final deviceId = endpoint.queryParameters['device_id'];
-    final token = endpoint.queryParameters['token'];
-    final viaRelay = deviceId != null && token != null;
-
-    final Uri target;
-    if (viaRelay) {
-      if (length > relayFileMaxBytes) {
-        return const FileSendResult(FileSendOutcome.tooLarge);
-      }
-      final settings = await loadSettings();
-      final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
-      target = apiBase.replace(path: '/api/file/upload', queryParameters: {
-        'device_id': deviceId,
-        'token': token,
-        'filename': filename,
-        'remote_path': '',
-      });
-    } else {
-      if (length > lanFileMaxBytes) {
-        return const FileSendResult(FileSendOutcome.tooLarge);
-      }
-      final control = _resolveControlUri(sessionId, '/files/upload');
-      if (control == null) return const FileSendResult(FileSendOutcome.failed);
-      target = control.replace(queryParameters: {
-        ...control.queryParameters,
-        'filename': filename,
-      });
-    }
-
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 10);
+    var wasCancelled = false;
+    unawaited(cancelled?.then((_) {
+      wasCancelled = true;
+      client.close(force: true);
+    }));
     try {
+      final file = File(localPath);
+      if (!await file.exists() ||
+          await FileSystemEntity.isDirectory(localPath)) {
+        return const FileSendResult(FileSendOutcome.notAFile);
+      }
+      final length = await file.length();
+      final filename = localPath.split(RegExp(r'[/\\]')).last;
+      final deviceId = endpoint.queryParameters['device_id'];
+      final token = endpoint.queryParameters['token'];
+      final viaRelay = deviceId != null && token != null;
+
+      final Uri target;
+      if (viaRelay) {
+        if (length > relayFileMaxBytes) {
+          return const FileSendResult(FileSendOutcome.tooLarge);
+        }
+        final settings = await loadSettings();
+        final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
+        target = apiBase.replace(path: '/api/file/upload', queryParameters: {
+          'device_id': deviceId,
+          'token': token,
+          'filename': filename,
+          'remote_path': '',
+        });
+      } else {
+        if (length > lanFileMaxBytes) {
+          return const FileSendResult(FileSendOutcome.tooLarge);
+        }
+        final control = _resolveControlUri(sessionId, '/files/upload');
+        if (control == null) {
+          return const FileSendResult(FileSendOutcome.failed);
+        }
+        target = control.replace(queryParameters: {
+          ...control.queryParameters,
+          'filename': filename,
+        });
+      }
+      if (wasCancelled) return const FileSendResult(FileSendOutcome.cancelled);
+
       final request = await client.postUrl(target);
       request.headers.contentType = ContentType('application', 'octet-stream');
       // An explicit length: chunked bodies are dropped on some LAN routes.
@@ -1407,8 +1426,9 @@ class RdeskBridgeService {
         case HttpStatus.ok:
           final payload = jsonDecode(body);
           if (payload is Map && payload['ok'] == true) {
+            final savedAs = payload['saved_as'];
             return FileSendResult(FileSendOutcome.saved,
-                savedAs: payload['saved_as'] as String?);
+                savedAs: savedAs is String ? savedAs : null);
           }
           return const FileSendResult(FileSendOutcome.refused);
         case HttpStatus.requestEntityTooLarge:
@@ -1426,7 +1446,8 @@ class RdeskBridgeService {
     } on TimeoutException {
       return const FileSendResult(FileSendOutcome.timedOut);
     } on IOException {
-      return const FileSendResult(FileSendOutcome.failed);
+      return FileSendResult(
+          wasCancelled ? FileSendOutcome.cancelled : FileSendOutcome.failed);
     } on FormatException {
       return const FileSendResult(FileSendOutcome.failed);
     } finally {
@@ -1446,7 +1467,7 @@ class RdeskBridgeService {
       path: '/api/file/host/download/${Uri.encodeComponent(fileId)}',
       queryParameters: {'device_id': deviceId, 'host_token': hostToken},
     ));
-    final response = await request.close();
+    final response = await request.close().timeout(const Duration(seconds: 15));
     if (response.statusCode != HttpStatus.ok) {
       await response.drain<void>();
       throw HttpException('file not available: ${response.statusCode}');

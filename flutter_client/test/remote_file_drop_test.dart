@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -44,8 +46,14 @@ void main() {
     await tester.pump();
 
     expect(sent, ['/tmp/a.txt', r'C:\x\b.pdf']);
-    expect(find.textContaining('已保存到对方电脑的「下载」文件夹'), findsOneWidget);
-    expect(find.textContaining('a (1).txt'), findsOneWidget);
+    expect(find.text('2 个文件已保存到对方电脑的「下载」文件夹'), findsOneWidget);
+
+    await state(tester).sendFiles(['/tmp/a.txt']);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.textContaining('「a (1).txt」已保存到对方电脑的「下载」文件夹'),
+        findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets('发送失败时如实说明原因，不显示已保存', (tester) async {
@@ -57,6 +65,40 @@ void main() {
 
     expect(find.textContaining('太大'), findsOneWidget);
     expect(find.textContaining('已保存'), findsNothing);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
+
+  testWidgets('某个文件发送时出错，会说明失败并继续发后面的文件', (tester) async {
+    final session = SessionProvider();
+    addTearDown(session.dispose);
+    final attempted = <String>[];
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: session,
+      child: MaterialApp(
+        home: Scaffold(
+          body: RemoteFileDrop(
+            sessionId: 's',
+            send: (sessionId, path) async {
+              attempted.add(path);
+              if (path.endsWith('gone.txt')) {
+                throw const FileSystemException('deleted while sending');
+              }
+              return const FileSendResult(FileSendOutcome.saved);
+            },
+            child: const SizedBox.expand(),
+          ),
+        ),
+      ),
+    ));
+    final drop = state(tester);
+
+    await drop.sendFiles(['/tmp/gone.txt', '/tmp/b.txt']);
+    await tester.pump();
+
+    expect(attempted, ['/tmp/gone.txt', '/tmp/b.txt']);
+    // 最后的提示同时交代成功和失败，失败不会被后一个文件的提示盖掉。
+    expect(find.textContaining('已保存 1 个文件'), findsOneWidget);
+    expect(find.textContaining('「gone.txt」发送失败'), findsOneWidget);
+    expect(drop.sending, 0);
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
   testWidgets('仅观看时不发送文件', (tester) async {

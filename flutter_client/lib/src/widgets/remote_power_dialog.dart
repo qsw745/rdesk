@@ -28,3 +28,29 @@ Future<String?> confirmRemotePower(BuildContext context,
   if (confirmed != true) return null;
   return shutdown ? 'power_shutdown' : 'power_restart';
 }
+
+/// Asks, sends, then says what the other computer answered. It only claims
+/// the restart or shutdown is on its way once the other side accepted it:
+/// an older version there does not know these actions and declines.
+Future<void> requestRemotePower(
+  BuildContext context, {
+  required bool shutdown,
+  required Future<bool> Function(String action) send,
+}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final action = await confirmRemotePower(context, shutdown: shutdown);
+  if (action == null) return;
+  final verb = shutdown ? '关机' : '重启';
+  var accepted = false;
+  try {
+    accepted = await send(action);
+  } on Exception catch (error) {
+    debugPrint('[RDesk] power action not sent: ${error.runtimeType}');
+  }
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+        content: Text(accepted
+            ? '对方电脑已接受，约 10 秒后$verb'
+            : '对方电脑没有$verb：那边的随控版本可能较旧，或当前无法操作')));
+}

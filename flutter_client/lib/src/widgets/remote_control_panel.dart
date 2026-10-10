@@ -37,7 +37,7 @@ class RemoteControlBar extends StatelessWidget {
   final VoidCallback onDisconnect;
   final VoidCallback onFileManager;
   final VoidCallback onToggleToolbar;
-  final Future<void> Function(String action) onRemoteAction;
+  final Future<bool> Function(String action) onRemoteAction;
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
   final bool autoHideToolbar;
@@ -257,7 +257,7 @@ class RemoteActionSheet extends StatelessWidget {
   final VoidCallback onDisconnect;
   final VoidCallback onFileManager;
   final VoidCallback onToggleToolbar;
-  final Future<void> Function(String action) onRemoteAction;
+  final Future<bool> Function(String action) onRemoteAction;
   final Future<void> Function() onPushClipboard;
   final Future<void> Function() onPullClipboard;
   final bool autoHideToolbar;
@@ -464,12 +464,8 @@ class RemoteActionSheet extends StatelessWidget {
   }
 
   Future<void> _confirmPower(BuildContext context,
-      {required bool shutdown}) async {
-    final action = await confirmRemotePower(context, shutdown: shutdown);
-    if (action == null || !context.mounted) return;
-    _toast(context, shutdown ? '已发送关机指令' : '已发送重启指令');
-    await onRemoteAction(action);
-  }
+          {required bool shutdown}) =>
+      requestRemotePower(context, shutdown: shutdown, send: onRemoteAction);
 
   void _toast(BuildContext context, String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -767,7 +763,7 @@ class _Chip extends StatelessWidget {
 class _ScrollRow extends StatelessWidget {
   const _ScrollRow({required this.onRemoteAction});
 
-  final Future<void> Function(String action) onRemoteAction;
+  final Future<bool> Function(String action) onRemoteAction;
 
   @override
   Widget build(BuildContext context) {
