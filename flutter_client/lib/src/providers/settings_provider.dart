@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/key_mapping.dart';
 import '../models/trusted_peer.dart';
 import '../services/desktop_window_service.dart';
 import '../services/rdesk_bridge_service.dart';
@@ -22,6 +25,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _lockAfterDisconnect = false;
   bool _unattendedMode = false;
   bool _closeToTray = true;
+  WindowsKeyMapping _windowsKeyMapping = WindowsKeyMapping.defaults;
 
   String get signalingServer => _signalingServer;
   String get relayServer => _relayServer;
@@ -38,6 +42,9 @@ class SettingsProvider extends ChangeNotifier {
 
   /// Windows only: closing the main window keeps RDesk in the tray.
   bool get closeToTray => _closeToTray;
+
+  /// How this Mac's keyboard is translated when controlling a Windows PC.
+  WindowsKeyMapping get windowsKeyMapping => _windowsKeyMapping;
 
   Future<void> loadSettings() async {
     try {
@@ -64,7 +71,30 @@ class SettingsProvider extends ChangeNotifier {
       _closeToTray = prefs.getBool('rdesk.close_to_tray') ?? true;
     } catch (_) {}
     await _window.setCloseToTray(_closeToTray);
+    await loadWindowsKeyMapping();
     notifyListeners();
+  }
+
+  static const _windowsKeyMappingKey = 'rdesk.windows_key_mapping';
+
+  @visibleForTesting
+  Future<void> loadWindowsKeyMapping() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_windowsKeyMappingKey);
+      _windowsKeyMapping = stored == null
+          ? WindowsKeyMapping.defaults
+          : WindowsKeyMapping.fromJson(jsonDecode(stored));
+    } on FormatException {
+      _windowsKeyMapping = WindowsKeyMapping.defaults;
+    }
+  }
+
+  Future<void> setWindowsKeyMapping(WindowsKeyMapping mapping) async {
+    _windowsKeyMapping = mapping;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_windowsKeyMappingKey, jsonEncode(mapping.toJson()));
   }
 
   Future<void> updateSignalingServer(String server) async {

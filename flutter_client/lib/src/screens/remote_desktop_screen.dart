@@ -6,12 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../models/key_mapping.dart';
 import '../providers/connection_provider.dart';
 import '../providers/session_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/platform_util.dart';
 import '../utils/remote_toolbar_controller.dart';
 import '../widgets/desktop_viewer_layout.dart';
+import '../widgets/hardware_keyboard_forwarder.dart';
 import '../widgets/remote_canvas.dart';
 import '../widgets/remote_control_panel.dart';
 
@@ -113,46 +115,64 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
             // 被盖住的正是安卓被控端底部的导航栏区域，点不到也看不见。
             Positioned.fill(
               bottom: _showToolbar ? RemoteControlBar.heightFor(context) : 0,
-              child: RemoteCanvas(
-                sessionId: widget.sessionId,
-                enableZoom: true,
-                onRemoteTap: (normalizedPosition) async {
+              child: HardwareKeyboardForwarder(
+                peerOs: peerOs,
+                enabled: !viewOnly,
+                mapping: context.select<SettingsProvider, WindowsKeyMapping>(
+                    (settings) => settings.windowsKeyMapping),
+                onText: (text) async {
                   _toolbarController.markInteraction();
-                  if (viewOnly) return;
-                  HapticFeedback.lightImpact();
-                  await context.read<SessionProvider>().sendNormalizedTap(
-                        widget.sessionId,
-                        normalizedPosition,
-                      );
+                  await context
+                      .read<SessionProvider>()
+                      .sendTextInput(widget.sessionId, text);
                 },
-                onRemoteLongPress: (normalizedPosition) async {
+                onAction: (action) async {
                   _toolbarController.markInteraction();
-                  if (viewOnly) return;
-                  HapticFeedback.mediumImpact();
-                  await context.read<SessionProvider>().sendNormalizedLongPress(
-                        widget.sessionId,
-                        normalizedPosition,
-                      );
+                  await context
+                      .read<SessionProvider>()
+                      .sendAction(widget.sessionId, action);
                 },
-                onRemoteDrag: (start, end) async {
-                  _toolbarController.markInteraction();
-                  if (viewOnly) return;
-                  HapticFeedback.selectionClick();
-                  await context.read<SessionProvider>().sendNormalizedDrag(
-                        widget.sessionId,
-                        start,
-                        end,
-                      );
-                },
-                onRemoteDragPath: (points) async {
-                  _toolbarController.markInteraction();
-                  if (viewOnly) return;
-                  HapticFeedback.selectionClick();
-                  await context.read<SessionProvider>().sendNormalizedDragPath(
-                        widget.sessionId,
-                        points,
-                      );
-                },
+                child: RemoteCanvas(
+                  sessionId: widget.sessionId,
+                  enableZoom: true,
+                  onRemoteTap: (normalizedPosition) async {
+                    _toolbarController.markInteraction();
+                    if (viewOnly) return;
+                    HapticFeedback.lightImpact();
+                    await context.read<SessionProvider>().sendNormalizedTap(
+                          widget.sessionId,
+                          normalizedPosition,
+                        );
+                  },
+                  onRemoteLongPress: (normalizedPosition) async {
+                    _toolbarController.markInteraction();
+                    if (viewOnly) return;
+                    HapticFeedback.mediumImpact();
+                    await context.read<SessionProvider>().sendNormalizedLongPress(
+                          widget.sessionId,
+                          normalizedPosition,
+                        );
+                  },
+                  onRemoteDrag: (start, end) async {
+                    _toolbarController.markInteraction();
+                    if (viewOnly) return;
+                    HapticFeedback.selectionClick();
+                    await context.read<SessionProvider>().sendNormalizedDrag(
+                          widget.sessionId,
+                          start,
+                          end,
+                        );
+                  },
+                  onRemoteDragPath: (points) async {
+                    _toolbarController.markInteraction();
+                    if (viewOnly) return;
+                    HapticFeedback.selectionClick();
+                    await context.read<SessionProvider>().sendNormalizedDragPath(
+                          widget.sessionId,
+                          points,
+                        );
+                  },
+                ),
               ),
             ),
 

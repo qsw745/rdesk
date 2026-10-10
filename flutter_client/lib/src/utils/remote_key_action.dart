@@ -65,6 +65,75 @@ WindowsRemoteKeyStroke? windowsRemoteKeyStrokeForAction(String action) {
     'show_desktop' || 'home' => const WindowsRemoteKeyStroke(0x44, win),
     'task_view' || 'recents' => const WindowsRemoteKeyStroke(0x09, win),
     'back' => const WindowsRemoteKeyStroke(0x25, {WindowsRemoteModifier.alt}),
-    _ => null,
+    _ => _windowsKeyStrokeForChord(action),
   };
+}
+
+const _windowsKeyModifiers = <String, WindowsRemoteModifier>{
+  'ctrl': WindowsRemoteModifier.control,
+  'alt': WindowsRemoteModifier.alt,
+  'shift': WindowsRemoteModifier.shift,
+  'win': WindowsRemoteModifier.win,
+};
+
+/// Virtual-key codes of the keys a `key:` action may name. Character keys
+/// are the US-layout positions.
+const _windowsKeyCodes = <String, int>{
+  'enter': 0x0D,
+  'backspace': 0x08,
+  'delete': 0x2E,
+  'tab': 0x09,
+  'escape': 0x1B,
+  'space': 0x20,
+  'left': 0x25,
+  'up': 0x26,
+  'right': 0x27,
+  'down': 0x28,
+  'home': 0x24,
+  'end': 0x23,
+  'pageup': 0x21,
+  'pagedown': 0x22,
+  'insert': 0x2D,
+  'minus': 0xBD,
+  'equal': 0xBB,
+  'bracketleft': 0xDB,
+  'bracketright': 0xDD,
+  'backslash': 0xDC,
+  'semicolon': 0xBA,
+  'quote': 0xDE,
+  'comma': 0xBC,
+  'period': 0xBE,
+  'slash': 0xBF,
+  'backquote': 0xC0,
+};
+
+int? _windowsKeyCode(String key) {
+  final named = _windowsKeyCodes[key];
+  if (named != null) return named;
+  if (key.length == 1) {
+    final unit = key.codeUnitAt(0);
+    if (unit >= 0x61 && unit <= 0x7A) return unit - 0x20; // a-z -> VK_A..VK_Z
+    if (unit >= 0x30 && unit <= 0x39) return unit; // 0-9
+  }
+  final function = RegExp(r'^f([1-9]|1[0-2])$').firstMatch(key);
+  if (function != null) return 0x70 + int.parse(function.group(1)!) - 1;
+  return null;
+}
+
+/// Parses a generic key press such as `key:ctrl+shift+z`, sent by viewers
+/// that forward a hardware keyboard. Null for anything not exactly in that
+/// form, so a malformed request never presses a key.
+WindowsRemoteKeyStroke? _windowsKeyStrokeForChord(String action) {
+  const prefix = 'key:';
+  if (!action.startsWith(prefix)) return null;
+  final parts = action.substring(prefix.length).split('+');
+  if (parts.length > 5) return null;
+  final keyCode = _windowsKeyCode(parts.last);
+  if (keyCode == null) return null;
+  final modifiers = <WindowsRemoteModifier>{};
+  for (final name in parts.take(parts.length - 1)) {
+    final modifier = _windowsKeyModifiers[name];
+    if (modifier == null || !modifiers.add(modifier)) return null;
+  }
+  return WindowsRemoteKeyStroke(keyCode, modifiers);
 }

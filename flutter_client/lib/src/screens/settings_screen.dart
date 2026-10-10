@@ -1,3 +1,4 @@
+import '../models/key_mapping.dart';
 import '../ui/components.dart';
 import '../ui/tokens.dart';
 import '../widgets/app_update_widgets.dart';
@@ -104,6 +105,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onChanged: settings.setCloseToTray),
                 ],
               ])),
+        ],
+        if (cap.platform == TargetPlatform.macOS) ...[
+          const SizedBox(height: 24),
+          const _SectionHeader(
+              icon: Icons.keyboard_alt_outlined, label: '远控 Windows 按键映射'),
+          const SizedBox(height: 10),
+          _CardContainer(
+              isDark: isDark,
+              child: _WindowsKeyMappingCard(
+                  mapping: settings.windowsKeyMapping,
+                  onChanged: settings.setWindowsKeyMapping)),
         ],
         if (cap.hasDesktopHost) ...[
           const SizedBox(height: 24),
@@ -608,6 +620,101 @@ class _SectionHeader extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// Which Windows key each Mac key stands for while controlling a Windows PC.
+class _WindowsKeyMappingCard extends StatelessWidget {
+  const _WindowsKeyMappingCard({required this.mapping, required this.onChanged});
+
+  final WindowsKeyMapping mapping;
+  final ValueChanged<WindowsKeyMapping> onChanged;
+
+  Widget _row<T extends Enum>(
+    BuildContext context, {
+    required String id,
+    required String label,
+    required T value,
+    required List<T> values,
+    required String Function(T) nameOf,
+    required ValueChanged<T> onPicked,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(children: [
+        Expanded(
+            child: Text(label, style: Theme.of(context).textTheme.bodyMedium)),
+        DropdownButtonHideUnderline(
+          child: DropdownButton<T>(
+            key: ValueKey('key-mapping-$id'),
+            value: value,
+            borderRadius: BorderRadius.circular(Rd.radius),
+            items: [
+              for (final option in values)
+                DropdownMenuItem(value: option, child: Text(nameOf(option))),
+            ],
+            onChanged: (picked) {
+              if (picked != null) onPicked(picked);
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    Widget modifier(String id, String label, RemoteModifier value,
+            WindowsKeyMapping Function(RemoteModifier) apply) =>
+        _row<RemoteModifier>(context,
+            id: id,
+            label: label,
+            value: value,
+            values: RemoteModifier.values,
+            nameOf: (m) => m.label,
+            onPicked: (m) => onChanged(apply(m)));
+    Widget deleteKey(String id, String label, DeleteKeyTarget value,
+            WindowsKeyMapping Function(DeleteKeyTarget) apply) =>
+        _row<DeleteKeyTarget>(context,
+            id: id,
+            label: label,
+            value: value,
+            values: DeleteKeyTarget.values,
+            nameOf: (k) => k.label,
+            onPicked: (k) => onChanged(apply(k)));
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+        child: Text(
+            '远控 Windows 电脑时，这台 Mac 键盘上的按键按下面的对应关系发送。'
+            '⌘Q、⌘W、⌘H、⌘M 和 ⌘Tab 留在本机，不会发往远端。',
+            style: t.bodySmall),
+      ),
+      modifier('command', 'Command (⌘) 键', mapping.command,
+          (m) => mapping.copyWith(command: m)),
+      modifier('option', 'Option (⌥) 键', mapping.option,
+          (m) => mapping.copyWith(option: m)),
+      modifier('control', 'Control (⌃) 键', mapping.control,
+          (m) => mapping.copyWith(control: m)),
+      deleteKey('delete', 'Delete 键', mapping.delete,
+          (k) => mapping.copyWith(delete: k)),
+      deleteKey('fn-delete', 'Fn + Delete 键', mapping.fnDelete,
+          (k) => mapping.copyWith(fnDelete: k)),
+      Align(
+        alignment: Alignment.centerRight,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(0, 0, 8, 8),
+          child: TextButton(
+            onPressed: mapping == WindowsKeyMapping.defaults
+                ? null
+                : () => onChanged(WindowsKeyMapping.defaults),
+            child: const Text('还原默认按键映射'),
+          ),
+        ),
+      ),
+    ]);
   }
 }
 
