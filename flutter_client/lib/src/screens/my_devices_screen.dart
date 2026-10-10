@@ -330,8 +330,8 @@ String _subtitle(
     if (platform != RdPlatform.unknown) platform.label,
     if (abilities.isLocal) '本机',
     if (wakeable && !e.online) '可远程开机',
-    if (!abilities.canControl && !abilities.isLocal && !(wakeable && !e.online))
-      '暂不支持被远程控制',
+    if (abilities.unsupportedLabel != null && !(wakeable && !e.online))
+      abilities.unsupportedLabel!,
   ];
   return parts.join(' · ');
 }

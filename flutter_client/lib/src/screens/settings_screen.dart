@@ -105,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ])),
         ],
-        if (cap.platform == TargetPlatform.macOS) ...[
+        if (cap.hasDesktopHost) ...[
           const SizedBox(height: 24),
           const _SectionHeader(
               icon: Icons.desktop_windows_outlined, label: '桌面被控端'),
@@ -1215,6 +1215,14 @@ class AndroidHostCard extends StatelessWidget {
   }
 }
 
+/// What the Windows host cannot do; shown next to the switch so the limits
+/// are known before anyone relies on it.
+const _windowsHostLimits = [
+  '电脑锁屏或停在登录界面时无法查看和操作；远程开机后需要已登录 Windows 才能被控制。',
+  '以管理员身份运行的窗口和系统权限确认弹窗只能看到画面，无法操作。',
+  '被查看期间托盘图标会提示，可在托盘菜单中随时断开。',
+];
+
 class _DesktopHostCard extends StatelessWidget {
   final DesktopHostProvider host;
   final bool isDark;
@@ -1233,8 +1241,9 @@ class _DesktopHostCard extends StatelessWidget {
     final hasPermission = host.state.hasPermission;
     final accessibility = host.state.accessibilityEnabled;
     final registered = host.hostRegistered;
+    final isMac = defaultTargetPlatform == TargetPlatform.macOS;
     final (String status, RdTone tone) = !running
-        ? ('已关闭，其他设备无法连接这台 Mac', RdTone.neutral)
+        ? ('已关闭，其他设备无法连接这台电脑', RdTone.neutral)
         : !hasPermission
             ? ('需要屏幕录制权限', RdTone.warning)
             : host.captureRunning
@@ -1295,15 +1304,27 @@ class _DesktopHostCard extends StatelessWidget {
             value: running,
             onChanged: host.busy
                 ? null
-                : (v) => v ? host.startHosting() : host.stopHosting(),
+                : host.setHostingEnabled,
           ),
         ]),
         const SizedBox(height: 8),
         Divider(color: p.divider),
-        permission('屏幕录制', '让对方看到这台 Mac 的画面', hasPermission,
-            host.openScreenRecordingSettings),
-        permission('辅助功能', '让对方用鼠标和键盘操作', accessibility,
-            host.openAccessibilitySettings),
+        if (isMac) ...[
+          permission('屏幕录制', '让对方看到这台 Mac 的画面', hasPermission,
+              host.openScreenRecordingSettings),
+          permission('辅助功能', '让对方用鼠标和键盘操作', accessibility,
+              host.openAccessibilitySettings),
+        ] else
+          for (final limit in _windowsHostLimits)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.info_outline_rounded,
+                    size: 18, color: p.inkTertiary),
+                const SizedBox(width: 10),
+                Expanded(child: Text(limit, style: t.bodySmall)),
+              ]),
+            ),
         for (final message in diagnostics)
           Padding(
             padding: const EdgeInsets.only(top: 6),
@@ -1326,7 +1347,8 @@ class _DesktopHostCard extends StatelessWidget {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: host.busy
+                  // Restarting must not double as switching hosting on.
+                  onPressed: host.busy || !host.hostingEnabled
                       ? null
                       : () async {
                           await host.stopHosting();

@@ -10,6 +10,10 @@
 // a PC woken remotely stays online. Channel com.qsw.rdesk/window:
 //   setCloseToTray(bool)  user preference, default on until Dart reports it
 //   isHidden() -> bool    whether the window currently lives only in the tray
+//   setViewerActive(bool) someone is viewing this PC: say so in the tray and
+//                         offer "disconnect" and "stop being controlled",
+//                         which call Dart's disconnectViewers() and
+//                         stopHosting()
 // A second launch broadcasts kShowMessage and exits; this instance then shows.
 class TrayBridge {
  public:
@@ -28,6 +32,7 @@ class TrayBridge {
   void AddIcon();
   void RemoveIcon();
   void ShowMenu();
+  void SetViewerActive(bool active);
   void Quit();
   HWND window_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;
@@ -39,5 +44,6 @@ class TrayBridge {
   bool icon_added_ = false;
   bool hint_shown_ = false;
   bool quitting_ = false;
+  bool viewer_active_ = false;
 };
 #endif

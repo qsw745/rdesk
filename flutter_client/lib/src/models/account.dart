@@ -18,11 +18,20 @@ class AccountDevice {
   final String platform;
   final int updatedAtMs;
 
+  /// Reported by the device's own client; older builds never report it.
+  final bool canHost;
+
+  /// Whether the server holds a fresh host registration for the device.
+  /// Null when the server predates the field.
+  final bool? hosting;
+
   const AccountDevice({
     required this.deviceId,
     required this.hostname,
     required this.platform,
     required this.updatedAtMs,
+    this.canHost = false,
+    this.hosting,
   });
 
   DateTime get updatedAt =>

@@ -19,6 +19,7 @@ import '../models/device.dart';
 import '../models/file_entry.dart';
 import '../models/trusted_peer.dart';
 import '../utils/constants.dart';
+import '../utils/platform_capabilities.dart';
 
 class BridgeSettingsData {
   final String signalingServer;
@@ -1184,6 +1185,8 @@ class RdeskBridgeService {
                 ? 'unknown'
                 : '${item['platform']}'.trim(),
             updatedAtMs: (item['updated_at_ms'] as num?)?.toInt() ?? 0,
+            canHost: item['can_host'] == true,
+            hosting: item['hosting'] is bool ? item['hosting'] as bool : null,
           ),
         )
         .where((item) => item.deviceId.isNotEmpty)
@@ -1202,6 +1205,7 @@ class RdeskBridgeService {
           'device_id': local.deviceId.trim(),
           'platform': local.os.trim(),
           'hostname': local.hostname.trim(),
+          'can_host': PlatformCapabilities.current.canHost,
         },
       );
     } catch (_) {

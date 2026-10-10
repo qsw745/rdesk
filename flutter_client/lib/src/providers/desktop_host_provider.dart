@@ -4,11 +4,14 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 
+import '../utils/hosting_intent.dart';
 import '../utils/lan_request_guard.dart';
+import '../utils/platform_capabilities.dart';
 import '../models/device.dart';
 import '../services/rdesk_bridge_service.dart';
 import '../services/android_host_service.dart'; // Reuse AndroidHostState / AndroidHostFrame
 import '../services/desktop_host_service.dart';
+import '../services/desktop_window_service.dart';
 import '../utils/router.dart';
 import '../widgets/incoming_connection_dialog.dart';
 
@@ -20,7 +23,18 @@ class DesktopHostProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
   final _service = DesktopHostService.instance;
   final int lanPort;
-  DesktopHostProvider({this.lanPort = 21116});
+  DesktopHostProvider({
+    this.lanPort = 21116,
+    Future<void> Function()? rotateTemporaryPassword,
+  }) : _rotateTemporaryPassword = rotateTemporaryPassword;
+
+  /// Replaces the temporary password where the UI shows it as well.
+  final Future<void> Function()? _rotateTemporaryPassword;
+
+  static const _hostingIntent = HostingIntentStore();
+  static const _window = DesktopWindowService();
+  bool _viewerIndicated = false;
+  static bool get _supported => Platform.isMacOS || Platform.isWindows;
 
   bool _hostingEnabled = false;
   bool _disposed = false;
@@ -45,6 +59,21 @@ class DesktopHostProvider extends ChangeNotifier {
   int get activeViewerCount =>
       _lanScreenLeases.length +
       (_clock.elapsedMilliseconds < _relayLeaseUntil ? _relayViewers : 0);
+  // Input and clipboard use hold no screen lease, so they are tracked on
+  // their own: a session that never fetches a frame is access all the same.
+  int _lanAccessUntil = 0;
+  int _relayAccessUntil = 0;
+
+  /// Someone is viewing this computer, or has just operated it or read its
+  /// clipboard. This is what the user must be told about.
+  bool get remoteAccessActive {
+    if (!hostingEnabled) return false;
+    final now = _clock.elapsedMilliseconds;
+    return activeViewerCount > 0 ||
+        now < _lanAccessUntil ||
+        now < _relayAccessUntil;
+  }
+
   bool get _hasRelayViewer =>
       hostingEnabled &&
       _relayViewers > 0 &&
@@ -82,6 +111,7 @@ class DesktopHostProvider extends ChangeNotifier {
   Timer? _relayCommandTimer;
   Timer? _hostRecoveryTimer;
   HttpServer? _lanRelayServer;
+  Future<void>? _lanRelayStarting;
   String? _lanRelayEndpoint;
   DeviceInfo? _localDevice;
   String? _relayHostToken;
@@ -121,7 +151,25 @@ class DesktopHostProvider extends ChangeNotifier {
       _state = await _service.getState();
       await _refreshPermissionState();
     }, clearError: false);
+    _window.onHostRequests(
+      disconnect: revokeAccessAndDisconnect,
+      stopHosting: () => setHostingEnabled(false),
+    );
     _ensureHostRecoveryLoop();
+  }
+
+  /// Launch-time start. Honours the opt-in on platforms that require one.
+  Future<void> restoreHostingIntent() async {
+    final platform = PlatformCapabilities.current.platform;
+    if (await _hostingIntent.shouldStartAtLaunch(platform)) {
+      await startHosting();
+    }
+  }
+
+  /// The user's switch: remembered so the next launch restores it.
+  Future<void> setHostingEnabled(bool enabled) async {
+    await _hostingIntent.save(enabled);
+    await (enabled ? startHosting() : stopHosting());
   }
 
   Future<void> startHosting() {
@@ -185,7 +233,10 @@ class DesktopHostProvider extends ChangeNotifier {
     _lanSessionTokens.clear();
     _relayLeaseUntil = 0;
     _relayViewers = 0;
+    _lanAccessUntil = 0;
+    _relayAccessUntil = 0;
     _relayDemandError = null;
+    _reportViewerPresence();
     _stopCapture();
   }
 
@@ -218,7 +269,16 @@ class DesktopHostProvider extends ChangeNotifier {
     unawaited(_pollScreenDemand());
   }
 
+  /// Keeps the Windows tray indicator in step with who is watching.
+  void _reportViewerPresence() {
+    final viewed = remoteAccessActive;
+    if (viewed == _viewerIndicated) return;
+    _viewerIndicated = viewed;
+    unawaited(_window.setViewerActive(viewed));
+  }
+
   void _syncCaptureDemand() {
+    _reportViewerPresence();
     if (!_hasRelayViewer) {
       _frameUpload?.cancel();
       _frameUpload = null;
@@ -317,6 +377,24 @@ class DesktopHostProvider extends ChangeNotifier {
     super.dispose();
   }
 
+  /// Disconnect for someone who wants the viewer gone, not just interrupted:
+  /// cached trust and the temporary password stop working first, so the same
+  /// viewer cannot walk straight back in. A permanent password is the user's
+  /// own and stays; stopping hosting is the answer when that is the worry.
+  Future<bool> revokeAccessAndDisconnect() async {
+    await _bridge.clearTrustedIncomingViewers();
+    final settings = await _bridge.loadSettings();
+    if ((settings.permanentPassword?.trim() ?? '').isEmpty) {
+      final rotate = _rotateTemporaryPassword;
+      if (rotate != null) {
+        await rotate();
+      } else {
+        await _bridge.generateTemporaryPassword();
+      }
+    }
+    return disconnectCurrentViewer();
+  }
+
   Future<bool> disconnectCurrentViewer() async {
     final device = _localDevice;
     final hostToken = _relayHostToken;
@@ -381,7 +459,7 @@ class DesktopHostProvider extends ChangeNotifier {
 
   void _ensureHostRecoveryLoop() {
     _hostRecoveryTimer?.cancel();
-    if (_disposed || !Platform.isMacOS) return;
+    if (_disposed || !_supported) return;
     _hostRecoveryTimer = Timer.periodic(
       const Duration(seconds: 8),
       (_) => unawaited(_maintainHostAvailability()),
@@ -463,8 +541,11 @@ class DesktopHostProvider extends ChangeNotifier {
                   const Duration(seconds: 20);
           if (shouldPrompt) {
             _lastCaptureStallPromptAt = now;
-            if (_error != '未获取到可用的桌面画面，请检查屏幕录制权限。') {
-              _error = '未获取到可用的桌面画面，请检查屏幕录制权限。';
+            final message = Platform.isMacOS
+                ? '未获取到可用的桌面画面，请检查屏幕录制权限。'
+                : '未获取到可用的桌面画面。';
+            if (_error != message) {
+              _error = message;
               notifyListeners();
             }
             await _refreshPermissionState();
@@ -475,8 +556,15 @@ class DesktopHostProvider extends ChangeNotifier {
     } catch (error) {
       if (!_captureCurrent(generation)) return;
       final message = _formatError(error);
-      if (_error != message) {
+      // What was on screen before it was locked must not keep being served.
+      final hidden = error is DesktopPermissionException &&
+          (error.code == 'session_locked' || error.code == 'secure_desktop');
+      if (_error != message || (hidden && _previewFrame != null)) {
         _error = message;
+        if (hidden) {
+          _previewFrame = null;
+          _lastUploadedFrameTimestampMs = null;
+        }
         notifyListeners();
       }
       if (error is DesktopPermissionException &&
@@ -509,7 +597,23 @@ class DesktopHostProvider extends ChangeNotifier {
 
   // ---------- LAN HTTP relay (same as Android) ----------
 
+  /// The availability loop and a hosting transition can both get here.
+  @visibleForTesting
+  Future<void> debugEnsureLanRelay() => _ensureLanRelay();
+
+  /// Callers overlap, so they must share one bind: a second server would
+  /// replace the first in [_lanRelayServer] and the first would stay open
+  /// after hosting is switched off.
   Future<void> _ensureLanRelay() async {
+    // A shared attempt may belong to hosting that was switched off and on
+    // again meanwhile and end without a server; then start a fresh one.
+    while (hostingEnabled && _lanRelayServer == null) {
+      await (_lanRelayStarting ??=
+          _startLanRelay().whenComplete(() => _lanRelayStarting = null));
+    }
+  }
+
+  Future<void> _startLanRelay() async {
     if (!hostingEnabled) return;
     final generation = _hostGeneration;
     if (_lanRelayServer != null) {
@@ -591,8 +695,11 @@ class DesktopHostProvider extends ChangeNotifier {
           }
           // Validate password if the host has one set.
           final hostPassword = await _bridge.getActiveAccessPassword();
-          if (hostPassword.isNotEmpty) {
-            if (password == null || password != hostPassword) {
+          // Never open without a password, whatever state storage is in.
+          {
+            if (hostPassword.isEmpty ||
+                password == null ||
+                password != hostPassword) {
               response.statusCode = HttpStatus.unauthorized;
               response.headers.contentType = ContentType.json;
               response.write(jsonEncode(
@@ -642,6 +749,7 @@ class DesktopHostProvider extends ChangeNotifier {
             request.method == 'POST') {
           if (request.uri.path == '/session/close') {
             _lanSessionTokens.remove(token);
+            if (_lanSessionTokens.isEmpty) _lanAccessUntil = 0;
           }
           _lanScreenLeases.remove(token);
           _syncCaptureDemand();
@@ -650,6 +758,9 @@ class DesktopHostProvider extends ChangeNotifier {
           await response.close();
           return;
         }
+
+        _lanAccessUntil = _clock.elapsedMilliseconds + screenLeaseMs;
+        _reportViewerPresence();
 
         if (request.uri.path == '/frame.jpg' && request.method == 'GET') {
           _lanScreenLeases[token] = _clock.elapsedMilliseconds + screenLeaseMs;
@@ -1043,6 +1154,10 @@ class DesktopHostProvider extends ChangeNotifier {
           'id=${command.commandId}');
       var ok = false;
       String? text;
+      if (command.kind != 'incoming_request' && command.kind != 'trust') {
+        _relayAccessUntil = _clock.elapsedMilliseconds + screenLeaseMs;
+        _reportViewerPresence();
+      }
       switch (command.kind) {
         case 'incoming_request':
           final deviceId = command.payload['deviceId'] as String?;

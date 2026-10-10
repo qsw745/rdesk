@@ -41,34 +41,54 @@ String devicePath(DeviceDirectoryEntry e) =>
 bool isPrimaryDevice(DeviceDirectoryEntry e) =>
     e.accountOwned || e.favorite || e.wakeTarget != null;
 
-/// What this build can do with a directory entry. Windows and iOS hosts are
-/// not remotely controllable in the shipped product.
+/// What this build can do with a directory entry. iOS hosts cannot accept
+/// input, and Windows hosts only since the build that reports `canHost`.
 class DeviceAbilities {
   final bool isLocal, canControl, canWake;
   final String? unsupportedReason;
+
+  /// Short form of [unsupportedReason] for list rows.
+  final String? unsupportedLabel;
   const DeviceAbilities._(
       {required this.isLocal,
       required this.canControl,
       required this.canWake,
-      this.unsupportedReason});
+      this.unsupportedReason,
+      this.unsupportedLabel});
 
   factory DeviceAbilities.of(BuildContext context, DeviceDirectoryEntry e) {
     final local =
         context.read<ConnectionProvider>().localDevice?.deviceId == e.deviceId;
     final platform = rdPlatformOf(e.platform);
+    // Only an account snapshot can say a Windows client predates hosting;
+    // favourites and history stay connectable by device code.
+    final windows = platform == RdPlatform.windows;
+    final outdatedWindows = windows && e.canHost == false;
+    // Hosting on Windows is opt-in on the PC itself.
+    final windowsHostingOff =
+        windows && e.canHost == true && e.hosting == false;
     final reason = local
         ? '这是本机'
-        : platform == RdPlatform.windows
-            ? 'Windows 电脑暂不支持被远程控制'
-            : platform == RdPlatform.ios
-                ? 'iPhone / iPad 只能共享画面，暂不支持被控制'
-                : null;
+        : outdatedWindows
+            ? '这台电脑上的随控版本较旧，更新后才能被远程控制'
+            : windowsHostingOff
+                ? '这台电脑未开启远程控制，请在电脑上打开「允许远程控制本机」'
+                : platform == RdPlatform.ios
+                    ? 'iPhone / iPad 只能共享画面，暂不支持被控制'
+                    : null;
     final target = e.wakeTarget;
     return DeviceAbilities._(
         isLocal: local,
         canControl: reason == null,
         canWake: target != null && target.setupComplete,
-        unsupportedReason: reason);
+        unsupportedReason: reason,
+        unsupportedLabel: local || reason == null
+            ? null
+            : outdatedWindows
+                ? '更新后才能被远程控制'
+                : windowsHostingOff
+                    ? '未开启远程控制'
+                    : '暂不支持被远程控制');
   }
 }
 

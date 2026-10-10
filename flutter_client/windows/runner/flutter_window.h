@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "desktop_host_bridge.h"
 #include "win32_window.h"
 #include "tray_bridge.h"
 #include "wake_adapter_bridge.h"
@@ -30,6 +31,7 @@ class FlutterWindow : public Win32Window {
   flutter::DartProject project_;
   std::unique_ptr<WakeAdapterBridge> wake_adapter_bridge_;
   std::unique_ptr<TrayBridge> tray_bridge_;
+  std::unique_ptr<DesktopHostBridge> desktop_host_bridge_;
   bool start_hidden_;
 
   // The Flutter instance hosted by this window.

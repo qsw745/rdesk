@@ -7,7 +7,12 @@ project(runner LANGUAGES CXX)
 #
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
+  "desktop_host_bridge.cpp"
+  "desktop_state.cpp"
+  "display_list.cpp"
   "flutter_window.cpp"
+  "input_injector.cpp"
+  "screen_capture.cpp"
   "tray_bridge.cpp"
   "wake_adapter_bridge.cpp"
   "main.cpp"
@@ -37,6 +42,10 @@ target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "iphlpapi.lib")
+# Desktop host: DXGI duplication, WIC JPEG encoding, session lock state,
+# and the integrity level of the window input is aimed at.
+target_link_libraries(${BINARY_NAME} PRIVATE
+  "d3d11.lib" "dxgi.lib" "windowscodecs.lib" "wtsapi32.lib" "advapi32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

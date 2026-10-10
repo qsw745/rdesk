@@ -10,6 +10,8 @@ using Value = flutter::EncodableValue;
 constexpr UINT kIconId = 1;
 constexpr UINT kMenuOpen = 1;
 constexpr UINT kMenuQuit = 2;
+constexpr UINT kMenuDisconnect = 3;
+constexpr UINT kMenuStopHosting = 4;
 }  // namespace
 
 const wchar_t TrayBridge::kShowMessageName[] = L"RDesk.ShowMainWindow";
@@ -50,8 +52,16 @@ TrayBridge::TrayBridge(flutter::BinaryMessenger* messenger, HWND window,
       } else {
         // Without a tray icon a hidden window could never come back.
         if (hidden_) ShowMainWindow();
-        RemoveIcon();
+        if (!viewer_active_) RemoveIcon();
       }
+      result->Success();
+    } else if (call.method_name() == "setViewerActive") {
+      const auto* active = std::get_if<bool>(call.arguments());
+      if (!active) {
+        result->Error("bad_args", "expected bool");
+        return;
+      }
+      SetViewerActive(*active);
       result->Success();
     } else if (call.method_name() == "isHidden") {
       result->Success(Value(hidden_));
@@ -82,7 +92,7 @@ bool TrayBridge::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam,
   if (message == taskbar_created_) {
     // Explorer restarted and dropped every notification icon.
     icon_added_ = false;
-    if (close_to_tray_) AddIcon();
+    if (close_to_tray_ || viewer_active_) AddIcon();
     return false;
   }
   switch (message) {
@@ -123,6 +133,16 @@ bool TrayBridge::HandleMessage(UINT message, WPARAM wparam, LPARAM lparam,
       }
       if (LOWORD(wparam) == kMenuQuit) {
         Quit();
+        *result = 0;
+        return true;
+      }
+      if (LOWORD(wparam) == kMenuDisconnect) {
+        channel_->InvokeMethod("disconnectViewers", std::make_unique<Value>());
+        *result = 0;
+        return true;
+      }
+      if (LOWORD(wparam) == kMenuStopHosting) {
+        channel_->InvokeMethod("stopHosting", std::make_unique<Value>());
         *result = 0;
         return true;
       }
@@ -176,6 +196,11 @@ void TrayBridge::RemoveIcon() {
 void TrayBridge::ShowMenu() {
   HMENU menu = CreatePopupMenu();
   if (!menu) return;
+  if (viewer_active_) {
+    AppendMenuW(menu, MF_STRING, kMenuDisconnect, L"断开远程查看");
+    AppendMenuW(menu, MF_STRING, kMenuStopHosting, L"停止被远程控制");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  }
   AppendMenuW(menu, MF_STRING, kMenuOpen, L"打开随控");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, kMenuQuit, L"退出随控");
@@ -188,6 +213,32 @@ void TrayBridge::ShowMenu() {
                  0, window_, nullptr);
   PostMessageW(window_, WM_NULL, 0, 0);
   DestroyMenu(menu);
+}
+
+void TrayBridge::SetViewerActive(bool active) {
+  if (viewer_active_ == active) return;
+  viewer_active_ = active;
+  StringCchCopyW(icon_.szTip, ARRAYSIZE(icon_.szTip),
+                 active ? L"随控 · 正在被远程查看" : L"随控");
+  if (active) {
+    // Windows shows no indicator of its own, so this one must be visible
+    // even when the user turned "close to tray" off.
+    AddIcon();
+  } else if (!close_to_tray_) {
+    RemoveIcon();
+    return;
+  }
+  if (!icon_added_) return;
+  NOTIFYICONDATAW update = icon_;
+  if (active) {
+    update.uFlags |= NIF_INFO;
+    update.dwInfoFlags = NIIF_USER | NIIF_NOSOUND;
+    StringCchCopyW(update.szInfoTitle, ARRAYSIZE(update.szInfoTitle),
+                   L"这台电脑正在被远程查看");
+    StringCchCopyW(update.szInfo, ARRAYSIZE(update.szInfo),
+                   L"右键通知区域的随控图标，可以断开或停止被控。");
+  }
+  Shell_NotifyIconW(NIM_MODIFY, &update);
 }
 
 void TrayBridge::Quit() {

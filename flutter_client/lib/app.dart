@@ -93,11 +93,13 @@ class RDeskApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) {
-            final provider = DesktopHostProvider();
+          create: (context) {
+            final provider = DesktopHostProvider(
+                rotateTemporaryPassword:
+                    context.read<ConnectionProvider>().refreshPassword);
             if (initializeHostServices && _isDesktopPlatform) {
               unawaited(provider.initialize(enabled: true));
-              unawaited(provider.startHosting());
+              unawaited(provider.restoreHostingIntent());
             }
             return provider;
           },

@@ -296,7 +296,7 @@ void main() {
     expect(connection.calls, isEmpty);
     expect(find.textContaining('属于另一台服务器'), findsOneWidget);
   });
-  testWidgets('Windows在线不会显示不支持的远控按钮', (tester) async {
+  testWidgets('旧版Windows在线不会显示远控按钮，并提示更新', (tester) async {
     auth.rows = [
       const AccountDevice(
           deviceId: '123456789',
@@ -306,7 +306,35 @@ void main() {
     ];
     await show(tester);
     expect(find.text('连接'), findsNothing);
-    expect(find.textContaining('暂不支持被远程控制'), findsOneWidget);
+    expect(find.textContaining('更新后才能被远程控制'), findsOneWidget);
+  });
+  testWidgets('支持被控的Windows在线时可以连接', (tester) async {
+    auth.rows = [
+      const AccountDevice(
+          deviceId: '123456789',
+          hostname: 'Windows',
+          platform: 'windows',
+          updatedAtMs: 0,
+          canHost: true,
+          hosting: true)
+    ];
+    await show(tester);
+    expect(find.text('连接'), findsOneWidget);
+    expect(find.textContaining('远程控制'), findsNothing);
+  });
+  testWidgets('Windows未打开允许远程控制时不显示连接并说明原因', (tester) async {
+    auth.rows = [
+      const AccountDevice(
+          deviceId: '123456789',
+          hostname: 'Windows',
+          platform: 'windows',
+          updatedAtMs: 0,
+          canHost: true,
+          hosting: false)
+    ];
+    await show(tester);
+    expect(find.text('连接'), findsNothing);
+    expect(find.textContaining('未开启远程控制'), findsOneWidget);
   });
   for (final dark in [false, true]) {
     testWidgets('全局 FilterChip ${dark ? '深色' : '浅色'}选中与未选中文字可读',

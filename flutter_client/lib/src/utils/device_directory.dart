@@ -58,6 +58,8 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
       bool? online,
       bool? favorite,
       bool? accountOwned,
+      bool? canHost,
+      bool? hosting,
       DateTime? lastSeen,
       WakeTarget? wake}) {
     final sourceScope = normalizedEndpointScope(source);
@@ -90,6 +92,8 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
             ? lastSeen
             : old?.lastSeen,
         wakeTarget: wake ?? old?.wakeTarget,
+        canHost: canHost ?? old?.canHost,
+        hosting: hosting ?? old?.hosting,
         relatedDeviceIds: List.unmodifiable(relatedIds),
         aliasKeys: List.unmodifiable(relatedIds
             .map((id) => deviceDirectoryKey(sourceScope, id))
@@ -116,6 +120,8 @@ List<DeviceDirectoryEntry> mergeDeviceDirectory(
         platform: d.platform,
         online: true,
         accountOwned: true,
+        canHost: d.canHost,
+        hosting: d.hosting,
         lastSeen: d.updatedAt);
   }
   for (final s in saved) {

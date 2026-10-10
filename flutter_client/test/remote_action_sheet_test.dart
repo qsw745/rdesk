@@ -222,6 +222,56 @@ void main() {
     expect(actions, ['show_all_windows', 'show_desktop']);
   });
 
+  testWidgets('连接 Windows 时底栏显示 Windows 动作并发送对应远端指令', (tester) async {
+    final actions = await pumpControlBar(tester, peerOs: 'windows');
+
+    expect(find.text('任务视图'), findsOneWidget);
+    expect(find.text('显示桌面'), findsOneWidget);
+    expect(find.text('展开所有窗口'), findsNothing);
+    expect(find.text('返回'), findsNothing);
+    expect(find.text('主页'), findsNothing);
+
+    await tester.tap(find.text('任务视图'));
+    await tester.tap(find.text('显示桌面'));
+    await tester.pump();
+
+    expect(actions, ['task_view', 'show_desktop']);
+  });
+
+  testWidgets('darwin 不会因为包含 win 被当成 Windows', (tester) async {
+    await pumpControlBar(tester, peerOs: 'darwin');
+
+    expect(find.text('展开所有窗口'), findsOneWidget);
+    expect(find.text('任务视图'), findsNothing);
+  });
+
+  testWidgets('Windows 被控端启用桌面按键并标注 Windows 快捷组合', (tester) async {
+    final actions = <String>[];
+    final session = SessionProvider();
+    addTearDown(session.dispose);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: session,
+        child: MaterialApp(
+          home: Scaffold(
+            body: RemoteKeyboardSheet(
+              peerOs: 'windows',
+              onSendText: (_) async {},
+              onRemoteAction: (action) async => actions.add(action),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Windows 快捷组合'), findsOneWidget);
+    expect(find.text('macOS 快捷组合'), findsNothing);
+    await tester.tap(find.text('Esc'));
+    await tester.pump();
+    expect(actions, ['key_escape']);
+  });
+
   testWidgets('连接 Android 时底栏保留移动端导航动作', (tester) async {
     await pumpControlBar(tester, peerOs: 'android');
 

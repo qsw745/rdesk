@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../utils/remote_key_action.dart';
 import 'android_host_service.dart'; // Reuse AndroidHostState / AndroidHostFrame
+import 'windows_host_driver.dart';
 
 class DesktopPermissionState {
   final bool screenRecordingGranted;
@@ -33,11 +34,15 @@ class DesktopPermissionException implements Exception {
 ///   • Native ScreenCaptureKit for on-demand screen capture (JPEG).
 ///   • Python + Quartz CGEvent for mouse / keyboard simulation.
 ///   • `pbcopy` / `pbpaste` for clipboard.
+///
+/// On Windows the runner's native `DesktopHostBridge` serves the same channel:
+/// DXGI desktop duplication for capture and `SendInput` for input.
 class DesktopHostService {
   DesktopHostService._();
 
   static final DesktopHostService instance = DesktopHostService._();
   static const _desktopChannel = MethodChannel('com.qsw.rdesk/desktop_host');
+  static const _windows = WindowsHostDriver(_desktopChannel);
 
   bool _isRunning = false; // Hosting availability, independent of capture.
   bool _captureEnabled = false;
@@ -130,10 +135,9 @@ class DesktopHostService {
     if (!_isRunning || !_captureEnabled) return null;
 
     try {
-      if (Platform.isMacOS) {
-        return await _captureMacOS();
+      if (Platform.isMacOS || Platform.isWindows) {
+        return await _captureNative();
       }
-      // TODO: Windows (nircmd / PowerShell), Linux (scrot / grim)
       return null;
     } catch (error) {
       if (error is DesktopPermissionException) {
@@ -165,10 +169,10 @@ class DesktopHostService {
     } catch (_) {}
   }
 
-  Future<AndroidHostFrame?> _captureMacOS() async {
+  Future<AndroidHostFrame?> _captureNative() async {
     final generation = _captureGeneration;
     try {
-      // Use native ScreenCaptureKit via MethodChannel.
+      // Native capture via MethodChannel (ScreenCaptureKit / DXGI).
       // Returns JPEG bytes directly in memory — no disk I/O.
       final captureResult = await _desktopChannel
           .invokeMapMethod<String, dynamic>('captureScreen', {
@@ -216,6 +220,18 @@ class DesktopHostService {
       );
     } on PlatformException catch (e) {
       if (!_isCaptureCurrent(generation)) return null;
+      if (e.code == 'SESSION_LOCKED') {
+        throw const DesktopPermissionException(
+          'session_locked',
+          '电脑已锁屏，解锁后才能查看画面',
+        );
+      }
+      if (e.code == 'SECURE_DESKTOP') {
+        throw const DesktopPermissionException(
+          'secure_desktop',
+          '电脑正在显示系统安全界面，暂时无法查看画面',
+        );
+      }
       if (e.code == 'PERMISSION_DENIED') {
         // Native side manages cooldown — just throw so the provider knows.
         throw DesktopPermissionException(
@@ -223,9 +239,10 @@ class DesktopHostService {
           e.message ?? '屏幕录制权限未授予，请在系统设置中授权后会自动恢复',
         );
       }
+      final detail = e.message;
       throw DesktopPermissionException(
         'capture_failed',
-        '屏幕采集失败：${e.message}',
+        detail == null || detail.isEmpty ? '屏幕采集失败' : '屏幕采集失败：$detail',
       );
     } on TimeoutException {
       if (!_isCaptureCurrent(generation)) return null;
@@ -254,6 +271,7 @@ class DesktopHostService {
     if (Platform.isMacOS) {
       return _macMouseClick(normalizedX, normalizedY);
     }
+    if (Platform.isWindows) return _windows.click(normalizedX, normalizedY);
     return false;
   }
 
@@ -264,6 +282,9 @@ class DesktopHostService {
     // On desktop, long press = right click
     if (Platform.isMacOS) {
       return _macMouseRightClick(normalizedX, normalizedY);
+    }
+    if (Platform.isWindows) {
+      return _windows.rightClick(normalizedX, normalizedY);
     }
     return false;
   }
@@ -277,6 +298,7 @@ class DesktopHostService {
     if (Platform.isMacOS) {
       return _macMouseDrag(startX, startY, endX, endY);
     }
+    if (Platform.isWindows) return _windows.drag(startX, startY, endX, endY);
     return false;
   }
 
@@ -284,6 +306,7 @@ class DesktopHostService {
     if (Platform.isMacOS) {
       return _macTypeText(text);
     }
+    if (Platform.isWindows) return _windows.typeText(text);
     return false;
   }
 
@@ -295,6 +318,10 @@ class DesktopHostService {
       final exitCode = await process.exitCode;
       return exitCode == 0;
     }
+    if (Platform.isWindows) {
+      await Clipboard.setData(ClipboardData(text: text));
+      return true;
+    }
     return false;
   }
 
@@ -302,6 +329,9 @@ class DesktopHostService {
     if (Platform.isMacOS) {
       final result = await Process.run('pbpaste', []);
       if (result.exitCode == 0) return result.stdout as String;
+    }
+    if (Platform.isWindows) {
+      return (await Clipboard.getData(Clipboard.kTextPlain))?.text;
     }
     return null;
   }
@@ -338,6 +368,7 @@ class DesktopHostService {
   }
 
   Future<bool> performRemoteAction(String action) async {
+    if (Platform.isWindows) return _windows.performAction(action);
     if (!Platform.isMacOS) return false;
     if (action == 'show_all_windows' || action == 'show_desktop') {
       return _macSystemWindowAction(action);

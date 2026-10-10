@@ -22,4 +22,34 @@ class DesktopWindowService {
       debugPrint('[RDesk] close to tray not applied: ${e.message}');
     }
   }
+
+  /// Windows shows no system indicator while the screen is being viewed, so
+  /// the tray says so and offers to disconnect.
+  Future<void> setViewerActive(bool active) async {
+    if (!supportsTray) return;
+    try {
+      await _channel.invokeMethod<void>('setViewerActive', active);
+    } on MissingPluginException {
+      // Older runner without the indicator.
+    } on PlatformException catch (e) {
+      debugPrint('[RDesk] viewer indicator not applied: ${e.message}');
+    }
+  }
+
+  /// The tray menu's requests while this computer is being viewed:
+  /// throw the viewer out, or stop being controllable altogether.
+  void onHostRequests({
+    Future<void> Function()? disconnect,
+    Future<void> Function()? stopHosting,
+  }) {
+    if (!supportsTray) return;
+    if (disconnect == null && stopHosting == null) {
+      _channel.setMethodCallHandler(null);
+      return;
+    }
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'disconnectViewers') await disconnect?.call();
+      if (call.method == 'stopHosting') await stopHosting?.call();
+    });
+  }
 }

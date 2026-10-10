@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/session_provider.dart';
+import '../utils/remote_peer_platform.dart';
 import '../utils/theme.dart';
 import 'quality_settings.dart' show QualitySettingsContent;
 import 'remote_session_tools.dart';
@@ -58,7 +59,7 @@ class RemoteControlBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isMac = _isMacPlatform(peerOs);
+    final platform = remotePeerPlatformOf(peerOs);
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: BackdropFilter(
@@ -78,7 +79,24 @@ class RemoteControlBar extends StatelessWidget {
           ),
           child: Row(
             children: [
-              if (isMac) ...[
+              if (platform == RemotePeerPlatform.windows) ...[
+                _BarItem(
+                  icon: Icons.view_carousel_outlined,
+                  label: '任务视图',
+                  onTap: () {
+                    onUserInteraction();
+                    onRemoteAction('task_view');
+                  },
+                ),
+                _BarItem(
+                  icon: Icons.desktop_windows_outlined,
+                  label: '显示桌面',
+                  onTap: () {
+                    onUserInteraction();
+                    onRemoteAction('show_desktop');
+                  },
+                ),
+              ] else if (platform == RemotePeerPlatform.mac) ...[
                 _BarItem(
                   icon: Icons.view_carousel_outlined,
                   label: '展开所有窗口',
@@ -178,11 +196,6 @@ class RemoteControlBar extends StatelessWidget {
       ),
     ).whenComplete(onActionSheetClosed);
   }
-
-  bool _isMacPlatform(String value) {
-    final normalized = value.trim().toLowerCase();
-    return normalized.contains('mac') || normalized.contains('darwin');
-  }
 }
 
 class _BarItem extends StatelessWidget {
@@ -255,8 +268,9 @@ class RemoteActionSheet extends StatelessWidget {
     final mediaQuery = MediaQuery.of(context);
     final maxHeight = mediaQuery.size.height *
         (mediaQuery.orientation == Orientation.portrait ? 0.64 : 0.78);
-    final supportsMacDesktopKeys =
-        session.currentSession?.peerOs.toLowerCase().contains('mac') == true;
+    final supportsDesktopKeys =
+        remotePeerPlatformOf(session.currentSession?.peerOs ?? '')
+            .hasDesktopKeys;
 
     return Container(
       height: maxHeight,
@@ -338,7 +352,7 @@ class RemoteActionSheet extends StatelessWidget {
                   _ActionRow(
                     icon: Icons.keyboard_alt_outlined,
                     title: '电脑键盘',
-                    subtitle: supportsMacDesktopKeys
+                    subtitle: supportsDesktopKeys
                         ? '完整主键区、方向键与快捷组合'
                         : '文字主键区、删除和回车',
                     chevron: true,

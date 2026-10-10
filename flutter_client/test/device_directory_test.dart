@@ -69,6 +69,27 @@ void main() {
     expect(rows.first.accountOwned, true);
     expect(rows.last.accountOwned, false);
   });
+  test('被控能力只来自账号设备快照，历史记录保持未知', () {
+    AccountDevice windows(String id, {bool canHost = false}) => AccountDevice(
+        deviceId: id,
+        hostname: id,
+        platform: 'windows',
+        updatedAtMs: date.millisecondsSinceEpoch,
+        canHost: canHost,
+        hosting: canHost);
+    final rows = mergeDeviceDirectory(
+        endpointScope: 'https://a.test',
+        accountDevices: [windows('new', canHost: true), windows('old')],
+        history: [history('seen')],
+        saved: [],
+        wakeTargets: []);
+    bool? canHost(String id) => rows.firstWhere((r) => r.deviceId == id).canHost;
+    expect(canHost('new'), true);
+    expect(canHost('old'), false);
+    expect(canHost('seen'), isNull);
+    expect(rows.firstWhere((r) => r.deviceId == 'new').hosting, true);
+    expect(rows.firstWhere((r) => r.deviceId == 'seen').hosting, isNull);
+  });
   test('不同服务器和无来源旧记录不能混成当前设备', () {
     final rows = mergeDeviceDirectory(
         endpointScope: 'https://a.test',

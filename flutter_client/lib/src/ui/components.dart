@@ -227,8 +227,9 @@ enum RdPlatform { windows, macos, android, ios, linux, unknown }
 
 RdPlatform rdPlatformOf(String raw) {
   final v = raw.toLowerCase();
-  if (v.contains('win')) return RdPlatform.windows;
+  // `darwin` contains `win`, so it has to be matched first.
   if (v.contains('mac') || v.contains('darwin')) return RdPlatform.macos;
+  if (v.contains('win')) return RdPlatform.windows;
   if (v.contains('android')) return RdPlatform.android;
   if (v.contains('ios') || v.contains('ipad') || v.contains('iphone')) {
     return RdPlatform.ios;

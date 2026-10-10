@@ -198,6 +198,7 @@ class _UnattendedSetupScreenState extends State<UnattendedSetupScreen> {
   String get _platformStartupTitle {
     if (Platform.isAndroid) return '开启后台保持与自启动';
     if (Platform.isMacOS) return '添加到登录项';
+    if (Platform.isWindows) return '登录后自动启动并保持被控开启';
     return '配置开机自启';
   }
 
@@ -211,6 +212,12 @@ class _UnattendedSetupScreenState extends State<UnattendedSetupScreen> {
       return '1. 打开「系统设置 > 通用 > 登录项与扩展」\n'
           '2. 点击「+」添加随控到登录项\n'
           '3. 确保随控拥有「屏幕录制」和「辅助功能」权限';
+    }
+    if (Platform.isWindows) {
+      return '1. 在「设置」中打开「开机后自动启动随控」\n'
+          '2. 在「设置 > 桌面被控端」中打开「允许远程控制本机」\n'
+          '3. 电脑锁屏或停在登录界面时无法被控制；需要远程开机后直接操作时，'
+          '请自行决定是否为这台电脑配置 Windows 自动登录';
     }
     return '请根据您的操作系统配置应用开机自启动。';
   }

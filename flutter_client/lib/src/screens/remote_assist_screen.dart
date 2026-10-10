@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -339,7 +338,7 @@ class _ThisDeviceCardState extends State<_ThisDeviceCard> {
     final p = RdPalette.of(context);
     final t = Theme.of(context).textTheme;
     final connection = context.watch<ConnectionProvider>();
-    final desktop = defaultTargetPlatform == TargetPlatform.macOS;
+    final desktop = PlatformCapabilities.current.hasDesktopHost;
     final DesktopHostProvider? mac =
         desktop ? context.watch<DesktopHostProvider>() : null;
     final AndroidHostProvider? mobile =
@@ -425,9 +424,9 @@ class _ThisDeviceCardState extends State<_ThisDeviceCard> {
                 ? mac.captureRunning
                     ? '正在被观看'
                     : '待命中，有人连接时才会共享屏幕'
-                : '关闭后其他设备无法连接这台 Mac'),
+                : '关闭后其他设备无法连接这台电脑'),
             value: mac.hostingEnabled,
-            onChanged: (v) => v ? mac.startHosting() : mac.stopHosting(),
+            onChanged: mac.setHostingEnabled,
           )
         else
           OutlinedButton.icon(
@@ -467,15 +466,10 @@ class _HostUnsupportedCard extends StatelessWidget {
             icon: Icons.info_outline_rounded,
             tone: RdTone.neutral,
             title: '这台电脑暂不支持被远程控制',
-            subtitle: 'Windows 版目前用于控制其他设备和远程开机'),
+            subtitle: '当前系统上的随控只能用于控制其他设备'),
         const SizedBox(height: 16),
-        Text('需要别人帮你操作时，可以在 Mac 或安卓设备上打开随控共享屏幕。', style: t.bodySmall),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: () => context.go('/wake'),
-          icon: const Icon(Icons.power_settings_new_rounded, size: 18),
-          label: const Text('设置这台电脑的远程开机'),
-        ),
+        Text('需要别人帮你操作时，可以在 Windows、Mac 或安卓设备上打开随控共享屏幕。',
+            style: t.bodySmall),
       ]),
     );
   }

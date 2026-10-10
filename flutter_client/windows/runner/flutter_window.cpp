@@ -30,6 +30,8 @@ bool FlutterWindow::OnCreate() {
       flutter_controller_->engine()->messenger(), GetHandle());
   tray_bridge_ = std::make_unique<TrayBridge>(
       flutter_controller_->engine()->messenger(), GetHandle(), start_hidden_);
+  desktop_host_bridge_ = std::make_unique<DesktopHostBridge>(
+      flutter_controller_->engine()->messenger(), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -45,6 +47,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  desktop_host_bridge_.reset();
   tray_bridge_.reset();
   wake_adapter_bridge_.reset();
   if (flutter_controller_) {
@@ -60,6 +63,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               LPARAM const lparam) noexcept {
   if (message == WakeAdapterBridge::kResultMessage && wake_adapter_bridge_) {
     wake_adapter_bridge_->Complete();
+    return 0;
+  }
+  if (message == DesktopHostBridge::kResultMessage && desktop_host_bridge_) {
+    desktop_host_bridge_->Drain();
     return 0;
   }
   LRESULT tray_result = 0;

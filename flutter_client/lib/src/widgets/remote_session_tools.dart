@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/session_provider.dart';
+import '../utils/remote_peer_platform.dart';
 import '../utils/theme.dart';
 
 typedef RemoteActionCallback = Future<void> Function(String action);
@@ -32,9 +33,11 @@ class _RemoteKeyboardSheetState extends State<RemoteKeyboardSheet> {
   int _selectedTab = 1;
   bool _shiftEnabled = false;
 
-  bool get _supportsDesktopKeys => widget.peerOs.toLowerCase().contains('mac');
+  RemotePeerPlatform get _platform => remotePeerPlatformOf(widget.peerOs);
 
-  bool get _knownAndroid => widget.peerOs.toLowerCase().contains('android');
+  bool get _supportsDesktopKeys => _platform.hasDesktopKeys;
+
+  bool get _knownAndroid => _platform == RemotePeerPlatform.android;
 
   @override
   void dispose() {
@@ -229,7 +232,9 @@ class _RemoteKeyboardSheetState extends State<RemoteKeyboardSheet> {
           ),
           if (advancedEnabled) ...[
             const SizedBox(height: 10),
-            const _ToolSectionLabel('macOS 快捷组合'),
+            _ToolSectionLabel(_platform == RemotePeerPlatform.windows
+                ? 'Windows 快捷组合'
+                : 'macOS 快捷组合'),
             const SizedBox(height: 6),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
