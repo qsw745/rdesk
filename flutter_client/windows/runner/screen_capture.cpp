@@ -312,16 +312,24 @@ struct ScreenCapture::Impl {
       return Dxgi::kLost;
     }
     const size_t row = static_cast<size_t>(desc.Width) * kBytesPerPixel;
+    // A presented frame is not necessarily a different picture: a window
+    // that merely redraws itself presents too, and this application does so
+    // whenever it learns of a new frame, which would keep itself busy. So
+    // compare while copying, and only report what really changed.
+    bool differs = !have_picture || pixels.size() != row * desc.Height;
     pixels.resize(row * desc.Height);
     const auto* from = static_cast<const uint8_t*>(mapped.pData);
     for (UINT y = 0; y < desc.Height; ++y) {
-      std::memcpy(pixels.data() + row * y, from + mapped.RowPitch * y, row);
+      uint8_t* to = pixels.data() + row * y;
+      const uint8_t* line = from + mapped.RowPitch * y;
+      if (!differs && std::memcmp(to, line, row) != 0) differs = true;
+      if (differs) std::memcpy(to, line, row);
     }
     context->Unmap(staging.Get(), 0);
     pixels_monitor = display.monitor;
     pixels_width = static_cast<int>(desc.Width);
     pixels_height = static_cast<int>(desc.Height);
-    return Dxgi::kNewFrame;
+    return differs ? Dxgi::kNewFrame : Dxgi::kUnchanged;
   }
 
   // Refreshes |pixels| for |display|. False when no picture could be had.
