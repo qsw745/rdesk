@@ -1,7 +1,7 @@
 {
   "date": "2026-10-10",
   "wake_service_ready": true,
-  "source_commit": "20a8bc0",
+  "source_commit": "67833c3",
   "platforms": [
     {
       "id": "macos",
@@ -32,25 +32,25 @@
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.3.7",
+      "version": "2.3.8",
       "requirements": "Windows 10 / 11 · x64",
       "capability": "可控制其他设备，也可被远程查看和控制：在这台电脑上打开「允许远程控制本机」即可，默认关闭；锁屏、登录界面和管理员窗口除外。打开「允许远程开机」可让手机远程开机这台电脑，关闭窗口后在托盘保持在线。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.7-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.8-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包没有 Windows 发布者签名：首次运行出现「Windows 已保护你的电脑」时，点「更多信息」再点「仍要运行」。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.7-windows-x64-setup.exe",
-      "sha256": "093f3402916311abd0d3aade9db78b0d29b54568577729bcc9f291890de59348",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.8-windows-x64-setup.exe",
+      "sha256": "ce774e827e8f211cbaf16b1f86881d54cde049e1745cf061d00330e17a17445f",
       "size": "12.6 MB",
-      "build_number": 30,
+      "build_number": 31,
       "release_notes": [
-        "修复：被远程控制时拖动不生效（拖窗口、框选文字）。",
+        "被远程控制时，对方可以直接用键盘打字和使用快捷键（需要对方的随控也支持键盘转发）。",
+        "控制其他设备时，可以直接用这台电脑的键盘打字和使用快捷键；Alt+Tab、Win 键等系统占用的按键仍留在本机。",
+        "修复：被远程控制时拖动不生效（拖窗口、框选文字）；鼠标右键可直接使用。",
         "这台电脑可以被远程查看和控制：在「远程协助」打开「允许远程控制本机」。默认关闭，升级不会自动开启。",
-        "被查看或操作时右下角会提示，右键托盘图标可以断开对方或停止被控。",
-        "限制：锁屏或登录界面时无法被控制；以管理员身份运行的窗口只能看不能操作。",
-        "要在设备列表里直接连接这台电脑，控制端也需要更新；Mac 与安卓的对应版本尚未发布。"
+        "限制：锁屏或登录界面时无法被控制；以管理员身份运行的窗口只能看不能操作。"
       ]
     },
     {
@@ -87,13 +87,13 @@
     }
   ],
   "files": {
-    "RDesk-2.3.7-windows-x64-setup.exe": {
-      "sha256": "093f3402916311abd0d3aade9db78b0d29b54568577729bcc9f291890de59348",
-      "bytes": 13211622
+    "RDesk-2.3.8-windows-x64-setup.exe": {
+      "sha256": "ce774e827e8f211cbaf16b1f86881d54cde049e1745cf061d00330e17a17445f",
+      "bytes": 13214652
     },
-    "RDesk-2.3.7-windows-x64-portable.zip": {
-      "sha256": "281f34caf55cd3dde1d87ff2c58be6e21a5bb30c99b0d544bdf6d91269e7b5c1",
-      "bytes": 14269816
+    "RDesk-2.3.8-windows-x64-portable.zip": {
+      "sha256": "b0545519c85655785b2278347a18e1d94994e65a9b9ee803dfd3d0b0b6ef047b",
+      "bytes": 14274087
     },
     "RDesk-2.3.2-android.apk": {
       "sha256": "aad75b20b35e307d6cfd172b8bd2089a4205c75ae61ab04aff2e37927dfa67ae",
@@ -109,6 +109,6 @@
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": "Windows 2.3.7 可被远程查看和控制（默认关闭，需在电脑上手动开启），并修复了被控时拖动不生效。Mac 保留 2.3.5、Android 保留 2.3.2，这两个版本的设备列表还不能直接连接 Windows 电脑；iPhone / iPad 请通过 App Store 获取已上架版本。",
+  "service_notice": "Windows 2.3.8 可被远程查看和控制（默认关闭，需在电脑上手动开启），支持键盘转发，并修复了被控时拖动不生效。Mac 保留 2.3.5、Android 保留 2.3.2，这两个版本的设备列表还不能直接连接 Windows 电脑；iPhone / iPad 请通过 App Store 获取已上架版本。",
   "schema_version": 1
 }
