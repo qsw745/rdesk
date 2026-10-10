@@ -43,22 +43,14 @@
   - 这部分原生实现来自另一个工作区（`xenodochial-sanderson-0ccba5`）里未提交的改动，本次合入主线并保留 Windows 分支。那个工作区的改动现在是重复的。
 - Windows 被控端：屏幕列表带上当前选中项。
 
-## 入口配置：已修改，未生效
+## 入口配置
 
-`101.37.21.147` 上的 `/opt/nginx/conf.d/site.conf` 已在 80 与 443 两段各加入 `location = /displays` 和 `location = /settings/quality`，写法与相邻的 `/clipboard/` 一致。原文件备份为同目录的 `site.conf.bak-20261010-displays`，`docker exec nginx nginx -t` 通过。
+`101.37.21.147` 上的 `/opt/nginx/conf.d/site.conf` 在 80 与 443 两段各加入 `location = /displays` 和 `location = /settings/quality`，写法与相邻的 `/clipboard/` 一致。原文件备份为同目录的 `site.conf.bak-20261010-displays`。
 
-**重载没有执行**：执行 `nginx -s reload` 的命令被权限检查拦下，没有绕过。在重载之前：
-
-- 经中继连接仍然只显示一块屏，2.3.11 也一样；经中继调画质仍然不生效。
-- 局域网直连不受影响。
-- 如果这个 nginx 因为别的原因重启，新配置会一并生效。
-
-重载并核对的命令：
-
-```sh
-ssh root@101.37.21.147 'docker exec nginx nginx -t && docker exec nginx nginx -s reload'
-curl -s -o /dev/null -w '%{http_code}\n' 'https://qisw.top/displays?device_id=a&token=b'   # 应为 401，不是 404
-```
+- 第一次执行重载时被权限检查拦下，没有绕过；配置改好后停在未生效状态，直到用户确认。
+- 用户确认后于 15:24 执行 `docker exec nginx nginx -t`（通过）和 `nginx -s reload`。重载时的 `conflicting server name "101.37.21.147"` 警告自 10 月 5 日起每次重载都有，与本次改动无关。
+- 公网核对：`GET /displays` 在 443 与 80 上都返回 401（此前 404）；`POST /settings/quality` 返回 415（此前 404）；`/frame.jpg`、`/clipboard/get`、`/health`、官网首页、`/rdesk/`、`/rdesk/releases.json`、`/api/account/devices` 与重载前一致；重载后 nginx 日志没有 emerg 或 error。
+- 经公网中继走了一遍完整流程（模拟被控端与观看端，临时主机已注销）：观看端请求 `/displays`，被控端收到 `list_displays`，回报两块屏，观看端得到 200 和原样的两块屏（型号、当前选中项都在）。画质请求能到达服务端（没有被控端应答时返回 504，不再是 404）。
 
 回滚：把备份文件复制回 `site.conf` 后重载。
 
@@ -87,7 +79,7 @@ curl -s -o /dev/null -w '%{http_code}\n' 'https://qisw.top/displays?device_id=a&
 - **没有在真实的两块屏上验证过**：标签、切换、切换后点击落点都没有用真实连接操作过。屏幕型号只用独立脚本在这台 Mac 上读过，结果是 VG27AQL3A（主屏）和 Built-in Retina Display。
 - **Mac 原生文字和鼠标输入没有实际注入过**：测试只覆盖换算和拆分，没有向这台正在使用的 Mac 发送任何点击或按键。应用是否已获得辅助功能权限也没有读到；没有权限时这些操作会返回失败。
 - **Windows 观看端开着中文输入法时能否打字，没有验证。** 键盘转发直接读按键，没有接入输入法；输入法处于中文状态时，按键可能被输入法截走而发不出去。如果切到英文状态能打字、中文状态不能，就是这个原因，需要另做输入法接入。
-- 经中继的多屏和画质设置依赖上面那次重载。
+- 经中继调画质现在能到达被控端，但被控端收到后的实际效果没有验证。
 - 屏幕列表只在连上时取一次：会话中途插拔显示器，标签不会更新。
 - Windows 被控端不报告显示器型号，标签上显示分辨率。
 - Mac 2.3.5 公开版没有这些被控端修正。
