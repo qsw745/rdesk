@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Path, Query, State, WebSocketUpgrade};
+use axum::extract::{DefaultBodyLimit, Path, Query, State, WebSocketUpgrade};
 use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -30,6 +30,14 @@ const ACCOUNT_PRESENCE_TTL_MS: u64 = 75_000;
 const SCREEN_LEASE_MS: u64 = 10_000;
 const VIEWER_SESSION_TTL_MS: u64 = 30 * 60 * 1_000;
 const COMMAND_TTL_MS: u64 = 15_000;
+/// How long a viewer waits for an ordinary input command.
+const COMMAND_RESULT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Files in transit are held in memory, on a server with under 2 GB of it.
+const FILE_MAX_BYTES: usize = 50 * 1024 * 1024;
+const FILE_STORE_MAX_BYTES: usize = 150 * 1024 * 1024;
+/// The host has to fetch and save the file before it answers. Kept under
+/// the 60 s after which the public proxy gives up on the upload request.
+const FILE_RECEIVE_TIMEOUT: Duration = Duration::from_secs(50);
 /// 被控端命令长轮询的挂起上限。必须明显小于 nginx 的 proxy_read_timeout（默认 60s）。
 const HOST_COMMAND_LONG_POLL: Duration = Duration::from_secs(5);
 /// 长轮询期间检查队列的间隔。
@@ -41,6 +49,8 @@ const MIN_PASSWORD_LEN: usize = 6;
 mod account_tests;
 #[cfg(test)]
 mod capture_tests;
+#[cfg(test)]
+mod file_tests;
 
 #[derive(Debug, Parser)]
 #[command(name = "rdesk-server")]
@@ -457,7 +467,11 @@ async fn main() -> Result<()> {
         .route("/ws/viewer/:device_id", get(ws_viewer_handler))
         // File transfer endpoints
         .route("/api/file/list", post(file_list_request))
-        .route("/api/file/upload", post(file_upload))
+        .route(
+            "/api/file/upload",
+            post(file_upload).layer(DefaultBodyLimit::max(FILE_MAX_BYTES)),
+        )
+        .route("/api/file/host/download/:file_id", get(file_host_download))
         .route("/api/file/download/:file_id", get(file_download))
         .with_state(state.clone());
 
@@ -1535,6 +1549,16 @@ async fn forward_command(
     kind: &str,
     payload: Value,
 ) -> Result<CommandResult, StatusCode> {
+    forward_command_within(state, query, kind, payload, COMMAND_RESULT_TIMEOUT).await
+}
+
+async fn forward_command_within(
+    state: &AppState,
+    query: &RelayViewerQuery,
+    kind: &str,
+    payload: Value,
+    wait: Duration,
+) -> Result<CommandResult, StatusCode> {
     if !validate_viewer(state, &query.device_id, &query.token) {
         return Err(StatusCode::UNAUTHORIZED);
     }
@@ -1560,7 +1584,7 @@ async fn forward_command(
             queued_at_ms: now_ms(),
         });
 
-    match tokio::time::timeout(Duration::from_secs(5), rx).await {
+    match tokio::time::timeout(wait, rx).await {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(_)) => Err(StatusCode::BAD_GATEWAY),
         Err(_) => {
@@ -1816,48 +1840,116 @@ struct FileDownloadQuery {
     token: String,
 }
 
+/// The name to save an incoming file under: the last path component only,
+/// without control characters, so a viewer cannot aim a file outside the
+/// folder the host chose. None when nothing usable is left.
+fn safe_file_name(raw: &str) -> Option<String> {
+    let base = raw.rsplit(['/', '\\']).next().unwrap_or("");
+    let cleaned: String = base.chars().filter(|c| !c.is_control()).take(200).collect();
+    let cleaned = cleaned.trim().to_string();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        return None;
+    }
+    Some(cleaned)
+}
+
+/// A viewer sends a file for the host. The relay holds it only until the
+/// host has fetched it, and reports whether the host saved it.
 async fn file_upload(
     State(state): State<AppState>,
     Query(query): Query<FileUploadQuery>,
     body: Bytes,
 ) -> Response {
+    relay_file(state, query, body, FILE_RECEIVE_TIMEOUT).await
+}
+
+async fn relay_file(
+    state: AppState,
+    query: FileUploadQuery,
+    body: Bytes,
+    host_wait: Duration,
+) -> Response {
     if !validate_viewer(&state, &query.device_id, &query.token) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+    let Some(filename) = safe_file_name(&query.filename) else {
+        return error_response(StatusCode::BAD_REQUEST, "文件名无效");
+    };
+    let held: usize = state.file_store.iter().map(|entry| entry.data.len()).sum();
+    if body.len() > FILE_MAX_BYTES || held + body.len() > FILE_STORE_MAX_BYTES {
+        return error_response(StatusCode::INSUFFICIENT_STORAGE, "中转空间不足，请稍后再试");
+    }
 
     let file_id = new_token();
+    let size = body.len();
     state.file_store.insert(
         file_id.clone(),
         FileBlob {
             data: body,
-            filename: query.filename.clone(),
+            filename: filename.clone(),
             created_at_ms: now_ms(),
             device_id: query.device_id.clone(),
         },
     );
 
-    // Tell the host to download this file
     let relay_query = RelayViewerQuery {
-        device_id: query.device_id,
+        device_id: query.device_id.clone(),
         token: query.token,
     };
-    let _ = forward_command(
+    let outcome = forward_command_within(
         &state,
         &relay_query,
         "file_receive",
-        json!({
-            "file_id": file_id,
-            "filename": query.filename,
-            "remote_path": query.remote_path,
-        }),
+        json!({ "file_id": file_id, "filename": filename, "size": size }),
+        host_wait,
     )
     .await;
 
-    (
-        StatusCode::OK,
-        Json(json!({ "ok": true, "file_id": file_id })),
-    )
-        .into_response()
+    match outcome {
+        Ok(result) => {
+            if !result.ok {
+                state.file_store.remove(&file_id);
+            }
+            info!(device_id = %query.device_id, size, saved = result.ok, "relayed file");
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": result.ok, "saved_as": result.text })),
+            )
+                .into_response()
+        }
+        Err(status) => {
+            state.file_store.remove(&file_id);
+            status.into_response()
+        }
+    }
+}
+
+/// The host collects a file a viewer sent it. Only that host can, and only
+/// once: the relay keeps no copy afterwards.
+async fn file_host_download(
+    Path(file_id): Path<String>,
+    Query(query): Query<RelayHostQuery>,
+    State(state): State<AppState>,
+) -> Response {
+    if !validate_host(&state, &query.device_id, &query.host_token) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let owned = state
+        .file_store
+        .get(&file_id)
+        .is_some_and(|blob| blob.device_id == query.device_id);
+    if !owned {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let Some((_, blob)) = state.file_store.remove(&file_id) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    (StatusCode::OK, headers, blob.data).into_response()
 }
 
 async fn file_download(
