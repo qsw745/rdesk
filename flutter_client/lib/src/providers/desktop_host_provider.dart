@@ -19,17 +19,37 @@ import '../widgets/incoming_connection_dialog.dart';
 ///
 /// Mirrors [AndroidHostProvider] but uses [DesktopHostService] for
 /// screen capture and input simulation instead of Android MethodChannel.
+/// A device that is viewing or operating this computer right now.
+class HostViewerInfo {
+  const HostViewerInfo({
+    required this.name,
+    required this.platform,
+    required this.since,
+  });
+
+  final String name;
+  final String platform;
+  final DateTime since;
+}
+
 class DesktopHostProvider extends ChangeNotifier {
   final _bridge = RdeskBridgeService.instance;
-  final _service = DesktopHostService.instance;
+  final DesktopHostService _service;
   final int lanPort;
   DesktopHostProvider({
     this.lanPort = 21116,
     Future<void> Function()? rotateTemporaryPassword,
-  }) : _rotateTemporaryPassword = rotateTemporaryPassword;
+    DesktopHostService? service,
+  })  : _rotateTemporaryPassword = rotateTemporaryPassword,
+        _service = service ?? DesktopHostService.instance;
 
   /// Replaces the temporary password where the UI shows it as well.
   final Future<void> Function()? _rotateTemporaryPassword;
+
+  // Windows duplication is cheap and reports unchanged screens, so it can
+  // be asked twice as often; a capture never overlaps the previous one.
+  static Duration get _capturePollInterval =>
+      Duration(milliseconds: Platform.isWindows ? 50 : 100);
 
   static const _hostingIntent = HostingIntentStore();
   static const _window = DesktopWindowService();
@@ -63,6 +83,29 @@ class DesktopHostProvider extends ChangeNotifier {
   // their own: a session that never fetches a frame is access all the same.
   int _lanAccessUntil = 0;
   int _relayAccessUntil = 0;
+
+  // Who is on the other end, as far as they told us. LAN viewers are known
+  // per session; relay viewers only when they went through a trust request.
+  final Map<String, HostViewerInfo> _lanViewers = {};
+  final Map<String, int> _lanViewerSeenAt = {};
+  final Map<String, HostViewerInfo> _relayViewerInfo = {};
+  DateTime? _accessSince;
+
+  /// When the current stretch of remote access began; null when idle.
+  DateTime? get remoteAccessSince => remoteAccessActive ? _accessSince : null;
+
+  /// The devices behind the current access whose identity is known. May be
+  /// empty while [remoteAccessActive] is true: never invent a name.
+  List<HostViewerInfo> get currentViewers {
+    if (!remoteAccessActive) return const [];
+    final now = _clock.elapsedMilliseconds;
+    return List.unmodifiable([
+      for (final entry in _lanViewerSeenAt.entries)
+        if (now - entry.value < screenLeaseMs && _lanViewers[entry.key] != null)
+          _lanViewers[entry.key]!,
+      if (_hasRelayViewer || now < _relayAccessUntil) ..._relayViewerInfo.values,
+    ]);
+  }
 
   /// Someone is viewing this computer, or has just operated it or read its
   /// clipboard. This is what the user must be told about.
@@ -104,6 +147,7 @@ class DesktopHostProvider extends ChangeNotifier {
     manufacturer: 'desktop',
   );
   AndroidHostFrame? _previewFrame;
+  int? _previewFrameCheckedAtMs;
   bool _busy = false;
   String? _error;
   Timer? _previewTimer;
@@ -235,6 +279,8 @@ class DesktopHostProvider extends ChangeNotifier {
     _relayViewers = 0;
     _lanAccessUntil = 0;
     _relayAccessUntil = 0;
+    _lanViewers.clear();
+    _lanViewerSeenAt.clear();
     _relayDemandError = null;
     _reportViewerPresence();
     _stopCapture();
@@ -274,7 +320,10 @@ class DesktopHostProvider extends ChangeNotifier {
     final viewed = remoteAccessActive;
     if (viewed == _viewerIndicated) return;
     _viewerIndicated = viewed;
+    _accessSince = viewed ? DateTime.now() : null;
+    if (!viewed) _relayViewerInfo.clear();
     unawaited(_window.setViewerActive(viewed));
+    notifyListeners();
   }
 
   void _syncCaptureDemand() {
@@ -504,7 +553,7 @@ class DesktopHostProvider extends ChangeNotifier {
         notifyListeners();
       }
     }));
-    _previewTimer = Timer.periodic(const Duration(milliseconds: 100),
+    _previewTimer = Timer.periodic(_capturePollInterval,
         (_) => unawaited(_pollPreviewFrame()));
     debugPrint(
         '[RDeskCapture] start viewers=$activeViewerCount generation=$generation');
@@ -526,6 +575,7 @@ class DesktopHostProvider extends ChangeNotifier {
         final changed = _previewFrame?.timestampMs != frame.timestampMs ||
             _previewFrame?.bytes.length != frame.bytes.length;
         _previewFrame = frame;
+        _previewFrameCheckedAtMs = DateTime.now().millisecondsSinceEpoch;
         if (changed) notifyListeners();
         if ((_relayHostToken == null || _relayHostToken!.isEmpty) &&
             _state.isRunning) {
@@ -739,6 +789,8 @@ class DesktopHostProvider extends ChangeNotifier {
             return;
           }
           _lanSessionTokens.add(sessionToken);
+          _lanViewers[sessionToken] = HostViewerInfo(
+              name: hostname, platform: peerOs, since: DateTime.now());
           response.headers.contentType = ContentType.json;
           response.write(jsonEncode(<String, Object?>{
             'ok': true,
@@ -764,6 +816,8 @@ class DesktopHostProvider extends ChangeNotifier {
             request.method == 'POST') {
           if (request.uri.path == '/session/close') {
             _lanSessionTokens.remove(token);
+            _lanViewers.remove(token);
+            _lanViewerSeenAt.remove(token);
             if (_lanSessionTokens.isEmpty) _lanAccessUntil = 0;
           }
           _lanScreenLeases.remove(token);
@@ -775,6 +829,7 @@ class DesktopHostProvider extends ChangeNotifier {
         }
 
         _lanAccessUntil = _clock.elapsedMilliseconds + screenLeaseMs;
+        _lanViewerSeenAt[token] = _clock.elapsedMilliseconds;
         _reportViewerPresence();
 
         if (request.uri.path == '/frame.jpg' && request.method == 'GET') {
@@ -792,8 +847,11 @@ class DesktopHostProvider extends ChangeNotifier {
           response.headers.set('X-RDesk-Height', frame.height.toString());
           response.headers
               .set('X-RDesk-Timestamp', frame.timestampMs.toString());
-          response.headers
-              .set('X-RDesk-Captured-At', frame.timestampMs.toString());
+          // A frame handed back unchanged was still checked against the
+          // screen at the last poll, so that is how current it is.
+          response.headers.set(
+              'X-RDesk-Captured-At',
+              (_previewFrameCheckedAtMs ?? frame.timestampMs).toString());
           response.add(frame.bytes);
           await response.close();
           return;
@@ -990,6 +1048,9 @@ class DesktopHostProvider extends ChangeNotifier {
     // termination) before the TCP listener is torn down.
     _lanSessionTokens.clear();
     _lanScreenLeases.clear();
+    _lanViewers.clear();
+    _lanViewerSeenAt.clear();
+    _lanAccessUntil = 0;
     _syncCaptureDemand();
     if (server != null) {
       // Give in-flight requests a moment to receive 401 before closing.
@@ -1232,6 +1293,8 @@ class DesktopHostProvider extends ChangeNotifier {
               hostname: hostname,
               peerOs: peerOs,
             );
+            _relayViewerInfo[deviceId] = HostViewerInfo(
+                name: hostname, platform: peerOs, since: DateTime.now());
             await _registerPreviewHost();
             ok = true;
           }

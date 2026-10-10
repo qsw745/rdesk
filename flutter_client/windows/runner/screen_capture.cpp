@@ -23,6 +23,7 @@ namespace {
 // first picture is taken through GDI instead.
 constexpr ULONGLONG kFirstFrameTimeoutMs = 200;
 constexpr int kBytesPerPixel = 4;
+constexpr float kSharpTextQuality = 0.75f;
 // A display that could not be duplicated is tried again after this long:
 // the cause may have been another program holding the duplication.
 constexpr ULONGLONG kDuplicationRetryMs = 30000;
@@ -72,14 +73,22 @@ bool EncodeJpeg(IWICImagingFactory* wic, const std::vector<uint8_t>& pixels,
       FAILED(encoder->CreateNewFrame(&frame, &options))) {
     return false;
   }
-  wchar_t option_name[] = L"ImageQuality";
-  PROPBAG2 option{};
-  option.pstrName = option_name;
-  VARIANT value{};
-  value.vt = VT_R4;
-  value.fltVal = quality;
+  wchar_t quality_name[] = L"ImageQuality";
+  wchar_t subsampling_name[] = L"JpegYCrCbSubsampling";
+  PROPBAG2 option[2] = {};
+  option[0].pstrName = quality_name;
+  option[1].pstrName = subsampling_name;
+  VARIANT value[2] = {};
+  value[0].vt = VT_R4;
+  value[0].fltVal = quality;
+  // Full-resolution colour at normal quality and above: halved chroma is
+  // what smears small coloured text. Low quality keeps the smaller default.
+  value[1].vt = VT_UI1;
+  value[1].bVal = static_cast<BYTE>(quality >= kSharpTextQuality
+                                        ? WICJpegYCrCbSubsampling444
+                                        : WICJpegYCrCbSubsampling420);
   WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
-  if (FAILED(options->Write(1, &option, &value)) ||
+  if (FAILED(options->Write(2, option, value)) ||
       FAILED(frame->Initialize(options.Get())) ||
       FAILED(frame->SetSize(static_cast<UINT>(target.width),
                             static_cast<UINT>(target.height))) ||
@@ -167,6 +176,7 @@ struct ScreenCapture::Impl {
   int pixels_height = 0;
 
   Frame encoded;
+  int64_t next_sequence = 1;
   bool encoded_valid = false;
   int encoded_max_dimension = 0;
   float encoded_quality = 0.0f;
@@ -346,11 +356,16 @@ struct ScreenCapture::Impl {
     }
     int width = 0;
     int height = 0;
-    if (!CaptureGdi(display, &pixels, &width, &height)) return false;
+    std::vector<uint8_t> fresh;
+    if (!CaptureGdi(display, &fresh, &width, &height)) return false;
+    // GDI cannot say whether anything changed, so compare: an unchanged
+    // picture is then neither encoded nor sent again.
+    *changed = pixels_monitor != display.monitor || width != pixels_width ||
+               height != pixels_height || fresh != pixels;
+    if (*changed) pixels.swap(fresh);
     pixels_monitor = display.monitor;
     pixels_width = width;
     pixels_height = height;
-    *changed = true;
     backend = "gdi";
     return true;
   }
@@ -434,6 +449,7 @@ ScreenCapture::Status ScreenCapture::Capture(int display_index,
     }
     impl_->encoded.width = target.width;
     impl_->encoded.height = target.height;
+    impl_->encoded.sequence = impl_->next_sequence++;
     impl_->encoded_max_dimension = max_dimension;
     impl_->encoded_quality = jpeg_quality;
     impl_->encoded_valid = true;

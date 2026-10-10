@@ -28,6 +28,9 @@ class ScreenCapture {
     std::vector<uint8_t> jpeg;
     int width = 0;
     int height = 0;
+    // Changes only when the picture does. A caller that already has this
+    // sequence holds the same bytes and need not send them again.
+    int64_t sequence = 0;
   };
 
   // |allow_duplication| false keeps to the GDI path, which is how the

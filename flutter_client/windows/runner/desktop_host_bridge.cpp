@@ -297,7 +297,8 @@ void DesktopHostBridge::CaptureScreen(const Map& args, Result result) {
           result->Success(Value(Map{
               {Value("bytes"), Value(std::move(frame->jpeg))},
               {Value("width"), Value(frame->width)},
-              {Value("height"), Value(frame->height)}}));
+              {Value("height"), Value(frame->height)},
+              {Value("sequence"), Value(frame->sequence)}}));
           break;
         case ScreenCapture::Status::kSessionLocked:
           result->Error("SESSION_LOCKED", "workstation is locked");

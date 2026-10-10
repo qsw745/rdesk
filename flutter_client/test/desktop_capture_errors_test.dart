@@ -13,13 +13,23 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   String? captureError;
   String? nativeMessage;
+  int? sequence;
 
   setUp(() async {
     captureError = null;
+    sequence = null;
     nativeMessage = 'native text';
     messenger.setMockMethodCallHandler(channel, (call) async {
       if (call.method == 'captureScreen' && captureError != null) {
         throw PlatformException(code: captureError!, message: nativeMessage);
+      }
+      if (call.method == 'captureScreen') {
+        return {
+          'bytes': Uint8List.fromList([1, 2, 3]),
+          'width': 3,
+          'height': 1,
+          if (sequence != null) 'sequence': sequence,
+        };
       }
       return null;
     });
@@ -69,5 +79,33 @@ void main() {
     final error = await failure('CAPTURE_FAILED');
 
     expect(error.message, '屏幕采集失败');
+  }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+  test('画面序号不变时返回同一帧，调用方据此不重复上传', () async {
+    sequence = 7;
+    final first = await service.getLatestFrame();
+    final second = await service.getLatestFrame();
+
+    expect(first, isNotNull);
+    expect(identical(first, second), isTrue);
+    expect(second!.timestampMs, first!.timestampMs);
+  }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+  test('画面序号变化时返回新的一帧', () async {
+    sequence = 7;
+    final first = await service.getLatestFrame();
+    sequence = 8;
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    final second = await service.getLatestFrame();
+
+    expect(identical(first, second), isFalse);
+    expect(second!.timestampMs, greaterThan(first!.timestampMs));
+  }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+  test('原生层不提供序号时每次都是新帧，行为与以前一致', () async {
+    final first = await service.getLatestFrame();
+    final second = await service.getLatestFrame();
+
+    expect(identical(first, second), isFalse);
   }, skip: !(Platform.isMacOS || Platform.isWindows));
 }

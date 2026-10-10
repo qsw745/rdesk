@@ -8,6 +8,8 @@ import 'package:rdesk/src/providers/desktop_host_provider.dart';
 import 'package:rdesk/src/services/rdesk_bridge_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/recording_host_service.dart';
+
 Future<void> eventually(bool Function() check) async {
   final deadline = DateTime.now().add(const Duration(seconds: 4));
   while (!check() && DateTime.now().isBefore(deadline)) {
@@ -42,6 +44,7 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   late HttpServer relay;
   late DesktopHostProvider host;
+  late RecordingHostService service;
   late int port;
   String? captureError;
   var rotations = 0;
@@ -127,8 +130,10 @@ void main() {
     captureError = null;
     rotations = 0;
     port = await freePort();
+    service = RecordingHostService();
     host = DesktopHostProvider(
         lanPort: port,
+        service: service,
         rotateTemporaryPassword: () async {
           rotations++;
           await RdeskBridgeService.instance.generateTemporaryPassword();
@@ -201,6 +206,7 @@ void main() {
     final tap = await call('/input/tap',
         token: token, body: {'x': 0.5, 'y': 0.5});
     expect(tap.status, 200);
+    expect(service.inputs, ['tap 0.5,0.5']);
     expect(host.activeViewerCount, 0);
     expect(host.remoteAccessActive, isTrue);
 
@@ -214,6 +220,7 @@ void main() {
 
     await call('/clipboard/get', token: token);
 
+    expect(service.inputs, ['clipboardGet']);
     expect(host.remoteAccessActive, isTrue);
   }, skip: !(Platform.isMacOS || Platform.isWindows));
 
@@ -274,5 +281,26 @@ void main() {
 
     expect(ok.status, 200);
     expect(malformed.status, 400);
+    expect(service.inputs, ['dragPath 3']);
+  }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+  test('被控端记录是谁在访问、从何时开始，会话关闭后清除', () async {
+    await hostReady();
+    expect(host.currentViewers, isEmpty);
+    expect(host.remoteAccessSince, isNull);
+    final token = await authenticate();
+    expect(host.currentViewers, isEmpty,
+        reason: 'authenticated but has not done anything yet');
+
+    await call('/input/tap', token: token, body: {'x': 0.5, 'y': 0.5});
+
+    expect(host.currentViewers.single.name, 'test viewer');
+    expect(host.currentViewers.single.platform, 'ios');
+    expect(host.remoteAccessSince, isNotNull);
+
+    await call('/session/close', token: token, body: {});
+
+    expect(host.currentViewers, isEmpty);
+    expect(host.remoteAccessSince, isNull);
   }, skip: !(Platform.isMacOS || Platform.isWindows));
 }

@@ -18,7 +18,8 @@
 // Windows side of the desktop host: lets this PC be viewed and controlled.
 // Channel com.qsw.rdesk/desktop_host, same contract as the macOS plugin:
 //   setCaptureEnabled{enabled, generation}
-//   captureScreen{generation, maxDimension, quality} -> {bytes, width, height}
+//   captureScreen{generation, maxDimension, quality}
+//       -> {bytes, width, height, sequence}
 //       errors SESSION_LOCKED, SECURE_DESKTOP, CAPTURE_FAILED
 //   captureDiagnostics, listDisplays, switchDisplay{index}
 //   performMouse{kind, x, y, endX, endY, amount, points} -> bool

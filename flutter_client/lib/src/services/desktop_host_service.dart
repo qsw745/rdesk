@@ -40,6 +40,12 @@ class DesktopPermissionException implements Exception {
 class DesktopHostService {
   DesktopHostService._();
 
+  /// For a test double. Tests of the host must never reach the real service:
+  /// on a desktop it moves the developer's own mouse and types on their
+  /// keyboard.
+  @visibleForTesting
+  DesktopHostService.forTesting();
+
   static final DesktopHostService instance = DesktopHostService._();
   static const _desktopChannel = MethodChannel('com.qsw.rdesk/desktop_host');
   static const _windows = WindowsHostDriver(_desktopChannel);
@@ -62,6 +68,9 @@ class DesktopHostService {
 
   Future<void> stopCapture() async {
     _captureEnabled = false;
+    _lastFrameSequence = null;
+    _lastSequencedFrame = null;
+    _lastSequencedFrameAt = null;
     final generation = ++_captureGeneration;
     await _desktopChannel.invokeMethod('setCaptureEnabled', {
       'enabled': false,
@@ -73,6 +82,14 @@ class DesktopHostService {
       await _desktopChannel
           .invokeMapMethod<String, dynamic>('captureDiagnostics') ??
       {};
+
+  // The Windows host numbers its pictures; an unchanged number means the
+  // bytes are the ones already delivered. Handing back the very same frame
+  // lets the caller skip re-sending it, apart from a periodic keep-alive.
+  static const _unchangedFrameResendInterval = Duration(seconds: 3);
+  int? _lastFrameSequence;
+  AndroidHostFrame? _lastSequencedFrame;
+  DateTime? _lastSequencedFrameAt;
 
   bool _isCaptureCurrent(int generation) =>
       _isRunning && _captureEnabled && generation == _captureGeneration;
@@ -212,12 +229,27 @@ class DesktopHostService {
       }
 
       if (!_isCaptureCurrent(generation)) return null;
-      return AndroidHostFrame(
+      final now = DateTime.now();
+      final sequence = (captureResult['sequence'] as num?)?.toInt();
+      final previous = _lastSequencedFrame;
+      final previousAt = _lastSequencedFrameAt;
+      if (sequence != null &&
+          sequence == _lastFrameSequence &&
+          previous != null &&
+          previousAt != null &&
+          now.difference(previousAt) < _unchangedFrameResendInterval) {
+        return previous;
+      }
+      final frame = AndroidHostFrame(
         bytes: bytes,
         width: width,
         height: height,
-        timestampMs: DateTime.now().millisecondsSinceEpoch,
+        timestampMs: now.millisecondsSinceEpoch,
       );
+      _lastFrameSequence = sequence;
+      _lastSequencedFrame = sequence == null ? null : frame;
+      _lastSequencedFrameAt = sequence == null ? null : now;
+      return frame;
     } on PlatformException catch (e) {
       if (!_isCaptureCurrent(generation)) return null;
       if (e.code == 'SESSION_LOCKED') {

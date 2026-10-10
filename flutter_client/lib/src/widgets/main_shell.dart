@@ -7,6 +7,7 @@ import '../ui/device_actions.dart';
 import '../ui/tokens.dart';
 import '../utils/platform_capabilities.dart';
 import 'app_update_widgets.dart';
+import 'host_session_banner.dart';
 
 /// Branch order is fixed by the router: devices, assist, wake, settings, me.
 class MainShell extends StatelessWidget {
@@ -66,6 +67,8 @@ class MainShell extends StatelessWidget {
         VerticalDivider(width: 1, color: p.divider),
         Expanded(
           child: Column(children: [
+            if (PlatformCapabilities.current.hasDesktopHost)
+              const HostSessionBanner(),
             const UpdateBanner(),
             Expanded(child: navigationShell),
           ]),

@@ -234,6 +234,28 @@ int Capture(const char* path, int max_dimension, bool allow_duplication) {
   }
   Check(still_ok, "repeated captures of a still screen keep the picture");
 
+  // The sequence tells a caller whether it already has these bytes.
+  // Something else on the desktop may repaint at any moment (this tool's
+  // own console included), so look for one quiet interval rather than
+  // demanding that a particular one is quiet.
+  ScreenCapture::Frame same_a;
+  ScreenCapture::Frame same_b;
+  bool held = false;
+  for (int attempt = 0; attempt < 20 && !held; ++attempt) {
+    capture.Capture(0, max_dimension, 0.8, &same_a);
+    PumpFor(120);
+    capture.Capture(0, max_dimension, 0.8, &same_b);
+    held = same_a.sequence != 0 && same_a.sequence == same_b.sequence;
+  }
+  Check(held, "a still screen keeps its sequence");
+  Paint(swatch, magenta);
+  ScreenCapture::Frame moved;
+  capture.Capture(0, max_dimension, 0.8, &moved);
+  Check(moved.sequence > same_b.sequence,
+        "a changed screen advances the sequence");
+  Paint(swatch, green);
+  capture.Capture(0, max_dimension, 0.8, &moved);
+
   // A viewer changing size must be served even when nothing moved.
   ScreenCapture::Frame smaller;
   Shows(&capture, display, 640, green,
