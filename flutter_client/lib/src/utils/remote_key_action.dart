@@ -29,6 +29,19 @@ MacRemoteKeyStroke? macRemoteKeyStrokeForAction(String action) {
   };
 }
 
+/// Arguments for Windows `shutdown.exe` for a remote power action, or null
+/// when [action] is not one. The short delay lets Windows show the person
+/// at the computer what is about to happen; nothing is forced, so an
+/// application with unsaved work can still hold the shutdown.
+List<String>? windowsPowerArguments(String action) {
+  const delaySeconds = '10';
+  return switch (action) {
+    'power_restart' => const ['/r', '/t', delaySeconds, '/c', '随控：远程重启'],
+    'power_shutdown' => const ['/s', '/t', delaySeconds, '/c', '随控：远程关机'],
+    _ => null,
+  };
+}
+
 enum WindowsRemoteModifier { control, shift, alt, win }
 
 class WindowsRemoteKeyStroke {

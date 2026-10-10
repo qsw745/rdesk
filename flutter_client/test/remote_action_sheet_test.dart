@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:rdesk/src/models/session.dart';
 import 'package:rdesk/src/providers/session_provider.dart';
 import 'package:rdesk/src/widgets/remote_control_panel.dart';
 import 'package:rdesk/src/widgets/remote_session_tools.dart';
@@ -270,6 +271,62 @@ void main() {
     await tester.tap(find.text('Esc'));
     await tester.pump();
     expect(actions, ['key_escape']);
+  });
+
+  void attach(SessionProvider session, String peerOs) => session.setSession(
+      SessionInfo(
+        sessionId: 'test-session',
+        peerId: '123456789',
+        peerHostname: 'PC',
+        peerOs: peerOs,
+        state: SessionState.active,
+        connectedAt: DateTime.now(),
+      ));
+
+  testWidgets('Windows 被控端提供重启和关机，确认后才发送', (tester) async {
+    final actions = <String>[];
+    final session = await openActionSheet(tester,
+        onRemoteAction: (action) async => actions.add(action));
+    attach(session, 'windows');
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(find.text('重启电脑'), 200,
+        scrollable: find.byType(Scrollable).last);
+    await tester.tap(find.text('重启电脑'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('未保存'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(actions, isEmpty);
+
+    await tester.tap(find.text('关机'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '关机'));
+    await tester.pumpAndSettle();
+    expect(actions, ['power_shutdown']);
+  });
+
+  testWidgets('仅观看时不提供重启和关机', (tester) async {
+    final session = await openActionSheet(tester);
+    attach(session, 'windows');
+    session.toggleViewOnly();
+    await tester.pumpAndSettle();
+
+    expect(find.text('重启电脑'), findsNothing);
+    expect(find.text('关机'), findsNothing);
+  });
+
+  testWidgets('Mac 和安卓被控端不显示它们做不到的重启和关机', (tester) async {
+    for (final peerOs in ['macOS', 'android']) {
+      final session = await openActionSheet(tester);
+      attach(session, peerOs);
+      await tester.pumpAndSettle();
+
+      expect(find.text('重启电脑'), findsNothing, reason: peerOs);
+      expect(find.text('关机'), findsNothing, reason: peerOs);
+      Navigator.of(tester.element(find.byType(RemoteActionSheet))).pop();
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('连接 Android 时底栏保留移动端导航动作', (tester) async {

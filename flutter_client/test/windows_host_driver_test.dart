@@ -143,6 +143,20 @@ void main() {
     });
   });
 
+  group('电源', () {
+    test('重启与关机映射为系统命令的参数，留出片刻让对方看到提示', () {
+      expect(windowsPowerArguments('power_restart'), containsAll(['/r', '/t']));
+      expect(windowsPowerArguments('power_shutdown'), containsAll(['/s', '/t']));
+      expect(windowsPowerArguments('power_restart'), isNot(contains('/f')));
+    });
+
+    test('其他动作不是电源命令', () {
+      expect(windowsPowerArguments('key:ctrl+a'), isNull);
+      expect(windowsPowerArguments('power_'), isNull);
+      expect(windowsPowerArguments('shutdown'), isNull);
+    });
+  });
+
   group('动作', () {
     test('按键动作发送虚拟键码与修饰键名', () async {
       expect(await driver.performAction('key_command_a'), isTrue);

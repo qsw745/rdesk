@@ -5,11 +5,13 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <memory>
+#include <string>
 
 // Keeps RDesk running in the notification area when its window is closed, so
 // a PC woken remotely stays online. Channel com.qsw.rdesk/window:
 //   setCloseToTray(bool)  user preference, default on until Dart reports it
 //   isHidden() -> bool    whether the window currently lives only in the tray
+//   showNotice{title, body} a notification from the tray icon
 //   setViewerActive(bool) someone is viewing this PC: say so in the tray and
 //                         offer "disconnect" and "stop being controlled",
 //                         which call Dart's disconnectViewers() and
@@ -33,6 +35,7 @@ class TrayBridge {
   void RemoveIcon();
   void ShowMenu();
   void SetViewerActive(bool active);
+  void ShowNotice(const std::wstring& title, const std::wstring& body);
   void Quit();
   HWND window_;
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> channel_;

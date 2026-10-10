@@ -56,6 +56,13 @@ class _DeviceView extends StatelessWidget {
             label: '远程控制',
             onTap: connectable ? () => connectToDevice(context, entry) : null),
         RdActionButton(
+            icon: Icons.visibility_rounded,
+            label: '观看模式',
+            tone: RdTone.neutral,
+            onTap: connectable
+                ? () => connectToDevice(context, entry, viewOnly: true)
+                : null),
+        RdActionButton(
             icon: Icons.folder_copy_rounded,
             label: '文件传输',
             onTap: connectable

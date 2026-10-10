@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rdesk/src/providers/desktop_host_provider.dart';
+import 'package:rdesk/src/services/incoming_file_store.dart';
 import 'package:rdesk/src/services/rdesk_bridge_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -45,7 +46,12 @@ void main() {
   late HttpServer relay;
   late DesktopHostProvider host;
   late RecordingHostService service;
+  late Directory downloads;
   late int port;
+  // What the fake relay hands the host next, and the file it holds for it.
+  Map<String, Object?>? relayCommand;
+  List<int>? relayFile;
+  final relayResults = <Map<String, dynamic>>[];
   String? captureError;
   var rotations = 0;
 
@@ -92,10 +98,31 @@ void main() {
     HttpOverrides.global = null;
     relay = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     unawaited(relay.forEach((req) async {
-      await req.drain<void>();
+      final received = await utf8.decoder.bind(req).join();
+      if (req.uri.path == '/api/preview/host/control/result') {
+        relayResults.add(jsonDecode(received) as Map<String, dynamic>);
+      }
       req.response.headers.contentType = ContentType.json;
       if (req.uri.path == '/api/preview/host/control/poll') {
-        req.response.statusCode = 204;
+        final command = relayCommand;
+        relayCommand = null;
+        if (command == null) {
+          req.response.statusCode = 204;
+        } else {
+          req.response.write(jsonEncode(command));
+        }
+      } else if (req.uri.path.startsWith('/api/file/host/download/')) {
+        final file = relayFile;
+        relayFile = null;
+        if (file == null ||
+            req.uri.queryParameters['host_token'] != 'test-host') {
+          req.response.statusCode = 404;
+        } else {
+          req.response.headers.contentType = ContentType.binary;
+          req.response.add(file);
+        }
+      } else if (req.uri.path == '/api/preview/host/control/result') {
+        req.response.write('{}');
       } else {
         req.response.write(req.uri.path == '/api/preview/register'
             ? '{"host_token":"test-host"}'
@@ -131,9 +158,14 @@ void main() {
     rotations = 0;
     port = await freePort();
     service = RecordingHostService();
+    downloads = await Directory.systemTemp.createTemp('rdesk-host-test');
+    relayCommand = null;
+    relayFile = null;
+    relayResults.clear();
     host = DesktopHostProvider(
         lanPort: port,
         service: service,
+        incomingFiles: IncomingFileStore(directory: () async => downloads),
         rotateTemporaryPassword: () async {
           rotations++;
           await RdeskBridgeService.instance.generateTemporaryPassword();
@@ -143,6 +175,7 @@ void main() {
   tearDown(() async {
     host.dispose();
     await relay.close(force: true);
+    if (await downloads.exists()) await downloads.delete(recursive: true);
     messenger.setMockMethodCallHandler(channel, null);
     messenger.setMockMethodCallHandler(secure, null);
   });
@@ -303,4 +336,93 @@ void main() {
     expect(host.currentViewers, isEmpty);
     expect(host.remoteAccessSince, isNull);
   }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+  group('接收文件', () {
+    Future<File> localFile(String name, List<int> bytes) async {
+      final file = File('${downloads.parent.path}/rdesk-src-${port}_$name');
+      await file.writeAsBytes(bytes);
+      addTearDown(() async {
+        if (await file.exists()) await file.delete();
+      });
+      return file;
+    }
+
+    test('局域网直连：观看端发送的文件保存到被控端的接收目录，结果如实返回', () async {
+      await hostReady();
+      final token = await authenticate();
+      final source = await localFile('合同.txt', utf8.encode('hello'));
+      RdeskBridgeService.instance.debugSetSessionEndpoint(
+          'lan-session', Uri.parse('http://127.0.0.1:$port/frame.jpg'),
+          sessionToken: token);
+
+      final result = await RdeskBridgeService.instance
+          .sendFileToHost('lan-session', source.path);
+
+      expect(result.outcome, FileSendOutcome.saved);
+      final saved = File('${downloads.path}/${result.savedAs}');
+      expect(await saved.readAsString(), 'hello');
+      expect(result.savedAs, endsWith('合同.txt'));
+      expect(host.lastReceivedFile, result.savedAs);
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+    test('没有会话令牌不能向被控端写文件', () async {
+      await hostReady();
+
+      final response = await call('/files/upload?filename=x.txt', body: {});
+
+      expect(response.status, 401);
+      expect(downloads.listSync(), isEmpty);
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+    test('文件名里的路径不能把文件带出接收目录', () async {
+      await hostReady();
+      final token = await authenticate();
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+      final request = await client.postUrl(Uri.parse(
+          'http://127.0.0.1:$port/files/upload?session_token=$token'
+          '&filename=${Uri.encodeQueryComponent('../../escaped.txt')}'));
+      request.contentLength = 1;
+      request.add([65]);
+      final response = await request.close();
+      await response.drain<void>();
+
+      expect(response.statusCode, 200);
+      expect(File('${downloads.path}/escaped.txt').existsSync(), isTrue);
+      expect(File('${downloads.parent.path}/escaped.txt').existsSync(), isFalse);
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+    test('经中继：被控端取回文件并保存，再把结果回报给中继', () async {
+      relayFile = utf8.encode('via relay');
+      relayCommand = {
+        'command_id': 'cmd-1',
+        'kind': 'file_receive',
+        'payload': {'file_id': 'file-1', 'filename': 'notes.txt', 'size': 9},
+      };
+      await hostReady();
+
+      await eventually(() => relayResults.isNotEmpty);
+
+      expect(relayResults.single['command_id'], 'cmd-1');
+      expect(relayResults.single['ok'], true);
+      expect(relayResults.single['text'], 'notes.txt');
+      expect(await File('${downloads.path}/notes.txt').readAsString(),
+          'via relay');
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+
+    test('中继上已经没有这个文件时回报失败，不留下空文件', () async {
+      relayFile = null;
+      relayCommand = {
+        'command_id': 'cmd-2',
+        'kind': 'file_receive',
+        'payload': {'file_id': 'gone', 'filename': 'notes.txt', 'size': 9},
+      };
+      await hostReady();
+
+      await eventually(() => relayResults.isNotEmpty);
+
+      expect(relayResults.single['ok'], false);
+      expect(downloads.listSync(), isEmpty);
+    }, skip: !(Platform.isMacOS || Platform.isWindows));
+  });
 }

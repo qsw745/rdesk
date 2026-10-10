@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/session_provider.dart';
 import '../utils/remote_peer_platform.dart';
+import 'remote_power_dialog.dart';
 import '../utils/theme.dart';
 import 'quality_settings.dart' show QualitySettingsContent;
 import 'remote_session_tools.dart';
@@ -385,6 +386,22 @@ class RemoteActionSheet extends StatelessWidget {
                       onFileManager();
                     },
                   ),
+                  if (remotePeerPlatformOf(session.currentSession?.peerOs ?? '')
+                          .hasPowerActions &&
+                      !session.viewOnly) ...[
+                    const _GroupDivider(),
+                    _ActionRow(
+                      icon: Icons.restart_alt_rounded,
+                      title: '重启电脑',
+                      onTap: () => _confirmPower(context, shutdown: false),
+                    ),
+                    const _GroupDivider(),
+                    _ActionRow(
+                      icon: Icons.power_settings_new_rounded,
+                      title: '关机',
+                      onTap: () => _confirmPower(context, shutdown: true),
+                    ),
+                  ],
                   const _GroupDivider(),
                   _ActionRow(
                     icon: Icons.tune_rounded,
@@ -444,6 +461,14 @@ class RemoteActionSheet extends StatelessWidget {
     session.rotateCanvas();
     final degrees = session.rotationQuarterTurns * 90;
     _toast(context, degrees == 0 ? '画面已回正' : '画面已旋转 $degrees°');
+  }
+
+  Future<void> _confirmPower(BuildContext context,
+      {required bool shutdown}) async {
+    final action = await confirmRemotePower(context, shutdown: shutdown);
+    if (action == null || !context.mounted) return;
+    _toast(context, shutdown ? '已发送关机指令' : '已发送重启指令');
+    await onRemoteAction(action);
   }
 
   void _toast(BuildContext context, String message) {

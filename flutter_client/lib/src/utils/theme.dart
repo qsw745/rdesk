@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../ui/tokens.dart';
+import 'windows_ui_font.dart';
 
 class AppTheme {
   // Legacy names kept for existing call sites; values follow the RDesk palette.
@@ -53,7 +54,9 @@ class AppTheme {
   static String? get _family =>
       debugFontFamily ??
       (defaultTargetPlatform == TargetPlatform.windows
-          ? 'Microsoft YaHei UI'
+          ? (WindowsUiFont.isLoaded
+              ? WindowsUiFont.family
+              : 'Microsoft YaHei UI')
           : null);
 
   static TextTheme _text(RdPalette p) {
@@ -121,7 +124,7 @@ class AppTheme {
       colorScheme: scheme,
       fontFamily: _family,
       fontFamilyFallback: defaultTargetPlatform == TargetPlatform.windows
-          ? const ['Segoe UI', 'Microsoft YaHei']
+          ? const ['Microsoft YaHei UI', 'Segoe UI', 'Microsoft YaHei']
           : null,
       textTheme: text,
       primaryTextTheme: text,

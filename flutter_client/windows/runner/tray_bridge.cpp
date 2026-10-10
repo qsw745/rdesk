@@ -55,6 +55,28 @@ TrayBridge::TrayBridge(flutter::BinaryMessenger* messenger, HWND window,
         if (!viewer_active_) RemoveIcon();
       }
       result->Success();
+    } else if (call.method_name() == "showNotice") {
+      const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+      const auto text = [args](const char* key) {
+        if (!args) return std::wstring();
+        const auto it = args->find(Value(key));
+        const auto* utf8 = it == args->end()
+                               ? nullptr
+                               : std::get_if<std::string>(&it->second);
+        if (!utf8 || utf8->empty()) return std::wstring();
+        const int size = MultiByteToWideChar(
+            CP_UTF8, 0, utf8->data(), static_cast<int>(utf8->size()), nullptr,
+            0);
+        std::wstring wide(static_cast<size_t>(size > 0 ? size : 0), L'\0');
+        if (size > 0) {
+          MultiByteToWideChar(CP_UTF8, 0, utf8->data(),
+                              static_cast<int>(utf8->size()), wide.data(),
+                              size);
+        }
+        return wide;
+      };
+      ShowNotice(text("title"), text("body"));
+      result->Success();
     } else if (call.method_name() == "setViewerActive") {
       const auto* active = std::get_if<bool>(call.arguments());
       if (!active) {
@@ -239,6 +261,22 @@ void TrayBridge::SetViewerActive(bool active) {
                    L"右键通知区域的随控图标，可以断开或停止被控。");
   }
   Shell_NotifyIconW(NIM_MODIFY, &update);
+}
+
+void TrayBridge::ShowNotice(const std::wstring& title,
+                            const std::wstring& body) {
+  if (title.empty() && body.empty()) return;
+  // A notice needs an icon to come from; it is removed again afterwards
+  // only if nothing else keeps it.
+  AddIcon();
+  if (!icon_added_) return;
+  NOTIFYICONDATAW notice = icon_;
+  notice.uFlags |= NIF_INFO;
+  notice.dwInfoFlags = NIIF_USER | NIIF_NOSOUND;
+  StringCchCopyW(notice.szInfoTitle, ARRAYSIZE(notice.szInfoTitle),
+                 title.c_str());
+  StringCchCopyW(notice.szInfo, ARRAYSIZE(notice.szInfo), body.c_str());
+  Shell_NotifyIconW(NIM_MODIFY, &notice);
 }
 
 void TrayBridge::Quit() {

@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import '../providers/session_provider.dart';
 import 'quality_settings.dart' show QualitySettingsContent;
+import '../utils/remote_peer_platform.dart';
+import 'remote_power_dialog.dart';
 
 /// Right-side control panel for the desktop remote viewer.
 /// Width is controlled by the parent layout (typically 280px).
@@ -333,6 +335,22 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
             isDark: isDark,
             onTap: widget.onFileManager,
           ),
+          if (remotePeerPlatformOf(session.currentSession?.peerOs ?? '')
+                  .hasPowerActions &&
+              !session.viewOnly) ...[
+            _SidebarActionTile(
+              icon: Icons.restart_alt_rounded,
+              label: '重启电脑',
+              isDark: isDark,
+              onTap: () => _power(context, shutdown: false),
+            ),
+            _SidebarActionTile(
+              icon: Icons.power_settings_new_rounded,
+              label: '关机',
+              isDark: isDark,
+              onTap: () => _power(context, shutdown: true),
+            ),
+          ],
           const SizedBox(height: 4),
           // Remote navigation actions as a compact grid
           Padding(
@@ -383,6 +401,11 @@ class _DesktopViewerSidebarState extends State<DesktopViewerSidebar> {
         ],
       ),
     );
+  }
+
+  Future<void> _power(BuildContext context, {required bool shutdown}) async {
+    final action = await confirmRemotePower(context, shutdown: shutdown);
+    if (action != null) widget.onRemoteAction(action);
   }
 
   void _toggleFullscreen(BuildContext context) {

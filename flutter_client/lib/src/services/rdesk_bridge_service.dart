@@ -158,6 +158,45 @@ class RelayFrameUpload {
   }
 }
 
+enum FileSendOutcome {
+  /// The other computer confirmed it saved the file.
+  saved,
+  tooLarge,
+  notAFile,
+
+  /// The other side declined or could not write the file.
+  refused,
+  timedOut,
+
+  /// The relay has no room for another file right now.
+  relayBusy,
+
+  /// The other computer runs a version that cannot receive files.
+  unsupported,
+  failed,
+}
+
+class FileSendResult {
+  const FileSendResult(this.outcome, {this.savedAs});
+  final FileSendOutcome outcome;
+  final String? savedAs;
+
+  bool get saved => outcome == FileSendOutcome.saved;
+
+  /// One sentence for the person who sent the file.
+  String describe(String fileName) => switch (outcome) {
+        FileSendOutcome.saved =>
+          '「${savedAs ?? fileName}」已保存到对方电脑的「下载」文件夹',
+        FileSendOutcome.tooLarge => '「$fileName」太大，经中继最多发送 50 MB',
+        FileSendOutcome.notAFile => '「$fileName」不是文件，暂不支持发送文件夹',
+        FileSendOutcome.refused => '对方没有保存「$fileName」',
+        FileSendOutcome.timedOut => '发送「$fileName」超时，对方可能没有收到',
+        FileSendOutcome.relayBusy => '中转服务器暂时没有空间，请稍后再发「$fileName」',
+        FileSendOutcome.unsupported => '对方电脑上的随控版本不支持接收文件',
+        FileSendOutcome.failed => '「$fileName」发送失败',
+      };
+}
+
 class HostedScreenDemand {
   final int epoch;
   final int viewers;
@@ -1299,43 +1338,120 @@ class RdeskBridgeService {
     throw Exception('远程目录读取失败：服务端返回了无法解析的数据');
   }
 
-  Future<void> uploadFile(
-      String sessionId, String localPath, String remotePath) async {
+  /// What the relay holds for one file in transit; LAN transfers go direct.
+  static const relayFileMaxBytes = 50 * 1024 * 1024;
+  static const lanFileMaxBytes = 2 * 1024 * 1024 * 1024;
+
+  @visibleForTesting
+  void debugSetSessionEndpoint(String sessionId, Uri endpoint,
+      {String? sessionToken}) {
+    _sessionPreviewEndpoints[sessionId] = endpoint;
+    if (sessionToken != null) _sessionTokens[sessionId] = sessionToken;
+  }
+
+  /// Sends a local file to the computer being controlled, which saves it in
+  /// its Downloads folder. Reports what actually happened: the result is
+  /// [FileSendOutcome.saved] only once the other side confirmed the save.
+  Future<FileSendResult> sendFileToHost(
+      String sessionId, String localPath) async {
     final endpoint = _sessionPreviewEndpoints[sessionId];
-    if (endpoint == null) return;
+    if (endpoint == null) return const FileSendResult(FileSendOutcome.failed);
+    final file = File(localPath);
+    if (!await file.exists() ||
+        await FileSystemEntity.isDirectory(localPath)) {
+      return const FileSendResult(FileSendOutcome.notAFile);
+    }
+    final length = await file.length();
+    final filename = localPath.split(RegExp(r'[/\\]')).last;
+    final deviceId = endpoint.queryParameters['device_id'];
+    final token = endpoint.queryParameters['token'];
+    final viaRelay = deviceId != null && token != null;
 
-    final params = endpoint.queryParameters;
-    final deviceId = params['device_id'];
-    final token = params['token'];
-    if (deviceId == null || token == null) return;
-
-    try {
+    final Uri target;
+    if (viaRelay) {
+      if (length > relayFileMaxBytes) {
+        return const FileSendResult(FileSendOutcome.tooLarge);
+      }
       final settings = await loadSettings();
       final apiBase = _normalizeApiBaseUri(settings.signalingServer.trim());
-      final file = File(localPath);
-      if (!await file.exists()) return;
-      final bytes = await file.readAsBytes();
-      final filename = localPath.split('/').last;
+      target = apiBase.replace(path: '/api/file/upload', queryParameters: {
+        'device_id': deviceId,
+        'token': token,
+        'filename': filename,
+        'remote_path': '',
+      });
+    } else {
+      if (length > lanFileMaxBytes) {
+        return const FileSendResult(FileSendOutcome.tooLarge);
+      }
+      final control = _resolveControlUri(sessionId, '/files/upload');
+      if (control == null) return const FileSendResult(FileSendOutcome.failed);
+      target = control.replace(queryParameters: {
+        ...control.queryParameters,
+        'filename': filename,
+      });
+    }
 
-      final client = HttpClient()
-        ..connectionTimeout = const Duration(seconds: 10);
-      final request = await client.postUrl(
-        apiBase.replace(
-          path: '/api/file/upload',
-          queryParameters: {
-            'device_id': deviceId,
-            'token': token,
-            'filename': filename,
-            'remote_path': remotePath,
-          },
-        ),
-      );
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
+    try {
+      final request = await client.postUrl(target);
       request.headers.contentType = ContentType('application', 'octet-stream');
-      request.add(bytes);
-      final response = await request.close();
+      // An explicit length: chunked bodies are dropped on some LAN routes.
+      request.contentLength = length;
+      await request.addStream(file.openRead());
+      final response =
+          await request.close().timeout(const Duration(seconds: 90));
+      final body = await utf8.decoder.bind(response).join();
+      switch (response.statusCode) {
+        case HttpStatus.ok:
+          final payload = jsonDecode(body);
+          if (payload is Map && payload['ok'] == true) {
+            return FileSendResult(FileSendOutcome.saved,
+                savedAs: payload['saved_as'] as String?);
+          }
+          return const FileSendResult(FileSendOutcome.refused);
+        case HttpStatus.requestEntityTooLarge:
+          return const FileSendResult(FileSendOutcome.tooLarge);
+        case HttpStatus.insufficientStorage:
+          return const FileSendResult(FileSendOutcome.relayBusy);
+        case HttpStatus.gatewayTimeout:
+          return const FileSendResult(FileSendOutcome.timedOut);
+        case HttpStatus.notFound:
+        case HttpStatus.methodNotAllowed:
+          return const FileSendResult(FileSendOutcome.unsupported);
+        default:
+          return const FileSendResult(FileSendOutcome.failed);
+      }
+    } on TimeoutException {
+      return const FileSendResult(FileSendOutcome.timedOut);
+    } on IOException {
+      return const FileSendResult(FileSendOutcome.failed);
+    } on FormatException {
+      return const FileSendResult(FileSendOutcome.failed);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Host side: the bytes of a file a viewer sent through the relay. The
+  /// relay hands a file out once, and only to the host it was sent to.
+  Future<HttpClientResponse> openHostedFile({
+    required String deviceId,
+    required String hostToken,
+    required String fileId,
+  }) async {
+    final apiBase = await getApiBaseUri();
+    final request = await _getHostClient.getUrl(apiBase.replace(
+      path: '/api/file/host/download/${Uri.encodeComponent(fileId)}',
+      queryParameters: {'device_id': deviceId, 'host_token': hostToken},
+    ));
+    final response = await request.close();
+    if (response.statusCode != HttpStatus.ok) {
       await response.drain<void>();
-      client.close();
-    } catch (_) {}
+      throw HttpException('file not available: ${response.statusCode}');
+    }
+    return response;
   }
 
   Future<void> downloadFile(

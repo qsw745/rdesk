@@ -1,13 +1,18 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../models/key_mapping.dart';
 import '../providers/connection_provider.dart';
 import '../providers/session_provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/desktop_viewer_sidebar.dart';
 import '../widgets/desktop_viewer_top_bar.dart';
+import '../widgets/hardware_keyboard_forwarder.dart';
 import '../widgets/remote_canvas.dart';
+import '../widgets/remote_file_drop.dart';
 
 /// Desktop layout for the remote viewer: TopBar + Canvas + Sidebar.
 ///
@@ -25,8 +30,26 @@ class DesktopViewerLayout extends StatefulWidget {
 class _DesktopViewerLayoutState extends State<DesktopViewerLayout> {
   bool _sidebarOpen = true;
 
+  // The wheel scrolls the remote computer, in steps: every wheel event as
+  // its own request would flood a slow link and keep scrolling long after
+  // the wheel stopped.
+  static const _scrollStep = Duration(milliseconds: 90);
+  DateTime _lastScrollAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || event.scrollDelta.dy == 0) return;
+    final now = DateTime.now();
+    if (now.difference(_lastScrollAt) < _scrollStep) return;
+    _lastScrollAt = now;
+    context.read<SessionProvider>().sendAction(widget.sessionId,
+        event.scrollDelta.dy < 0 ? 'scroll_up' : 'scroll_down');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final viewOnly = context.select<SessionProvider, bool>((p) => p.viewOnly);
+    final peerOs = context.select<SessionProvider, String>(
+        (p) => p.currentSession?.peerOs ?? '');
     return Scaffold(
       body: Column(
         children: [
@@ -44,39 +67,61 @@ class _DesktopViewerLayoutState extends State<DesktopViewerLayout> {
               children: [
                 // Remote canvas — fills remaining space
                 Expanded(
-                  child: GestureDetector(
-                    onDoubleTap: () =>
-                        setState(() => _sidebarOpen = !_sidebarOpen),
-                    child: RemoteCanvas(
-                      sessionId: widget.sessionId,
-                      onRemoteTap: (normalizedPosition) async {
-                        HapticFeedback.lightImpact();
-                        await context
-                            .read<SessionProvider>()
-                            .sendNormalizedTap(
-                              widget.sessionId,
-                              normalizedPosition,
-                            );
-                      },
-                      onRemoteLongPress: (normalizedPosition) async {
-                        HapticFeedback.mediumImpact();
-                        await context
-                            .read<SessionProvider>()
-                            .sendNormalizedLongPress(
-                              widget.sessionId,
-                              normalizedPosition,
-                            );
-                      },
-                      onRemoteDrag: (start, end) async {
-                        HapticFeedback.lightImpact();
-                        await context
-                            .read<SessionProvider>()
-                            .sendNormalizedDrag(
-                              widget.sessionId,
-                              start,
-                              end,
-                            );
-                      },
+                  child: RemoteFileDrop(
+                    sessionId: widget.sessionId,
+                    child: HardwareKeyboardForwarder(
+                      peerOs: peerOs,
+                      enabled: !viewOnly,
+                      mapping:
+                          context.select<SettingsProvider, WindowsKeyMapping>(
+                              (settings) => settings.windowsKeyMapping),
+                      onText: (text) => context
+                          .read<SessionProvider>()
+                          .sendTextInput(widget.sessionId, text),
+                      onAction: (action) => context
+                          .read<SessionProvider>()
+                          .sendAction(widget.sessionId, action),
+                      child: Listener(
+                        onPointerSignal: _onPointerSignal,
+                        child: RemoteCanvas(
+                          sessionId: widget.sessionId,
+                          onRemoteTap: (normalizedPosition) async {
+                            await context
+                                .read<SessionProvider>()
+                                .sendNormalizedTap(
+                                  widget.sessionId,
+                                  normalizedPosition,
+                                );
+                          },
+                          onRemoteLongPress: (normalizedPosition) async {
+                            await context
+                                .read<SessionProvider>()
+                                .sendNormalizedLongPress(
+                                  widget.sessionId,
+                                  normalizedPosition,
+                                );
+                          },
+                          onRemoteDrag: (start, end) async {
+                            await context
+                                .read<SessionProvider>()
+                                .sendNormalizedDrag(
+                                  widget.sessionId,
+                                  start,
+                                  end,
+                                );
+                          },
+                          onRemoteDragPath: (points) async {
+                            final session = context.read<SessionProvider>();
+                            final ok = await session.sendNormalizedDragPath(
+                                widget.sessionId, points);
+                            // Older desktop hosts only know a start-to-end drag.
+                            if (!ok && points.length >= 2) {
+                              await session.sendNormalizedDrag(
+                                  widget.sessionId, points.first, points.last);
+                            }
+                          },
+                        ),
+                      ),
                     ),
                   ),
                 ),

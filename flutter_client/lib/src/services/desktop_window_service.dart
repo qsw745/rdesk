@@ -36,6 +36,20 @@ class DesktopWindowService {
     }
   }
 
+  /// A system notification from the tray icon, for things that happen while
+  /// the window may be hidden.
+  Future<void> showNotice(String title, String body) async {
+    if (!supportsTray) return;
+    try {
+      await _channel.invokeMethod<void>(
+          'showNotice', <String, String>{'title': title, 'body': body});
+    } on MissingPluginException {
+      // Older runner without notices.
+    } on PlatformException catch (e) {
+      debugPrint('[RDesk] notice not shown: ${e.message}');
+    }
+  }
+
   /// The tray menu's requests while this computer is being viewed:
   /// throw the viewer out, or stop being controllable altogether.
   void onHostRequests({

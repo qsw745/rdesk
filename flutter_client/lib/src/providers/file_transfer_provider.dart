@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import '../models/file_entry.dart';
@@ -79,7 +78,7 @@ class FileTransferProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> uploadFile(
+  Future<FileSendResult> uploadFile(
       String sessionId, String localPath, String remotePath) async {
     final fileName = localPath.split(Platform.pathSeparator).last;
     final file = File(localPath);
@@ -97,8 +96,22 @@ class FileTransferProvider extends ChangeNotifier {
     _transfers.insert(0, transfer);
     notifyListeners();
 
-    _simulateProgress(id, totalBytes);
-    await _bridge.uploadFile(sessionId, localPath, remotePath);
+    // The entry shows what really happened: no made-up progress, and
+    // "completed" only once the other computer confirmed the save.
+    final result = await _bridge.sendFileToHost(sessionId, localPath);
+    final idx = _transfers.indexWhere((tr) => tr.id == id);
+    if (idx >= 0 && _transfers[idx].state == TransferState.transferring) {
+      _transfers[idx] = TransferProgress(
+        id: id,
+        fileName: fileName,
+        totalBytes: totalBytes,
+        transferredBytes: result.saved ? totalBytes : 0,
+        isUpload: true,
+        state: result.saved ? TransferState.completed : TransferState.failed,
+      );
+      notifyListeners();
+    }
+    return result;
   }
 
   Future<void> downloadFile(
@@ -156,39 +169,6 @@ class FileTransferProvider extends ChangeNotifier {
     _selectedRemoteFiles.clear();
     _isSelectionMode = false;
     notifyListeners();
-  }
-
-  void _simulateProgress(int id, int totalBytes) {
-    final rng = Random();
-    var transferred = 0;
-    final timer = Timer.periodic(const Duration(milliseconds: 200), (t) {
-      final idx = _transfers.indexWhere((tr) => tr.id == id);
-      if (idx < 0) {
-        t.cancel();
-        _progressTimers.remove(id);
-        return;
-      }
-
-      final chunk = (totalBytes * (0.08 + rng.nextDouble() * 0.15)).toInt();
-      transferred = min(transferred + chunk, totalBytes);
-      final done = transferred >= totalBytes;
-
-      _transfers[idx] = TransferProgress(
-        id: id,
-        fileName: _transfers[idx].fileName,
-        totalBytes: totalBytes,
-        transferredBytes: transferred,
-        isUpload: _transfers[idx].isUpload,
-        state: done ? TransferState.completed : TransferState.transferring,
-      );
-      notifyListeners();
-
-      if (done) {
-        t.cancel();
-        _progressTimers.remove(id);
-      }
-    });
-    _progressTimers[id] = timer;
   }
 
   void cancelTransfer(int id) {

@@ -121,7 +121,7 @@ bool canConnectNow(DeviceDirectoryEntry e, DeviceAbilities a) =>
 final ValueNotifier<String?> connectingDevice = ValueNotifier(null);
 
 Future<void> connectToDevice(BuildContext context, DeviceDirectoryEntry item,
-    {bool files = false}) async {
+    {bool files = false, bool viewOnly = false}) async {
   final connection = context.read<ConnectionProvider>();
   if (connectingDevice.value != null ||
       connection.connectionState == SessionState.connecting) {
@@ -168,6 +168,9 @@ Future<void> connectToDevice(BuildContext context, DeviceDirectoryEntry item,
           connectedAt: DateTime.now(),
         ),
         accessPassword: result.password);
+    // Watching only: the session starts with input switched off, and can be
+    // switched to control from inside it.
+    if (viewOnly && !session.viewOnly) session.toggleViewOnly();
     final id = Uri.encodeComponent(result.sessionId);
     context.go(files ? '/files/$id' : '/remote/$id');
   } finally {

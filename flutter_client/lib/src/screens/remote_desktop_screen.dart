@@ -167,10 +167,14 @@ class _RemoteDesktopScreenState extends State<RemoteDesktopScreen> {
                     _toolbarController.markInteraction();
                     if (viewOnly) return;
                     HapticFeedback.selectionClick();
-                    await context.read<SessionProvider>().sendNormalizedDragPath(
-                          widget.sessionId,
-                          points,
-                        );
+                    final session = context.read<SessionProvider>();
+                    final ok = await session.sendNormalizedDragPath(
+                        widget.sessionId, points);
+                    // Older desktop hosts only know a start-to-end drag.
+                    if (!ok && points.length >= 2) {
+                      await session.sendNormalizedDrag(
+                          widget.sessionId, points.first, points.last);
+                    }
                   },
                 ),
               ),

@@ -12,6 +12,7 @@ import '../services/rdesk_bridge_service.dart';
 import '../services/android_host_service.dart'; // Reuse AndroidHostState / AndroidHostFrame
 import '../services/desktop_host_service.dart';
 import '../services/desktop_window_service.dart';
+import '../services/incoming_file_store.dart';
 import '../utils/router.dart';
 import '../widgets/incoming_connection_dialog.dart';
 
@@ -40,8 +41,26 @@ class DesktopHostProvider extends ChangeNotifier {
     this.lanPort = 21116,
     Future<void> Function()? rotateTemporaryPassword,
     DesktopHostService? service,
+    IncomingFileStore incomingFiles = const IncomingFileStore(),
   })  : _rotateTemporaryPassword = rotateTemporaryPassword,
-        _service = service ?? DesktopHostService.instance;
+        _service = service ?? DesktopHostService.instance,
+        _incomingFiles = incomingFiles;
+
+  final IncomingFileStore _incomingFiles;
+
+  /// The name the last received file was saved under, for the interface.
+  String? get lastReceivedFile => _lastReceivedFile;
+  String? _lastReceivedFile;
+
+  Future<SavedIncomingFile> _saveIncoming(
+      String name, Stream<List<int>> data, int maxBytes) async {
+    final saved = await _incomingFiles.save(name, data, maxBytes: maxBytes);
+    _lastReceivedFile = saved.name;
+    // Files arrive while the window is usually in the tray; say so there.
+    unawaited(_window.showNotice('收到文件', '「${saved.name}」已保存到「下载」文件夹'));
+    notifyListeners();
+    return saved;
+  }
 
   /// Replaces the temporary password where the UI shows it as well.
   final Future<void> Function()? _rotateTemporaryPassword;
@@ -973,6 +992,25 @@ class DesktopHostProvider extends ChangeNotifier {
           return;
         }
 
+        if (request.uri.path == '/files/upload' && request.method == 'POST') {
+          final name = request.uri.queryParameters['filename'] ?? '';
+          response.headers.contentType = ContentType.json;
+          try {
+            final saved = await _saveIncoming(
+                name, request, RdeskBridgeService.lanFileMaxBytes);
+            response.write(jsonEncode(
+                <String, Object?>{'ok': true, 'saved_as': saved.name}));
+          } on IncomingFileTooLarge {
+            response.statusCode = HttpStatus.requestEntityTooLarge;
+            response.write(jsonEncode(<String, Object?>{'ok': false}));
+          } on IOException catch (error) {
+            debugPrint('[RDesk] incoming file not saved: ${error.runtimeType}');
+            response.write(jsonEncode(<String, Object?>{'ok': false}));
+          }
+          await response.close();
+          return;
+        }
+
         if (request.uri.path == '/input/text' && request.method == 'POST') {
           final body = await utf8.decoder.bind(request).join();
           final payload = jsonDecode(body) as Map<String, dynamic>;
@@ -1321,6 +1359,28 @@ class DesktopHostProvider extends ChangeNotifier {
           if (x != null && y != null) {
             ok = await _service.performRemoteLongPress(
                 normalizedX: x, normalizedY: y);
+          }
+          break;
+        case 'file_receive':
+          final fileId = command.payload['file_id'];
+          final filename = command.payload['filename'];
+          if (fileId is String && filename is String) {
+            try {
+              final data = await _bridge.openHostedFile(
+                  deviceId: device.deviceId,
+                  hostToken: hostToken,
+                  fileId: fileId);
+              final saved = await _saveIncoming(
+                  filename, data, RdeskBridgeService.relayFileMaxBytes);
+              ok = true;
+              text = saved.name;
+            } on IncomingFileTooLarge {
+              ok = false;
+            } on IOException catch (error) {
+              debugPrint(
+                  '[RDesk] relayed file not saved: ${error.runtimeType}');
+              ok = false;
+            }
           }
           break;
         case 'drag_path':

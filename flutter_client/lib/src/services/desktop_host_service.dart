@@ -164,8 +164,11 @@ class DesktopHostService {
     }
   }
 
-  /// Maximum dimension (width or height) for captured frames.
-  static const _maxCaptureDimension = 1920;
+  /// Maximum dimension (width or height) for captured frames. Windows goes
+  /// up to 2560 so that a 2K screen is sent pixel for pixel: scaling it down
+  /// is what blurs text. Unchanged frames are not re-sent there, which is
+  /// what makes the larger picture affordable.
+  static int get _maxCaptureDimension => Platform.isWindows ? 2560 : 1920;
 
   /// JPEG quality (0.0-1.0) for native capture. Adjustable via setJpegQuality().
   double _jpegQuality = 0.8;
@@ -413,7 +416,11 @@ class DesktopHostService {
   }
 
   Future<bool> performRemoteAction(String action) async {
-    if (Platform.isWindows) return _windows.performAction(action);
+    if (Platform.isWindows) {
+      final power = windowsPowerArguments(action);
+      if (power != null) return _runWindowsShutdown(power);
+      return _windows.performAction(action);
+    }
     if (!Platform.isMacOS) return false;
     if (action == 'show_all_windows' || action == 'show_desktop') {
       return _macSystemWindowAction(action);
@@ -462,6 +469,16 @@ class DesktopHostService {
           }
         }
         return false;
+    }
+  }
+
+  Future<bool> _runWindowsShutdown(List<String> arguments) async {
+    try {
+      final result = await Process.run('shutdown.exe', arguments);
+      return result.exitCode == 0;
+    } on ProcessException catch (error) {
+      debugPrint('[RDesk] shutdown.exe not started: ${error.errorCode}');
+      return false;
     }
   }
 

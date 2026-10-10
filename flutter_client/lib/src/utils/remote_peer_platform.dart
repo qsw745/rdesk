@@ -17,4 +17,7 @@ extension RemotePeerPlatformKeys on RemotePeerPlatform {
   /// Esc, Tab, arrows and the edit shortcuts are implemented by this host.
   bool get hasDesktopKeys =>
       this == RemotePeerPlatform.mac || this == RemotePeerPlatform.windows;
+
+  /// The host can restart and shut itself down on request.
+  bool get hasPowerActions => this == RemotePeerPlatform.windows;
 }
