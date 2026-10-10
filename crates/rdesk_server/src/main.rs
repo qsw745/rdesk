@@ -38,6 +38,8 @@ const AUTH_SESSION_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
 const MIN_PASSWORD_LEN: usize = 6;
 
 #[cfg(test)]
+mod account_tests;
+#[cfg(test)]
 mod capture_tests;
 
 #[derive(Debug, Parser)]
@@ -149,6 +151,7 @@ struct AccountPresence {
     user_id: String,
     platform: String,
     hostname: String,
+    can_host: bool,
     updated_at_ms: u64,
 }
 
@@ -259,6 +262,12 @@ struct AccountDeviceSummary {
     device_id: String,
     hostname: String,
     platform: String,
+    /// Whether this client build can host a session, as it reported itself.
+    /// Never inferred from a registration: shipped Windows builds register
+    /// at launch although they cannot capture.
+    can_host: bool,
+    /// Whether the device currently holds a fresh host registration.
+    hosting: bool,
     updated_at_ms: u64,
 }
 
@@ -272,6 +281,8 @@ struct UpsertAccountPresenceRequest {
     device_id: String,
     platform: String,
     hostname: String,
+    #[serde(default)]
+    can_host: bool,
 }
 
 /// 注销账号请求。要求重新提供密码，避免令牌泄露导致账号被误删。
@@ -729,6 +740,8 @@ async fn list_account_devices(State(state): State<AppState>, headers: HeaderMap)
             device_id: entry.device_id.clone(),
             hostname: entry.hostname.clone(),
             platform: entry.platform.clone(),
+            can_host: entry.can_host,
+            hosting: false,
             updated_at_ms: entry.updated_at_ms,
         })
         .map(|entry| (entry.device_id.clone(), entry))
@@ -742,6 +755,7 @@ async fn list_account_devices(State(state): State<AppState>, headers: HeaderMap)
             Some(summary) => {
                 summary.hostname = entry.hostname.clone();
                 summary.platform = entry.platform.clone();
+                summary.hosting = true;
                 if entry.updated_at_ms > summary.updated_at_ms {
                     summary.updated_at_ms = entry.updated_at_ms;
                 }
@@ -753,6 +767,8 @@ async fn list_account_devices(State(state): State<AppState>, headers: HeaderMap)
                         device_id: entry.device_id.clone(),
                         hostname: entry.hostname.clone(),
                         platform: entry.platform.clone(),
+                        can_host: false,
+                        hosting: true,
                         updated_at_ms: entry.updated_at_ms,
                     },
                 );
@@ -792,6 +808,7 @@ async fn upsert_account_presence(
             user_id: user.user_id.clone(),
             platform: request.platform.trim().to_string(),
             hostname: request.hostname.trim().to_string(),
+            can_host: request.can_host,
             updated_at_ms: now_ms(),
         },
     );
