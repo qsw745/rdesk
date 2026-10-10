@@ -1,7 +1,7 @@
 {
-  "date": "2026-10-09",
+  "date": "2026-10-10",
   "wake_service_ready": true,
-  "source_commit": "5e09d3e",
+  "source_commit": "92d76a5",
   "platforms": [
     {
       "id": "macos",
@@ -32,24 +32,24 @@
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.3.2",
+      "version": "2.3.6",
       "requirements": "Windows 10 / 11 · x64",
-      "capability": "可控制其他设备；打开「允许远程开机」即可让手机远程开机这台电脑，关闭窗口后在托盘保持在线。当前尚不支持共享 Windows 桌面。",
+      "capability": "可控制其他设备，也可被远程查看和控制：在这台电脑上打开「允许远程控制本机」即可，默认关闭；锁屏、登录界面和管理员窗口除外。打开「允许远程开机」可让手机远程开机这台电脑，关闭窗口后在托盘保持在线。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.2-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.6-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
-      "note": "安装包尚未配置 Windows 发布者签名。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.2-windows-x64-setup.exe",
-      "sha256": "f6b1031d07ac566776fe36f1d9ad1270fad49aaa9b55aa9574d23115c594406b",
+      "note": "安装包没有 Windows 发布者签名：首次运行出现「Windows 已保护你的电脑」时，点「更多信息」再点「仍要运行」。可使用页面下方校验文件核对来源。",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.6-windows-x64-setup.exe",
+      "sha256": "8e8f74de9d82f00dfd0322cd8929df9fd0124ba651b269348f06cb14308dd806",
       "size": "12.6 MB",
-      "build_number": 25,
+      "build_number": 29,
       "release_notes": [
-        "RDesk 更名为「随控」：图标不变，账号、设备和设置全部保留。",
-        "关闭窗口后最小化到右下角托盘，电脑保持在线；左键打开，右键可退出。可在「设置 → 常规 → 启动」关闭。",
-        "新增开机自动启动（安装时或在设置中开启），开机后直接在托盘上线，方便远程开机后连接。",
-        "全新中文安装程序；重复打开时会唤起已运行的窗口，不再多开。"
+        "这台电脑现在可以被远程查看和控制：在「远程协助」打开「允许远程控制本机」。默认关闭，升级不会自动开启。",
+        "被查看或操作时右下角会提示，右键托盘图标可以断开对方或停止被控。",
+        "限制：锁屏或登录界面时无法被控制；以管理员身份运行的窗口只能看不能操作。",
+        "要在设备列表里直接连接这台电脑，控制端也需要更新；Mac 与安卓的对应版本尚未发布。"
       ]
     },
     {
@@ -86,13 +86,13 @@
     }
   ],
   "files": {
-    "RDesk-2.3.2-windows-x64-setup.exe": {
-      "sha256": "f6b1031d07ac566776fe36f1d9ad1270fad49aaa9b55aa9574d23115c594406b",
-      "bytes": 13164648
+    "RDesk-2.3.6-windows-x64-setup.exe": {
+      "sha256": "8e8f74de9d82f00dfd0322cd8929df9fd0124ba651b269348f06cb14308dd806",
+      "bytes": 13206936
     },
-    "RDesk-2.3.2-windows-x64-portable.zip": {
-      "sha256": "816fe47a568974806f735c93884e21db8b34f758a51e23ac1a36dd95c2c25c5d",
-      "bytes": 14203360
+    "RDesk-2.3.6-windows-x64-portable.zip": {
+      "sha256": "e46ee01a7593fc85f0d80cad50bde89541b63fbe66aa22d673e59aa9364a4f41",
+      "bytes": 14262598
     },
     "RDesk-2.3.2-android.apk": {
       "sha256": "aad75b20b35e307d6cfd172b8bd2089a4205c75ae61ab04aff2e37927dfa67ae",
@@ -108,6 +108,6 @@
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": "Mac 2.3.5 已修复更新下载失败、重复设备和开机状态不及时刷新。Windows、Android 保留 2.3.2；iPhone / iPad 请通过 App Store 获取已上架版本。",
+  "service_notice": "Windows 2.3.6 新增被远程查看和控制，默认关闭，需在电脑上手动开启。Mac 保留 2.3.5、Android 保留 2.3.2，这两个版本的设备列表还不能直接连接 Windows 电脑；iPhone / iPad 请通过 App Store 获取已上架版本。",
   "schema_version": 1
 }
