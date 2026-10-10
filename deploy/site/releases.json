@@ -1,7 +1,7 @@
 {
   "date": "2026-10-10",
   "wake_service_ready": true,
-  "source_commit": "875ef58",
+  "source_commit": "ff56e2e",
   "platforms": [
     {
       "id": "macos",
@@ -32,24 +32,24 @@
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.3.10",
+      "version": "2.3.11",
       "requirements": "Windows 10 / 11 · x64",
       "capability": "可控制其他设备，也可被远程查看和控制：在这台电脑上打开「允许远程控制本机」即可，默认关闭；锁屏、登录界面和管理员窗口除外。被控时可接收对方发来的文件（保存到「下载」），也可按对方的要求重启或关机。打开「允许远程开机」可让手机远程开机这台电脑，关闭窗口后在托盘保持在线。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.10-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.11-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包没有 Windows 发布者签名：首次运行出现「Windows 已保护你的电脑」时，点「更多信息」再点「仍要运行」。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.10-windows-x64-setup.exe",
-      "sha256": "73b14399531a58e9790949777aabd46411606ad549e95f9edf467727bb7af133",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.11-windows-x64-setup.exe",
+      "sha256": "7ef7143a404cc9a2e8d5dc0f959f614d76a7b082e45eef699b49a73dc7ff2d0f",
       "size": "12.7 MB",
-      "build_number": 33,
+      "build_number": 34,
       "release_notes": [
-        "被控时可以接收文件：对方把文件拖到远程画面上，文件保存到这台电脑的「下载」文件夹，托盘会提示。经中继单个文件最多 50 MB，同一局域网直连最多 2 GB。",
-        "对方可以让这台电脑重启或关机（对方需要二次确认，约 10 秒后执行）。",
-        "画面最高按 2560 宽采集，2K 屏幕不再被缩小，文字更清晰；界面文字改用微软雅黑，笔画多的字不再糊成一团。",
-        "用这台电脑控制别的电脑时：实体键盘可直接打字和使用快捷键，鼠标滚轮可滚动对方的页面，可把文件拖给对方，设备页新增「观看模式」。2.3.8 说明里的键盘直接输入此前只在手机版界面生效，本版补上。",
+        "控制有多块屏幕的电脑时，顶部为每块屏幕显示一个标签（带显示器型号或分辨率），点一下切换；对方没有切换成功会提示。",
+        "取不到对方的屏幕列表时会自动重试，不再整场只显示一个「主显示器」。",
+        "被控时会告诉对方当前显示的是哪块屏幕，对方的标签与画面保持一致。",
+        "被控时可以接收文件、可被远程重启和关机（2.3.10 加入）。",
         "限制不变：锁屏或登录界面时无法被控制；以管理员身份运行的窗口只能看不能操作。"
       ]
     },
@@ -87,13 +87,13 @@
     }
   ],
   "files": {
-    "RDesk-2.3.10-windows-x64-setup.exe": {
-      "sha256": "73b14399531a58e9790949777aabd46411606ad549e95f9edf467727bb7af133",
-      "bytes": 13323684
+    "RDesk-2.3.11-windows-x64-setup.exe": {
+      "sha256": "7ef7143a404cc9a2e8d5dc0f959f614d76a7b082e45eef699b49a73dc7ff2d0f",
+      "bytes": 13327087
     },
-    "RDesk-2.3.10-windows-x64-portable.zip": {
-      "sha256": "ad285a56a21def2bb7f74212a94c6008b1cda98b4bb08f3db7aee41f0592962f",
-      "bytes": 14446196
+    "RDesk-2.3.11-windows-x64-portable.zip": {
+      "sha256": "48b1bd389a97a3bf12cd8efc84d575ef2ae29fb1d5f4327b316e27ba81c96466",
+      "bytes": 14453844
     },
     "RDesk-2.3.2-android.apk": {
       "sha256": "aad75b20b35e307d6cfd172b8bd2089a4205c75ae61ab04aff2e37927dfa67ae",
@@ -109,6 +109,6 @@
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": "Windows 2.3.10 被控时可接收文件、可被远程重启和关机，2K 屏幕画面更清晰。拖文件、键盘直接输入、滚轮和观看模式需要控制端也是 2.3.10，目前只有 Windows 提供；Mac 保留 2.3.5、Android 保留 2.3.2，这两个版本的设备列表还不能直接连接 Windows 电脑；iPhone / iPad 请通过 App Store 获取已上架版本。",
+  "service_notice": "Windows 2.3.11 可在多块屏幕之间切换查看，并沿用 2.3.10 的文件接收与远程重启关机。这些控制端功能需要控制端也是新版，目前只有 Windows 提供；Mac 保留 2.3.5、Android 保留 2.3.2，这两个版本的设备列表还不能直接连接 Windows 电脑，被控的 Mac 2.3.5 也收不到对方键盘打的字；iPhone / iPad 请通过 App Store 获取已上架版本。",
   "schema_version": 1
 }
