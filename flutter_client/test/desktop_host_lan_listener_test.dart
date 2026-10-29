@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:rdesk/src/providers/desktop_host_provider.dart';
 import 'package:rdesk/src/services/incoming_file_store.dart';
 import 'package:rdesk/src/services/rdesk_bridge_service.dart';
+import 'support/official_server_http.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/recording_host_service.dart';
@@ -100,6 +101,7 @@ void main() {
   setUp(() async {
     HttpOverrides.global = null;
     relay = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    HttpOverrides.global = OfficialServerHttp(relay.port);
     unawaited(relay.forEach((req) async {
       final received = await utf8.decoder.bind(req).join();
       if (req.uri.path == '/api/preview/host/control/result') {
@@ -140,7 +142,6 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'rdesk.device_id': '111222333',
       'rdesk.temp_password': 'test-password',
-      'rdesk.signaling_server': 'http://127.0.0.1:${relay.port}',
     });
     RdeskBridgeService.instance.closeHostClient();
     messenger.setMockMethodCallHandler(secure, (_) async => null);
@@ -183,6 +184,7 @@ void main() {
     relayFileGate?.complete();
     host.dispose();
     await relay.close(force: true);
+    HttpOverrides.global = null;
     if (await downloads.exists()) await downloads.delete(recursive: true);
     messenger.setMockMethodCallHandler(channel, null);
     messenger.setMockMethodCallHandler(secure, null);

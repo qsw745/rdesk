@@ -53,10 +53,8 @@ class RDeskApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SessionProvider()),
         ChangeNotifierProvider(
             create: (_) => SettingsProvider()..loadSettings()),
-        ChangeNotifierProxyProvider<SettingsProvider, AuthProvider>(
+        ChangeNotifierProvider<AuthProvider>(
           create: (_) => AuthProvider()..initialize(),
-          update: (_, settings, auth) =>
-              auth!..bindServer(settings.signalingServer),
         ),
         ChangeNotifierProxyProvider2<AuthProvider, SettingsProvider,
             WakeProvider>(

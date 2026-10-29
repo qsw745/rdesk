@@ -97,18 +97,6 @@ class SettingsProvider extends ChangeNotifier {
     await prefs.setString(_windowsKeyMappingKey, jsonEncode(mapping.toJson()));
   }
 
-  Future<void> updateSignalingServer(String server) async {
-    _signalingServer = server;
-    await _bridge.saveSettings(signalingServer: server);
-    notifyListeners();
-  }
-
-  Future<void> updateRelayServer(String server) async {
-    _relayServer = server;
-    await _bridge.saveSettings(relayServer: server);
-    notifyListeners();
-  }
-
   Future<void> setAutoAccept(bool value) async {
     _autoAccept = value;
     await _bridge.saveSettings(autoAccept: value);

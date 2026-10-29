@@ -4,14 +4,14 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rdesk/src/providers/auth_provider.dart';
-import 'wake_api_test.dart' show RealHttp;
+import 'support/official_server_http.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('注销失败保留助手，注销成功即使本机停止报错也清理账号', () async {
-    HttpOverrides.global = RealHttp();
     FlutterSecureStorage.setMockInitialValues({});
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    HttpOverrides.global = OfficialServerHttp(server.port);
     bool failDelete = true;
     server.listen((request) async {
       await request.drain<void>();
@@ -29,7 +29,6 @@ void main() {
       'rdesk.account_user_id': 'user',
       'rdesk.account_username': 'test',
       'rdesk.account_display_name': 'test',
-      'rdesk.signaling_server': 'http://127.0.0.1:${server.port}'
     });
     final auth = AuthProvider();
     int stops = 0;

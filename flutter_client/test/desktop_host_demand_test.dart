@@ -9,6 +9,7 @@ import 'package:rdesk/src/providers/desktop_host_provider.dart';
 import 'package:rdesk/src/providers/session_provider.dart';
 import 'package:rdesk/src/models/session.dart';
 import 'package:rdesk/src/services/rdesk_bridge_service.dart';
+import 'support/official_server_http.dart';
 
 Future<void> eventually(bool Function() check) async {
   final deadline = DateTime.now().add(const Duration(seconds: 4));
@@ -40,6 +41,7 @@ void main() {
     final client = HttpClient();
     try {
       final uri = Uri.parse('http://${host.lanRelayEndpoint}$path').replace(
+          host: '127.0.0.1',
           queryParameters: token == null ? null : {'session_token': token});
       final req = await client.openUrl(body == null ? 'GET' : 'POST', uri);
       if (body != null) {
@@ -78,6 +80,7 @@ void main() {
     frameDelay = null;
     permissionDenied = false;
     relay = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    HttpOverrides.global = OfficialServerHttp(relay.port);
     unawaited(relay.forEach((req) async {
       await req.drain<void>();
       req.response.headers.contentType = ContentType.json;
@@ -109,7 +112,6 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'rdesk.device_id': '111222333',
       'rdesk.temp_password': 'test-password',
-      'rdesk.signaling_server': 'http://127.0.0.1:${relay.port}',
     });
     RdeskBridgeService.instance.closeHostClient();
     final messenger =
@@ -152,6 +154,7 @@ void main() {
     host.dispose();
     await Future<void>.delayed(const Duration(milliseconds: 50));
     await relay.close(force: true);
+    HttpOverrides.global = null;
     RdeskBridgeService.instance.closeHostClient();
     RdeskBridgeService.instance.closePersistentClients();
   });
@@ -272,7 +275,8 @@ void main() {
   });
   test('画面订阅只在远程桌面可见时运行，文件状态保留认证', () async {
     final bridge = RdeskBridgeService.instance;
-    final id = await bridge.connectDirectIp(host.lanRelayEndpoint!,
+    final localPort = Uri.parse('http://${host.lanRelayEndpoint}').port;
+    final id = await bridge.connectDirectIp('127.0.0.1:$localPort',
         password: 'test-password');
     final viewer = SessionProvider();
     viewer.setSession(SessionInfo(

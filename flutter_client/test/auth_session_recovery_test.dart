@@ -9,10 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rdesk/src/providers/auth_provider.dart';
 import 'package:rdesk/src/services/rdesk_bridge_service.dart';
 
+import 'support/official_server_http.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('切换服务器立即清空旧设备，失败及旧响应不会恢复旧来源', () async {
+  test('退出账号后旧设备响应不会恢复登录或设备列表', () async {
     const channel =
         MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -21,10 +23,8 @@ void main() {
         .instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null));
     final a = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    final b = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() async {
       await a.close(force: true);
-      await b.close(force: true);
     });
     Completer<void>? barrier;
     final pending = Completer<void>();
@@ -41,21 +41,13 @@ void main() {
       }));
       await r.response.close();
     });
-    b.listen((r) async {
-      r.response.statusCode = 503;
-      r.response.write('{"message":"暂时不可用"}');
-      await r.response.close();
-    });
-    final endpointA = 'http://127.0.0.1:${a.port}',
-        endpointB = 'http://127.0.0.1:${b.port}';
     SharedPreferences.setMockInitialValues({
       'rdesk.account_token': 'session',
       'rdesk.account_user_id': 'user',
       'rdesk.account_username': 'owner',
       'rdesk.account_display_name': 'owner',
-      'rdesk.signaling_server': endpointA
     });
-    final auth = AuthProvider()..bindServer(endpointA);
+    final auth = AuthProvider();
     addTearDown(auth.dispose);
     await HttpOverrides.runWithHttpOverrides(() async {
       await auth.initialize();
@@ -63,16 +55,13 @@ void main() {
       barrier = Completer<void>();
       final oldRequest = auth.refreshDevices();
       await pending.future;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('rdesk.signaling_server', endpointB);
-      auth.bindServer(endpointB);
+      await auth.logout();
       expect(auth.devices, isEmpty);
-      await auth.refreshDevices();
-      expect(auth.devices, isEmpty);
+      expect(auth.isLoggedIn, isFalse);
       barrier!.complete();
       await oldRequest;
       expect(auth.devices, isEmpty);
-    }, _LocalHttpOverrides());
+    }, OfficialServerHttp(a.port));
   });
 
   test('续登失败后清除已失效会话并回到未登录状态', () async {
@@ -105,8 +94,6 @@ void main() {
       'rdesk.account_user_id': 'user-1',
       'rdesk.account_username': 'qsw',
       'rdesk.account_display_name': 'qsw',
-      'rdesk.signaling_server':
-          'http://${InternetAddress.loopbackIPv4.address}:${server.port}',
     });
 
     final auth = AuthProvider();
@@ -114,7 +101,7 @@ void main() {
 
     await HttpOverrides.runWithHttpOverrides(
       auth.initialize,
-      _LocalHttpOverrides(),
+      OfficialServerHttp(server.port),
     );
 
     expect(
@@ -163,8 +150,6 @@ void main() {
         'username': 'qsw',
         'display_name': 'qsw',
       }),
-      'rdesk.signaling_server':
-          'http://${InternetAddress.loopbackIPv4.address}:${server.port}',
     });
 
     final auth = AuthProvider();
@@ -172,7 +157,7 @@ void main() {
 
     await HttpOverrides.runWithHttpOverrides(
       auth.initialize,
-      _LocalHttpOverrides(),
+      OfficialServerHttp(server.port),
     );
 
     expect(auth.session, isNull);
@@ -180,13 +165,4 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('rdesk.biometric.session.fallback'), isNull);
   });
-}
-
-class _LocalHttpOverrides extends HttpOverrides {
-  @override
-  // Flutter 测试绑定默认把所有 HTTP 请求改成 400；这里需要真实访问本地假服务器。
-  // ignore: unnecessary_overrides
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context);
-  }
 }

@@ -578,7 +578,7 @@ class _LanEndpoint extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '两端的信令服务器都需设置为 rdesk_server 地址',
+            '跨网络连接请使用设备 ID，并保持本机共享开启',
             style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
           ),
         ],

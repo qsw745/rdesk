@@ -20,6 +20,7 @@ import '../models/file_entry.dart';
 import '../models/remote_display.dart';
 import '../models/trusted_peer.dart';
 import '../utils/constants.dart';
+import 'official_server_config.dart';
 import '../utils/platform_capabilities.dart';
 
 class BridgeSettingsData {
@@ -223,8 +224,6 @@ class RdeskBridgeService {
   static const _deviceIdKey = 'rdesk.device_id';
   static const _tempPasswordKey = 'rdesk.temp_password';
   static const _connectionsKey = 'rdesk.connection_logs';
-  static const _signalingServerKey = 'rdesk.signaling_server';
-  static const _relayServerKey = 'rdesk.relay_server';
   static const _autoAcceptKey = 'rdesk.auto_accept';
   static const _autoClipboardSyncKey = 'rdesk.auto_clipboard_sync';
   static const _rememberTrustedPeersKey = 'rdesk.remember_trusted_peers';
@@ -236,40 +235,6 @@ class RdeskBridgeService {
   static const _accountUserIdKey = 'rdesk.account_user_id';
   static const _accountUsernameKey = 'rdesk.account_username';
   static const _accountDisplayNameKey = 'rdesk.account_display_name';
-  static const _legacyServerSettings = <String>{
-    'https://qisw.top',
-    'http://qisw.top',
-    'qisw.top',
-    // 旧版本的默认值，走明文 HTTP。必须列在此处，
-    // 否则已安装用户的本地设置不会被迁移到 HTTPS。
-    'qisw.top:80',
-    'qisw.top:21116',
-    'http://qisw.top:80',
-    'http://qisw.top:21116',
-    'https://rdesk.qisw.top',
-    'http://rdesk.qisw.top',
-    'rdesk.qisw.top',
-    '101.37.21.147',
-    '101.37.21.147:80',
-    'http://101.37.21.147',
-    'http://101.37.21.147:80',
-    '101.37.21.147:21116',
-    'http://101.37.21.147:21116',
-    '124.223.200.182',
-    '124.223.200.182:80',
-    'http://124.223.200.182',
-    'http://124.223.200.182:80',
-    '124.223.200.182:21116',
-    'http://124.223.200.182:21116',
-    'qswnotes.com',
-    'qswnotes.com:80',
-    'http://qswnotes.com',
-    'http://qswnotes.com:80',
-    'https://qswnotes.com',
-    'qswnotes.com:21116',
-    'http://qswnotes.com:21116',
-    'https://qswnotes.com:21116',
-  };
   final Map<String, Uri> _sessionPreviewEndpoints = <String, Uri>{};
   final Map<String, String> _sessionTokens = <String, String>{};
   final Map<String, String> _sessionPeerPlatforms = <String, String>{};
@@ -282,8 +247,6 @@ class RdeskBridgeService {
   HttpClient? _frameClient;
   HttpClient? _controlClient;
   HttpClient? _hostClient;
-  Uri? _cachedSignalingBase;
-  DateTime? _cachedSignalingBaseAt;
 
   /// 被控端本机时钟相对服务端时钟的偏移（本机 - 服务端，毫秒）。
   _ClockOffset? _hostClockOffset;
@@ -338,33 +301,11 @@ class RdeskBridgeService {
   void closeHostClient() {
     _hostClient?.close();
     _hostClient = null;
-    _cachedSignalingBase = null;
     _hostClockOffset = null;
   }
 
-  /// 信令基址缓存。
-  ///
-  /// 此前每帧上传、每次命令轮询都会走一遍 [loadSettings]，而它内部要读一次
-  /// 安全存储（Keychain / Keystore）。托管时这是每秒二三十次密钥库读取，
-  /// 既拖慢上传起步，也白白耗电。这里只取出真正需要的信令地址并短时缓存。
-  Future<Uri> _signalingApiBase() async {
-    final cached = _cachedSignalingBase;
-    final cachedAt = _cachedSignalingBaseAt;
-    if (cached != null &&
-        cachedAt != null &&
-        DateTime.now().difference(cachedAt) < const Duration(seconds: 30)) {
-      return cached;
-    }
-    final prefs = await _prefs;
-    final server = _migrateServerSetting(
-      prefs.getString(_signalingServerKey),
-      AppConstants.defaultSignalingServer,
-    );
-    final base = _normalizeApiBaseUri(server.trim());
-    _cachedSignalingBase = base;
-    _cachedSignalingBaseAt = DateTime.now();
-    return base;
-  }
+  /// 官方基址不再读取用户偏好，也不需要每帧读取安全存储。
+  Future<Uri> _signalingApiBase() => getApiBaseUri();
 
   Future<SharedPreferences> get _prefs async => SharedPreferences.getInstance();
 
@@ -873,25 +814,10 @@ class RdeskBridgeService {
 
   Future<BridgeSettingsData> loadSettings() async {
     final prefs = await _prefs;
-    final storedSignalingServer = prefs.getString(_signalingServerKey);
-    final storedRelayServer = prefs.getString(_relayServerKey);
-    final signalingServer = _migrateServerSetting(
-      storedSignalingServer,
-      AppConstants.defaultSignalingServer,
-    );
-    final relayServer = _migrateServerSetting(
-      storedRelayServer,
-      AppConstants.defaultRelayServer,
-    );
-    if (storedSignalingServer != signalingServer) {
-      await prefs.setString(_signalingServerKey, signalingServer);
-    }
-    if (storedRelayServer != relayServer) {
-      await prefs.setString(_relayServerKey, relayServer);
-    }
+    await OfficialServerConfig.prepare();
     return BridgeSettingsData(
-      signalingServer: signalingServer,
-      relayServer: relayServer,
+      signalingServer: OfficialServerConfig.apiBase.toString(),
+      relayServer: OfficialServerConfig.apiBase.toString(),
       autoAccept: prefs.getBool(_autoAcceptKey) ?? false,
       autoClipboardSync: prefs.getBool(_autoClipboardSyncKey) ?? false,
       rememberTrustedPeers: prefs.getBool(_rememberTrustedPeersKey) ?? true,
@@ -900,34 +826,13 @@ class RdeskBridgeService {
     );
   }
 
-  String _migrateServerSetting(String? storedValue, String fallback) {
-    final value = storedValue?.trim();
-    if (value == null || value.isEmpty) {
-      return fallback;
-    }
-    final normalized = value.toLowerCase().replaceFirst(RegExp(r'/+$'), '');
-    return _legacyServerSettings.contains(normalized) ? fallback : value;
-  }
-
   Future<void> saveSettings({
-    String? signalingServer,
-    String? relayServer,
     bool? autoAccept,
     bool? autoClipboardSync,
     bool? rememberTrustedPeers,
     String? theme,
   }) async {
     final prefs = await _prefs;
-    if (signalingServer != null) {
-      await prefs.setString(_signalingServerKey, signalingServer);
-      // 缓存的信令基址会在 30 秒内继续被上行路径使用，改服务器后必须立刻失效。
-      _cachedSignalingBase = null;
-      _cachedSignalingBaseAt = null;
-      _hostClockOffset = null;
-    }
-    if (relayServer != null) {
-      await prefs.setString(_relayServerKey, relayServer);
-    }
     if (autoAccept != null) {
       await prefs.setBool(_autoAcceptKey, autoAccept);
     }
@@ -943,6 +848,7 @@ class RdeskBridgeService {
   }
 
   Future<List<TrustedPeer>> listTrustedPeers() async {
+    await OfficialServerConfig.prepare();
     final prefs = await _prefs;
     final raw = prefs.getString(_trustedPeersKey);
     if (raw == null || raw.isEmpty) {
@@ -966,8 +872,22 @@ class RdeskBridgeService {
   }
 
   Future<String?> getTrustedPeerPassword(String deviceId) async {
-    // Read from secure storage (keyed per device).
-    return _secureStorage.read(key: '$_trustedPeersKey.pw.$deviceId');
+    await OfficialServerConfig.prepare();
+    final raw = await _secureStorage.read(
+        key: '${OfficialServerConfig.trustedPasswordPrefix}$deviceId');
+    if (raw == null) return null;
+    try {
+      final payload = jsonDecode(raw);
+      if (payload is! Map ||
+          payload['server'] != OfficialServerConfig.apiBase.origin) {
+        return null;
+      }
+      return payload['password'] as String?;
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
   }
 
   Future<void> rememberTrustedPeer({
@@ -976,10 +896,14 @@ class RdeskBridgeService {
     required String hostname,
     required String peerOs,
   }) async {
-    // Store password in secure storage (keyed per device).
+    await OfficialServerConfig.prepare();
+    // 设备 ID 只在所属服务器内有意义，记住的密码必须绑定来源。
     await _secureStorage.write(
-      key: '$_trustedPeersKey.pw.$deviceId',
-      value: password,
+      key: '${OfficialServerConfig.trustedPasswordPrefix}$deviceId',
+      value: jsonEncode({
+        'server': OfficialServerConfig.apiBase.origin,
+        'password': password,
+      }),
     );
     // Store metadata (without password) in SharedPreferences.
     final prefs = await _prefs;
@@ -1038,6 +962,7 @@ class RdeskBridgeService {
   }
 
   Future<List<TrustedPeer>> listTrustedIncomingViewers() async {
+    await OfficialServerConfig.prepare();
     final prefs = await _prefs;
     final raw = prefs.getString(_trustedIncomingViewersKey);
     if (raw == null || raw.isEmpty) {
@@ -1125,7 +1050,13 @@ class RdeskBridgeService {
   }
 
   Future<AccountSession?> getSavedAccountSession() async {
+    await OfficialServerConfig.prepare();
     final prefs = await _prefs;
+    if (prefs.getString(OfficialServerConfig.accountServerKey) !=
+        OfficialServerConfig.apiBase.origin) {
+      await clearSavedAccountSession();
+      return null;
+    }
     final token = prefs.getString(_accountTokenKey);
     final userId = prefs.getString(_accountUserIdKey);
     final username = prefs.getString(_accountUsernameKey);
@@ -1141,7 +1072,10 @@ class RdeskBridgeService {
   }
 
   Future<void> saveAccountSession(AccountSession session) async {
+    await OfficialServerConfig.prepare();
     final prefs = await _prefs;
+    await prefs.setString(OfficialServerConfig.accountServerKey,
+        OfficialServerConfig.apiBase.origin);
     await prefs.setString(_accountTokenKey, session.token);
     await prefs.setString(_accountUserIdKey, session.userId);
     await prefs.setString(_accountUsernameKey, session.username);
@@ -1150,6 +1084,7 @@ class RdeskBridgeService {
 
   Future<void> clearSavedAccountSession() async {
     final prefs = await _prefs;
+    await prefs.remove(OfficialServerConfig.accountServerKey);
     await prefs.remove(_accountTokenKey);
     await prefs.remove(_accountUserIdKey);
     await prefs.remove(_accountUsernameKey);
@@ -2497,18 +2432,14 @@ class RdeskBridgeService {
   }
 
   Uri _normalizeApiBaseUri(String endpoint) {
-    if (endpoint.isEmpty) {
-      return Uri.parse(AppConstants.defaultSignalingServer);
-    }
-    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
-      return Uri.parse(endpoint);
-    }
-    return Uri.parse('http://$endpoint');
+    final uri = Uri.parse(endpoint);
+    OfficialServerConfig.requireOfficial(uri);
+    return uri;
   }
 
   Future<Uri> getApiBaseUri() async {
-    final settings = await loadSettings();
-    return _normalizeApiBaseUri(settings.signalingServer.trim());
+    await OfficialServerConfig.prepare();
+    return OfficialServerConfig.apiBase;
   }
 
   Future<Map<String, dynamic>> _postJson({
@@ -2517,11 +2448,14 @@ class RdeskBridgeService {
     String? bearerToken,
     Uri? endpoint,
   }) async {
-    final apiBase = endpoint ?? await getApiBaseUri();
+    await OfficialServerConfig.prepare();
+    final apiBase = endpoint ?? OfficialServerConfig.apiBase;
+    OfficialServerConfig.requireOfficial(apiBase);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
 
     try {
       final request = await client.postUrl(apiBase.replace(path: path));
+      request.followRedirects = false;
       request.headers.contentType = ContentType.json;
       if (bearerToken != null && bearerToken.isNotEmpty) {
         request.headers
@@ -2564,11 +2498,14 @@ class RdeskBridgeService {
     String? bearerToken,
     Uri? endpoint,
   }) async {
-    final apiBase = endpoint ?? await getApiBaseUri();
+    await OfficialServerConfig.prepare();
+    final apiBase = endpoint ?? OfficialServerConfig.apiBase;
+    OfficialServerConfig.requireOfficial(apiBase);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
 
     try {
       final request = await client.getUrl(apiBase.replace(path: path));
+      request.followRedirects = false;
       if (bearerToken != null && bearerToken.isNotEmpty) {
         request.headers
             .set(HttpHeaders.authorizationHeader, 'Bearer $bearerToken');

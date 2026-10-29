@@ -6,6 +6,18 @@ import 'package:rdesk/src/utils/router.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets('旧网络设置深链回落常规页且没有服务器编辑入口', (tester) async {
+    appRouter.go('/settings?section=network');
+    await tester.pumpWidget(const RDeskApp(initializeHostServices: false));
+    await tester.pumpAndSettle();
+    expect(find.text('网络'), findsNothing);
+    expect(find.text('信令服务器'), findsNothing);
+    expect(find.text('中继服务器'), findsNothing);
+    expect(find.text('桌面被控端'), findsOneWidget);
+    await tester.tap(find.text('安全'));
+    await tester.pumpAndSettle();
+    expect(find.text('永久密码'), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
   testWidgets('Windows 安全设置提供被控密码，没有移动权限选项', (tester) async {
     appRouter.go('/settings?section=security');
     await tester.pumpWidget(const RDeskApp());

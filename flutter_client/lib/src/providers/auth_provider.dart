@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/account.dart';
 import '../services/rdesk_bridge_service.dart';
+import '../services/official_server_config.dart';
 import '../utils/device_directory.dart';
 
 class AuthProvider extends ChangeNotifier {
@@ -17,10 +18,10 @@ class AuthProvider extends ChangeNotifier {
   final _localAuth = LocalAuthentication();
 
   static const _biometricEnabledKey = 'rdesk.biometric.enabled';
-  static const _biometricSessionKey = 'rdesk.biometric.session';
+  static const _biometricSessionKey = OfficialServerConfig.biometricSessionKey;
   static const _biometricSessionFallbackKey =
-      'rdesk.biometric.session.fallback';
-  static const _credentialsKey = 'rdesk.account.credentials';
+      OfficialServerConfig.biometricFallbackKey;
+  static const _credentialsKey = OfficialServerConfig.credentialsKey;
 
   Timer? _refreshTimer;
   Future<void> Function()? beforeAccountExit;
@@ -28,18 +29,8 @@ class AuthProvider extends ChangeNotifier {
   bool get initialized => _initialized;
 
   int _identityGeneration = 0;
-  String? _server, _devicesEndpoint;
+  String? _devicesEndpoint;
   String? get devicesEndpoint => _devicesEndpoint;
-  void bindServer(String server) {
-    final scope = normalizedEndpointScope(server);
-    if (scope == _server) return;
-    _server = scope;
-    ++_identityGeneration;
-    _devices = const [];
-    _devicesEndpoint = null;
-    _busy = false;
-    // Called by ProxyProvider while building; its dependents read cleared data.
-  }
 
   AccountSession? _session;
   List<AccountDevice> _devices = const [];
@@ -73,6 +64,17 @@ class AuthProvider extends ChangeNotifier {
   String get biometricLabel => _biometricLabel;
 
   Future<void> initialize() async {
+    try {
+      await OfficialServerConfig.prepare();
+    } catch (_) {
+      _session = null;
+      _devices = const [];
+      _hasBiometricSession = false;
+      _error = '无法读取安全登录信息，请解锁设备后重试';
+      _initialized = true;
+      notifyListeners();
+      return;
+    }
     await _loadBiometricPreferences();
     await _refreshBiometricSupport();
     _hasBiometricSession = (await _readBiometricSession()) != null;
@@ -415,6 +417,7 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _storeBiometricSession(AccountSession session) async {
     final payload = jsonEncode(<String, String>{
+      'server': OfficialServerConfig.apiBase.origin,
       'token': session.token,
       'user_id': session.userId,
       'username': session.username,
@@ -430,6 +433,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<AccountSession?> _readBiometricSession() async {
+    await OfficialServerConfig.prepare();
     try {
       var raw = await _secureStorage.read(key: _biometricSessionKey);
       if (raw == null || raw.isEmpty) {
@@ -440,6 +444,7 @@ class AuthProvider extends ChangeNotifier {
         return null;
       }
       final payload = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      if (payload['server'] != OfficialServerConfig.apiBase.origin) return null;
       final token = payload['token'] as String? ?? '';
       final userId = payload['user_id'] as String? ?? '';
       final username = payload['username'] as String? ?? '';
@@ -472,7 +477,11 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> _saveCredentials(String username, String password) async {
     try {
-      final payload = jsonEncode({'u': username, 'p': password});
+      final payload = jsonEncode({
+        'u': username,
+        'p': password,
+        'server': OfficialServerConfig.apiBase.origin,
+      });
       await _secureStorage.write(key: _credentialsKey, value: payload);
     } catch (_) {}
   }
@@ -484,11 +493,13 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> _tryAutoRelogin() async {
+    await OfficialServerConfig.prepare();
     final gen = _identityGeneration;
     try {
       final raw = await _secureStorage.read(key: _credentialsKey);
       if (raw == null || raw.isEmpty) return false;
       final cred = jsonDecode(raw) as Map<String, dynamic>;
+      if (cred['server'] != OfficialServerConfig.apiBase.origin) return false;
       final username = cred['u'] as String?;
       final password = cred['p'] as String?;
       if (username == null || password == null) return false;

@@ -346,53 +346,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ];
-      final network = <Widget>[
-        const SizedBox(height: 24),
-        const _SectionHeader(icon: Icons.language_rounded, label: '网络'),
-        const SizedBox(height: 10),
-        _CardContainer(
-          isDark: isDark,
-          child: Column(
-            children: [
-              ListTile(
-                leading: const _SettingIcon(
-                  icon: Icons.dns_outlined,
-                  color: AppTheme.primaryBlue,
-                ),
-                title: const Text('信令服务器', style: TextStyle(fontSize: 14)),
-                subtitle: Text(settings.signalingServer,
-                    style:
-                        TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-                onTap: () => _showServerDialog(
-                  context,
-                  '信令服务器',
-                  settings.signalingServer,
-                  settings.updateSignalingServer,
-                ),
-              ),
-              _divider(isDark),
-              ListTile(
-                leading: const _SettingIcon(
-                  icon: Icons.swap_horiz_rounded,
-                  color: AppTheme.accentPurple,
-                ),
-                title: const Text('中继服务器', style: TextStyle(fontSize: 14)),
-                subtitle: Text(settings.relayServer,
-                    style:
-                        TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                trailing: const Icon(Icons.chevron_right_rounded, size: 20),
-                onTap: () => _showServerDialog(
-                  context,
-                  '中继服务器',
-                  settings.relayServer,
-                  settings.updateRelayServer,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ];
       final about = <Widget>[
         const UpdateCard(),
         const ListTile(
@@ -417,7 +370,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onSelected: (value) => setState(() => _section = value),
           children: switch (_section) {
             'security' => security,
-            'network' => network,
             'about' => about,
             _ => general,
           });
@@ -448,42 +400,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () {
               final pwd = controller.text.trim();
               settings.setPermanentPassword(pwd.isEmpty ? null : pwd);
-              Navigator.pop(context);
-            },
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showServerDialog(
-    BuildContext context,
-    String title,
-    String currentValue,
-    Future<void> Function(String) onSave,
-  ) {
-    final controller = TextEditingController(text: currentValue);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: '服务器地址',
-            hintText: 'host:port',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              onSave(controller.text.trim());
               Navigator.pop(context);
             },
             child: const Text('保存'),
@@ -1169,7 +1085,7 @@ class AndroidHostCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '两端的信令服务器都需设置为 rdesk_server 地址',
+                      '跨网络连接请使用设备 ID，并保持本机共享开启',
                       style:
                           TextStyle(color: Colors.grey.shade600, fontSize: 13),
                     ),

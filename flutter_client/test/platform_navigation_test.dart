@@ -22,7 +22,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('常规'), findsOneWidget);
     expect(find.text('安全'), findsOneWidget);
-    expect(find.text('网络'), findsOneWidget);
+    expect(find.text('网络'), findsNothing);
     expect(find.text('关于'), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
   testWidgets('iPad 宽屏仍使用手机三个主入口', (tester) async {

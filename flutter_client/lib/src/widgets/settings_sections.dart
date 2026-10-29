@@ -13,12 +13,7 @@ class SettingsSections extends StatelessWidget {
       required this.selected,
       required this.onSelected,
       required this.children});
-  static const labels = {
-    'general': '常规',
-    'security': '安全',
-    'network': '网络',
-    'about': '关于'
-  };
+  static const labels = {'general': '常规', 'security': '安全', 'about': '关于'};
 
   @override
   Widget build(BuildContext context) {
