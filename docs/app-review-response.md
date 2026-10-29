@@ -1,5 +1,11 @@
 # RDesk App Review 拒审与回复记录
 
+## 2026-10-29 实时状态核对（本轮不提交 iOS）
+
+- ASC 读取 2.3.2 为 `READY_FOR_SALE`，中国区公开 App Store 查询也返回「随控远程」2.3.2、最低 iOS 15。公开查询的当前版本发布日期为 2026-10-05 00:44:58 CST。此前的 `WAITING_FOR_REVIEW` 是历史状态，不能继续用作当前结论。
+- 用户本轮选择先发布官网 Mac / Windows / Android 2.3.12（35），iOS 暂停送审；未上传或提交 iOS 2.3.12。官网的 iOS 下载仍指向已上架的 2.3.2。
+- 审核演示 Android 手机当前未连接，检查所需环境变量也未配置。本次没有声称演示被控端已就绪；后续新版本送审仍需恢复并通过 `scripts/check_review_host.sh`。
+
 ## 2026-10-01 2.3.2（build 25）Guideline 2.3.10 拒审与修复
 
 - 2026-10-01 08:57 CST Apple 拒审（审核设备 iPad Air 11-inch (M3)）：Guideline 2.3.10 Accurate Metadata——描述和「此版本的新增内容」提到第三方平台，要求删除 Android 相关文字。Apple 注明属可在下个版本修复的问题，二进制未被指出问题。

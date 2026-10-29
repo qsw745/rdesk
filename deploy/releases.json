@@ -1,30 +1,32 @@
 {
-  "date": "2026-10-10",
+  "date": "2026-10-29",
   "wake_service_ready": true,
-  "source_commit": "ff56e2e",
+  "source_commit": "f9612e6",
   "platforms": [
     {
       "id": "macos",
       "symbol": "M",
       "tag": "Apple 芯片 / Intel",
       "name": "macOS",
-      "version": "2.3.5",
+      "version": "2.3.12",
       "requirements": "macOS 13 或更高版本",
       "capability": "可远程控制和共享桌面；可作为家中开机助手，重启后可自动恢复。",
       "button": "下载 Apple 芯片版",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.5-macos-x64.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.12-macos-x64.zip",
         "label": "下载 Intel 版（ZIP）"
       },
       "note": "两个版本均通过 Apple 公证。Intel 版解压后将应用拖入「应用程序」。若旧版应用内更新立即提示下载失败，请从本页手动下载并替换一次。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.5-macos-arm64.dmg",
-      "sha256": "55d67283832628eea0ca5acaa2164590deeb7aad8345bdcf949b0dd5194f614f",
-      "size": "16.1 MB",
-      "build_number": 28,
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.12-macos-arm64.dmg",
+      "sha256": "b4ded02b48667d42562484bd1fea1fd437fe020036d16a395083817d5a6a5abf",
+      "size": "16.3 MB",
+      "build_number": 35,
       "release_notes": [
-        "修复 Mac 更新下载失败，正确打包 Apple 芯片与 Intel 原生库。",
-        "合并同一设备的重复记录，电脑上线后及时结束「正在开机」状态。",
-        "开机前刷新最新家中助手状态，优先使用可用助手。"
+        "网络设置统一使用官方 HTTPS 服务，不再提供服务器地址修改入口。",
+        "账号和记住的设备密码绑定服务器来源，避免旧自定义配置带走登录凭据。",
+        "升级时自动迁移历史官方配置；自定义来源的旧凭据与信任记录会清理，需要重新登录。",
+        "修复安全配置保存失败和并发初始化时的处理，提升连接稳定性。",
+        "包含桌面键盘转发、多显示器选择，以及 Mac 被控端原生鼠标与文字输入改进。"
       ]
     },
     {
@@ -32,25 +34,24 @@
       "symbol": "W",
       "tag": "64 位电脑",
       "name": "Windows",
-      "version": "2.3.11",
+      "version": "2.3.12",
       "requirements": "Windows 10 / 11 · x64",
       "capability": "可控制其他设备，也可被远程查看和控制：在这台电脑上打开「允许远程控制本机」即可，默认关闭；锁屏、登录界面和管理员窗口除外。被控时可接收对方发来的文件（保存到「下载」），也可按对方的要求重启或关机。打开「允许远程开机」可让手机远程开机这台电脑，关闭窗口后在托盘保持在线。",
       "button": "下载 Windows 安装包",
       "alternate": {
-        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.11-windows-x64-portable.zip",
+        "url": "https://qisw.top/rdesk/dl/RDesk-2.3.12-windows-x64-portable.zip",
         "label": "下载免安装 ZIP 版"
       },
       "note": "安装包没有 Windows 发布者签名：首次运行出现「Windows 已保护你的电脑」时，点「更多信息」再点「仍要运行」。可使用页面下方校验文件核对来源。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.11-windows-x64-setup.exe",
-      "sha256": "7ef7143a404cc9a2e8d5dc0f959f614d76a7b082e45eef699b49a73dc7ff2d0f",
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.12-windows-x64-setup.exe",
+      "sha256": "78fdecb3ef76bbebb68d708af04dc623a61340fbf0c9f4becbdd508d9d00b679",
       "size": "12.7 MB",
-      "build_number": 34,
+      "build_number": 35,
       "release_notes": [
-        "控制有多块屏幕的电脑时，顶部为每块屏幕显示一个标签（带显示器型号或分辨率），点一下切换；对方没有切换成功会提示。",
-        "取不到对方的屏幕列表时会自动重试，不再整场只显示一个「主显示器」。",
-        "被控时会告诉对方当前显示的是哪块屏幕，对方的标签与画面保持一致。",
-        "被控时可以接收文件、可被远程重启和关机（2.3.10 加入）。",
-        "限制不变：锁屏或登录界面时无法被控制；以管理员身份运行的窗口只能看不能操作。"
+        "网络设置统一使用官方 HTTPS 服务，不再提供服务器地址修改入口。",
+        "账号和记住的设备密码绑定服务器来源，避免旧自定义配置带走登录凭据。",
+        "升级时自动迁移历史官方配置；自定义来源的旧凭据与信任记录会清理，需要重新登录。",
+        "修复安全配置保存失败和并发初始化时的处理，提升连接稳定性。"
       ]
     },
     {
@@ -58,18 +59,21 @@
       "symbol": "A",
       "tag": "手机 / 平板",
       "name": "Android",
-      "version": "2.3.2",
+      "version": "2.3.12",
       "requirements": "Android 7.0 或更高版本",
       "capability": "可远程控制与共享屏幕，一键远程开机家中电脑，也可作为家中长期在线的开机助手。",
       "button": "下载安卓 APK",
       "note": "下载后打开 APK，按系统提示允许本次来源安装。",
-      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.2-android.apk",
-      "sha256": "aad75b20b35e307d6cfd172b8bd2089a4205c75ae61ab04aff2e37927dfa67ae",
-      "size": "54.2 MB",
-      "build_number": 25,
+      "url": "https://qisw.top/rdesk/dl/RDesk-2.3.12-android.apk",
+      "sha256": "734730a71d8c474b4a5a064ed351d5b4e61161732ddbc8c7a7b31c298b031fce",
+      "size": "54.4 MB",
+      "build_number": 35,
       "release_notes": [
-        "RDesk 更名为「随控」：图标不变，账号、设备和设置全部保留。",
-        "通知栏和无障碍服务名称同步更新为「随控」。"
+        "网络设置统一使用官方 HTTPS 服务，不再提供服务器地址修改入口。",
+        "账号和记住的设备密码绑定服务器来源，避免旧自定义配置带走登录凭据。",
+        "升级时自动迁移历史官方配置；自定义来源的旧凭据与信任记录会清理，需要重新登录。",
+        "修复安全配置保存失败和并发初始化时的处理，提升连接稳定性。",
+        "设备列表支持识别新版电脑的被控能力，远程控制时可切换对方的显示器。"
       ]
     },
     {
@@ -77,38 +81,38 @@
       "symbol": "i",
       "tag": "iPhone / iPad",
       "name": "苹果手机",
-      "version": "2.1.0",
+      "version": "2.3.2",
       "size": "App Store 版",
-      "requirements": "iOS / iPadOS 13 或更高版本",
-      "capability": "可控制其他设备或分享屏幕；当前上架版尚不包含新的远程开机功能。",
+      "requirements": "iOS / iPadOS 15 或更高版本",
+      "capability": "可控制其他设备或分享屏幕；支持远程开机，需在家中先配置常开的开机助手。",
       "url": "https://apps.apple.com/cn/app/id6796165712",
       "button": "前往 App Store",
-      "note": "商店仍为 2.1.0；2.3.0 新界面与远程开机尚未提交 App Store。"
+      "note": "通过 App Store 获取已上架版本。iPhone / iPad 作为被控端时只能共享画面，不能接收远程触控。"
     }
   ],
   "files": {
-    "RDesk-2.3.11-windows-x64-setup.exe": {
-      "sha256": "7ef7143a404cc9a2e8d5dc0f959f614d76a7b082e45eef699b49a73dc7ff2d0f",
-      "bytes": 13327087
+    "RDesk-2.3.12-windows-x64-setup.exe": {
+      "sha256": "78fdecb3ef76bbebb68d708af04dc623a61340fbf0c9f4becbdd508d9d00b679",
+      "bytes": 13332378
     },
-    "RDesk-2.3.11-windows-x64-portable.zip": {
-      "sha256": "48b1bd389a97a3bf12cd8efc84d575ef2ae29fb1d5f4327b316e27ba81c96466",
-      "bytes": 14453844
+    "RDesk-2.3.12-windows-x64-portable.zip": {
+      "sha256": "59c6a710862bf700d617a30042038deb0b5ff838422bedddfdf003f452c8ea61",
+      "bytes": 14459866
     },
-    "RDesk-2.3.2-android.apk": {
-      "sha256": "aad75b20b35e307d6cfd172b8bd2089a4205c75ae61ab04aff2e37927dfa67ae",
-      "bytes": 56822657
+    "RDesk-2.3.12-android.apk": {
+      "sha256": "734730a71d8c474b4a5a064ed351d5b4e61161732ddbc8c7a7b31c298b031fce",
+      "bytes": 57069581
     },
-    "RDesk-2.3.5-macos-arm64.dmg": {
-      "sha256": "55d67283832628eea0ca5acaa2164590deeb7aad8345bdcf949b0dd5194f614f",
-      "bytes": 16842722
+    "RDesk-2.3.12-macos-arm64.dmg": {
+      "sha256": "b4ded02b48667d42562484bd1fea1fd437fe020036d16a395083817d5a6a5abf",
+      "bytes": 17051429
     },
-    "RDesk-2.3.5-macos-x64.zip": {
-      "sha256": "16ab6aef541b72d652a3eaebc82d8c8df47c302e2a56aca92ea1ce04b3e40d1b",
-      "bytes": 16440563
+    "RDesk-2.3.12-macos-x64.zip": {
+      "sha256": "5e014c0a5e1d770661ba3f083e3c48220dc3db060a936fdbcca0381824c9598e",
+      "bytes": 16671980
     }
   },
   "checksums_url": "https://qisw.top/rdesk/dl/SHA256SUMS.txt",
-  "service_notice": "Windows 2.3.11 可在多块屏幕之间切换查看，并沿用 2.3.10 的文件接收与远程重启关机。这些控制端功能需要控制端也是新版，目前只有 Windows 提供；Mac 保留 2.3.5、Android 保留 2.3.2，这两个版本的设备列表还不能直接连接 Windows 电脑，被控的 Mac 2.3.5 也收不到对方键盘打的字；iPhone / iPad 请通过 App Store 获取已上架版本。",
+  "service_notice": "Mac、Windows、Android 已更新至 2.3.12：统一使用官方 HTTPS 服务，移除服务器地址编辑并隔离旧来源凭据。此前自定义过服务器的用户升级后需要重新登录。Mac 与安卓的控制端也已更新，可识别支持被控的 Windows 电脑。iPhone / iPad 请通过 App Store 获取已上架的 2.3.2 版本。",
   "schema_version": 1
 }
